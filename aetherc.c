@@ -2,9 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
-
 #define BUFFER_SIZE 65536
-
 
 void substitute_and_write(FILE *out, const char *src) {
     const char *needle = "print";
@@ -12,17 +10,12 @@ void substitute_and_write(FILE *out, const char *src) {
     const char *p = src;
     const char *match;
     while ((match = strstr(p, needle)) != NULL) {
- 
         fwrite(p, 1, match - p, out);
-
         fprintf(out, "printf");
-
         p = match + needle_len;
     }
-
     fputs(p, out);
 }
-
 
 void parse_func_signature(const char **p) {
     while (isspace(**p)) (*p)++;
@@ -36,15 +29,14 @@ void parse_func_signature(const char **p) {
         fprintf(stderr, "Error: Expected '(' after 'func'\n");
         exit(1);
     }
-    (*p)++; 
+    (*p)++;
     while (isspace(**p)) (*p)++;
     if (**p != ')') {
         fprintf(stderr, "Error: Expected ')' after '(' in func signature\n");
         exit(1);
     }
-    (*p)++; 
+    (*p)++;
 }
-
 
 static int spawn_counter = 0;
 void process_spawn_block(const char **p, FILE *out) {
@@ -55,7 +47,7 @@ void process_spawn_block(const char **p, FILE *out) {
         fprintf(stderr, "Error: Expected '{' after func() in spawn block\n");
         exit(1);
     }
-    (*p)++; 
+    (*p)++;
     char block[BUFFER_SIZE];
     int i = 0;
     while (**p && **p != '}') {
@@ -71,10 +63,9 @@ void process_spawn_block(const char **p, FILE *out) {
         exit(1);
     }
     block[i] = '\0';
-    (*p)++; 
+    (*p)++;
     while (**p && **p != ';') (*p)++;
     if (**p == ';') (*p)++;
-
     spawn_counter++;
     char func_name[64];
     sprintf(func_name, "spawn_func_%d", spawn_counter);
@@ -91,7 +82,6 @@ int main(int argc, char* argv[]) {
     }
     const char* input_filename = argv[1];
     const char* output_filename = argv[2];
-
     FILE *fin = fopen(input_filename, "r");
     if (!fin) {
         perror("Error opening input file");
@@ -109,18 +99,15 @@ int main(int argc, char* argv[]) {
     fread(source, 1, fsize, fin);
     fclose(fin);
     source[fsize] = '\0';
-
     FILE *fout = fopen(output_filename, "w");
     if (!fout) {
         perror("Error opening output file");
         free(source);
         return 1;
     }
-
     fprintf(fout, "#include <stdio.h>\n");
     fprintf(fout, "#include <stdlib.h>\n");
     fprintf(fout, "#include <pthread.h>\n\n");
-
     const char *p = source;
     while (*p) {
         if (strncmp(p, "import", 6) == 0 || strncmp(p, "module", 6) == 0) {
@@ -150,7 +137,6 @@ int main(int argc, char* argv[]) {
         fputc(*p, fout);
         p++;
     }
-
     free(source);
     fclose(fout);
     return 0;

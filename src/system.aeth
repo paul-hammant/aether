@@ -10,7 +10,7 @@
 // Function to process a spawn block.
 // It extracts the block content and outputs a new pthread function and call.
 // This function assumes a spawn block is written as:
-//   builtin_spawn(func() { <block content> });
+//   spawn(func() { <block content> });
 //
 // It generates a function like:
 //
@@ -21,11 +21,11 @@
 //   { pthread_t thread; pthread_create(&thread, NULL, spawn_func_N, NULL); pthread_detach(thread); }
 static int spawn_counter = 0;
 void process_spawn_block(const char **p, FILE *out) {
-    // *p is positioned after "builtin_spawn" (and any whitespace and '(')
+    // *p is positioned after "spawn" (and any whitespace and '(')
     // Expect "func()"
     while (isspace(**p)) (*p)++;
     if (strncmp(*p, "func()", 7) != 0) {
-        fprintf(stderr, "Error: Expected 'func()' after builtin_spawn\n");
+        fprintf(stderr, "Error: Expected 'func()' after spawn\n");
         exit(1);
     }
     *p += 7;
@@ -125,15 +125,15 @@ int main(int argc, char* argv[]) {
             p += 11;
             continue;
         }
-        // Replace "builtin_print" with "printf"
-        if (strncmp(p, "builtin_print", 13) == 0) {
+        // Replace "print" with "printf"
+        if (strncmp(p, "print", 13) == 0) {
             fprintf(fout, "printf");
             p += 13;
             continue;
         }
-        // Replace "builtin_spawn" with handling code
-        if (strncmp(p, "builtin_spawn", 13) == 0) {
-            p += 13; // Skip "builtin_spawn"
+        // Replace "spawn" with handling code
+        if (strncmp(p, "spawn", 13) == 0) {
+            p += 13; // Skip "spawn"
             // Skip any whitespace and opening '('
             while (*p && (isspace(*p) || *p == '(')) p++;
             process_spawn_block(&p, fout);
