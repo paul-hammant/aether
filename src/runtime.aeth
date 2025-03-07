@@ -6,7 +6,6 @@ module Runtime;
 import System;
 
 export func builtin_print(text: string): void {
-    // Assuming stdout is fd 1.
     System.write(1, text);
 }
 

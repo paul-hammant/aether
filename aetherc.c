@@ -5,33 +5,29 @@
 
 #define BUFFER_SIZE 65536
 
-// substitute_and_write:
-// Searches the string 'src' for all occurrences of "builtin_print"
-// and writes the output to 'out', replacing them with "printf".
+
 void substitute_and_write(FILE *out, const char *src) {
-    const char *needle = "builtin_print";
+    const char *needle = "print";
     size_t needle_len = strlen(needle);
     const char *p = src;
     const char *match;
     while ((match = strstr(p, needle)) != NULL) {
-        // Write the segment before the match.
+ 
         fwrite(p, 1, match - p, out);
-        // Write the replacement.
+
         fprintf(out, "printf");
-        // Advance p past the match.
+
         p = match + needle_len;
     }
-    // Write any remaining text.
+
     fputs(p, out);
 }
 
-// parse_func_signature:
-// Parses "func" followed by optional spaces, a '(' then optional spaces,
-// a ')' and returns. Exits on error.
+
 void parse_func_signature(const char **p) {
     while (isspace(**p)) (*p)++;
     if (strncmp(*p, "func", 4) != 0) {
-        fprintf(stderr, "Error: Expected 'func' after builtin_spawn\n");
+        fprintf(stderr, "Error: Expected 'func' after spawn\n");
         exit(1);
     }
     *p += 4;
@@ -40,18 +36,16 @@ void parse_func_signature(const char **p) {
         fprintf(stderr, "Error: Expected '(' after 'func'\n");
         exit(1);
     }
-    (*p)++; // skip '('
+    (*p)++; 
     while (isspace(**p)) (*p)++;
     if (**p != ')') {
         fprintf(stderr, "Error: Expected ')' after '(' in func signature\n");
         exit(1);
     }
-    (*p)++; // skip ')'
+    (*p)++; 
 }
 
-// process_spawn_block:
-// Processes a spawn block: extracts its contents, substitutes "builtin_print"
-// with "printf", and outputs a new pthread function plus the pthread creation code.
+
 static int spawn_counter = 0;
 void process_spawn_block(const char **p, FILE *out) {
     while (isspace(**p)) (*p)++;
@@ -61,7 +55,7 @@ void process_spawn_block(const char **p, FILE *out) {
         fprintf(stderr, "Error: Expected '{' after func() in spawn block\n");
         exit(1);
     }
-    (*p)++; // skip '{'
+    (*p)++; 
     char block[BUFFER_SIZE];
     int i = 0;
     while (**p && **p != '}') {
@@ -77,19 +71,17 @@ void process_spawn_block(const char **p, FILE *out) {
         exit(1);
     }
     block[i] = '\0';
-    (*p)++; // skip '}'
+    (*p)++; 
     while (**p && **p != ';') (*p)++;
     if (**p == ';') (*p)++;
 
     spawn_counter++;
     char func_name[64];
     sprintf(func_name, "spawn_func_%d", spawn_counter);
-    // Output the new function definition.
     fprintf(out, "\nvoid* %s(void* arg) {\n", func_name);
     substitute_and_write(out, block);
     fprintf(out, "\n    return NULL;\n}\n");
-    // Output the pthread creation code.
-    fprintf(out, "{ pthread_t thread; pthread_create(&thread, NULL, %s, NULL); pthread_detach(thread); }\n", func_name);
+    fprintf(out, "{ pthread_t thread; pthread_create(&thread, NULL, %s, NULL); pthread_join(thread, NULL); }\n", func_name);
 }
 
 int main(int argc, char* argv[]) {
@@ -125,14 +117,12 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // Write standard headers.
     fprintf(fout, "#include <stdio.h>\n");
     fprintf(fout, "#include <stdlib.h>\n");
     fprintf(fout, "#include <pthread.h>\n\n");
 
     const char *p = source;
     while (*p) {
-        // Skip lines starting with "import" or "module"
         if (strncmp(p, "import", 6) == 0 || strncmp(p, "module", 6) == 0) {
             while (*p && *p != '\n') p++;
             if (*p == '\n') {
@@ -141,26 +131,22 @@ int main(int argc, char* argv[]) {
             }
             continue;
         }
-        // Replace "func main()" with "int main()"
         if (strncmp(p, "func main()", 11) == 0) {
             fprintf(fout, "int main()");
             p += 11;
             continue;
         }
-        // Replace "builtin_print" with "printf"
-        if (strncmp(p, "builtin_print", 13) == 0) {
+        if (strncmp(p, "print", 5) == 0) {
             fprintf(fout, "printf");
-            p += 13;
+            p += 5;
             continue;
         }
-        // Process "builtin_spawn"
-        if (strncmp(p, "builtin_spawn", 13) == 0) {
-            p += 13;
+        if (strncmp(p, "spawn", 5) == 0) {
+            p += 5;
             while (*p && (isspace(*p) || *p == '(')) p++;
             process_spawn_block(&p, fout);
             continue;
         }
-        // Copy character verbatim.
         fputc(*p, fout);
         p++;
     }

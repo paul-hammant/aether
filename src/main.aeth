@@ -1,14 +1,12 @@
-// main.aeth
 // A simple test program for the Aether runtime.
 
 import Runtime;
 
 func main() {
-    builtin_print("Hello from the Aether runtime!\n");
-    
-    builtin_spawn(func() {
-        builtin_print("Hello from a spawned thread!\n");
+    print("Hello from the Aether runtime!\n");
+    spawn(func() {
+        print("Hello from a spawned thread!\n");
     });
     
-    builtin_print("Back in the main thread.\n");
+    print("Back in the main thread.\n");
 }
