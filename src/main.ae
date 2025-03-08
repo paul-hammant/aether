@@ -2,12 +2,18 @@ main() {
     print("Hello from the Aether runtime!\n");
     int x = 5;
     print("x is %d\n", x);
-    if(x==5) {
+
+    for (int i = 0; i < 3; i++) {
+        print("Loop iteration: %d\n", i);
+    }
+
+    if (x == 5) {
         spawn(func () {
             print("Hello from a spawned thread!\n");
         });
     } else {
         print("x is not 5\n");
     }
+
     print("Back in the main thread.\n");
 }

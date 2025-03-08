@@ -105,28 +105,54 @@ void process_if_statement(const char **p, FILE *out) {
    then calls process_spawn_block_line. It also replaces "print" with "printf"
    and handles "if" statements. Other lines are output verbatim.
 */
+void process_for_loop(const char **p, FILE *out) {
+    int brace_count = 0;
+    const char *start = *p;
+
+    // Move to the opening brace of the loop block
+    while (**p && **p != '{') (*p)++;
+
+    if (**p == '{') {
+        brace_count = 1;
+        (*p)++;  // Skip '{'
+
+        while (brace_count > 0 && **p) {
+            if (**p == '{') brace_count++;
+            else if (**p == '}') brace_count--;
+            (*p)++;
+        }
+    }
+
+    size_t len = *p - start;
+    fwrite(start, 1, len, out);
+}
+
 void process_main_body(const char *body, FILE *out) {
     char *copy = strdup(body);
     char *line = strtok(copy, "\n");
     char spawn_accum[BUFFER_SIZE] = "";
     int in_spawn = 0;
+
     while (line != NULL) {
-        // Trim leading whitespace
         char *trim = line;
         while (*trim && isspace(*trim)) trim++;
+
         if (strlen(trim) == 0) {
             line = strtok(NULL, "\n");
             continue;
         }
+
         if (strncmp(trim, "import", 6) == 0 || strncmp(trim, "module", 6) == 0) {
             line = strtok(NULL, "\n");
             continue;
         }
+
         if (strncmp(trim, "print", 5) == 0) {
             fprintf(out, "printf%s\n", trim + 5);
             line = strtok(NULL, "\n");
             continue;
         }
+
         if (strncmp(trim, "spawn", 5) == 0) {
             in_spawn = 1;
             strcpy(spawn_accum, trim);
@@ -138,6 +164,7 @@ void process_main_body(const char *body, FILE *out) {
             line = strtok(NULL, "\n");
             continue;
         }
+
         if (in_spawn) {
             strcat(spawn_accum, "\n");
             strcat(spawn_accum, trim);
@@ -149,17 +176,27 @@ void process_main_body(const char *body, FILE *out) {
             line = strtok(NULL, "\n");
             continue;
         }
+
         if (strncmp(trim, "if", 2) == 0) {
             process_if_statement((const char **)&trim, out);
             fprintf(out, "\n");
             line = strtok(NULL, "\n");
             continue;
         }
+
+        if (strncmp(trim, "for", 3) == 0) {
+            process_for_loop((const char **)&trim, out);
+            fprintf(out, "\n");
+            line = strtok(NULL, "\n");
+            continue;
+        }
+
         fprintf(out, "%s\n", trim);
         line = strtok(NULL, "\n");
     }
     free(copy);
 }
+
 
 int main(int argc, char *argv[]) {
     if (argc < 3) {
