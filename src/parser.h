@@ -43,10 +43,10 @@ ASTNode* parse_receive_statement(Parser* parser);
 // Utility functions
 Token* peek_token(Parser* parser);
 Token* advance_token(Parser* parser);
-Token* expect_token(Parser* parser, TokenType expected);
+Token* expect_token(Parser* parser, AeTokenType expected);
 int is_at_end(Parser* parser);
-int match_token(Parser* parser, TokenType type);
+int match_token(Parser* parser, AeTokenType type);
 void parser_error(Parser* parser, const char* message);
-int get_operator_precedence(TokenType type);
+int get_operator_precedence(AeTokenType type);
 
 #endif

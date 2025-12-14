@@ -268,7 +268,7 @@ Token* next_token() {
     }
 }
 
-Token* create_token(TokenType type, const char* value, int line, int column) {
+Token* create_token(AeTokenType type, const char* value, int line, int column) {
     Token* token = malloc(sizeof(Token));
     token->type = type;
     token->line = line;
@@ -291,7 +291,7 @@ void free_token(Token* token) {
     }
 }
 
-const char* token_type_to_string(TokenType type) {
+const char* token_type_to_string(AeTokenType type) {
     switch (type) {
         case TOKEN_ACTOR: return "ACTOR";
         case TOKEN_MAIN: return "MAIN";

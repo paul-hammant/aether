@@ -36,8 +36,8 @@ int typecheck_function_call(ASTNode* call, SymbolTable* table);
 
 // Type inference functions
 Type* infer_type(ASTNode* expr, SymbolTable* table);
-Type* infer_binary_type(ASTNode* left, ASTNode* right, TokenType operator);
-Type* infer_unary_type(ASTNode* operand, TokenType operator);
+Type* infer_binary_type(ASTNode* left, ASTNode* right, AeTokenType operator);
+Type* infer_unary_type(ASTNode* operand, AeTokenType operator);
 
 // Type compatibility functions
 int is_type_compatible(Type* from, Type* to);
@@ -45,7 +45,7 @@ int is_assignable(Type* from, Type* to);
 int is_callable(Type* type);
 
 // Utility functions
-TokenType get_token_type_from_string(const char* str);
+AeTokenType get_token_type_from_string(const char* str);
 
 // Error reporting
 void type_error(const char* message, int line, int column);
