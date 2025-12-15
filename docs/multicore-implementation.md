@@ -12,19 +12,15 @@ Implementation complete. Fixed core partitioning with lock-free cross-core messa
 
 ## Code Generation
 
-Actors now include:
-- `assigned_core` field
-- `step` function pointer for scheduler
-- Automatic registration with scheduler on spawn
+Actors now include assigned_core field and step function pointer for scheduler.
 
-Generated C:
+Generated C code:
 ```c
 typedef struct Counter {
     int id;
     int active;
     int assigned_core;
     Mailbox mailbox;
-    void (*step)(void*);
     int count;
 } Counter;
 
@@ -32,7 +28,6 @@ Counter* spawn_Counter() {
     Counter* actor = malloc(sizeof(Counter));
     actor->id = atomic_fetch_add(&next_actor_id, 1);
     actor->assigned_core = -1;
-    actor->step = (void (*)(void*))Counter_step;
     mailbox_init(&actor->mailbox);
     scheduler_register_actor((ActorBase*)actor, -1);
     return actor;
@@ -50,36 +45,28 @@ void send_Counter(Counter* actor, int type, int payload) {
 
 ## Runtime Components
 
-- `runtime/lockfree_queue.h`: SPSC lock-free queue for cross-core messaging
-- `runtime/multicore_scheduler.h`: Scheduler interface
-- `runtime/multicore_scheduler.c`: Scheduler implementation with pthread pool
+- runtime/lockfree_queue.h: SPSC lock-free queue for cross-core messaging
+- runtime/multicore_scheduler.h: Scheduler interface
+- runtime/multicore_scheduler.c: Scheduler implementation with pthread pool
 
 ## Performance Characteristics
 
-### Single-Core Baseline
-- 166.7 M msg/sec (measured)
-
-### Multi-Core Expected
-- 4 cores: 400-500 M msg/sec (75-80% efficiency)
-- 8 cores: 800-1000 M msg/sec
-- Linear scaling for local messages
-- 50-100ns overhead for cross-core messages
+Single-Core: 166.7 M msg/sec
+Multi-Core Expected: 400-500 M msg/sec on 4 cores
 
 ## Usage
 
-Compile with pthread support:
+Compile with pthread:
 ```bash
 gcc output.c runtime/multicore_scheduler.c -Iruntime -pthread -o program
 ```
 
-Initialize scheduler in main:
+Initialize in main:
 ```c
 int main() {
     scheduler_init(4);
     scheduler_start();
-    
-    // Spawn and use actors
-    
+    // Use actors
     scheduler_stop();
     scheduler_wait();
 }
@@ -87,15 +74,7 @@ int main() {
 
 ## Files Modified
 
-- `src/codegen.c`: Added assigned_core, step pointer generation
-- `runtime/multicore_scheduler.{c,h}`: Scheduler implementation
-- `runtime/lockfree_queue.h`: Lock-free queue for cross-core messaging
-- `examples/multicore_bench.c`: Multi-core benchmark
-
-## Next Steps
-
-Optional enhancements:
-- Core pinning with CPU affinity
-- NUMA-aware actor placement
-- Adaptive load balancing
-- Work stealing (if needed for imbalanced workloads)
+- src/codegen.c: Added assigned_core field generation
+- runtime/multicore_scheduler.{c,h}: Scheduler implementation
+- runtime/lockfree_queue.h: Lock-free queue
+- examples/multicore_bench.c: Benchmark
