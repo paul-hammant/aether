@@ -455,7 +455,9 @@ void generate_actor_definition(CodeGenerator* gen, ASTNode* actor) {
     
     print_line(gen, "int id;");
     print_line(gen, "int active;");
+    print_line(gen, "int assigned_core;");
     print_line(gen, "Mailbox mailbox;");
+    print_line(gen, "void (*step)(void*);");
     print_line(gen, "");
     
     for (int i = 0; i < actor->child_count; i++) {
@@ -513,8 +515,10 @@ void generate_actor_definition(CodeGenerator* gen, ASTNode* actor) {
     print_line(gen, "%s* spawn_%s() {", actor->value, actor->value);
     indent(gen);
     print_line(gen, "%s* actor = malloc(sizeof(%s));", actor->value, actor->value);
-    print_line(gen, "actor->id = 0;");
+    print_line(gen, "actor->id = atomic_fetch_add(&next_actor_id, 1);");
     print_line(gen, "actor->active = 1;");
+    print_line(gen, "actor->assigned_core = -1;");
+    print_line(gen, "actor->step = (void (*)(void*))%s_step;", actor->value);
     print_line(gen, "mailbox_init(&actor->mailbox);");
     
     for (int i = 0; i < actor->child_count; i++) {
@@ -531,6 +535,7 @@ void generate_actor_definition(CodeGenerator* gen, ASTNode* actor) {
         }
     }
     
+    print_line(gen, "scheduler_register_actor((ActorBase*)actor, -1);");
     print_line(gen, "return actor;");
     unindent(gen);
     print_line(gen, "}");
@@ -539,8 +544,15 @@ void generate_actor_definition(CodeGenerator* gen, ASTNode* actor) {
     print_line(gen, "void send_%s(%s* actor, int type, int payload) {", actor->value, actor->value);
     indent(gen);
     print_line(gen, "Message msg = {type, 0, payload, NULL};");
-    print_line(gen, "mailbox_send(&actor->mailbox, msg);");
-    print_line(gen, "actor->active = 1;");
+    print_line(gen, "if (actor->assigned_core == current_core_id) {");
+    indent(gen);
+    print_line(gen, "scheduler_send_local((ActorBase*)actor, msg);");
+    unindent(gen);
+    print_line(gen, "} else {");
+    indent(gen);
+    print_line(gen, "scheduler_send_remote((ActorBase*)actor, msg, current_core_id);");
+    unindent(gen);
+    print_line(gen, "}");
     unindent(gen);
     print_line(gen, "}");
     print_line(gen, "");
@@ -637,7 +649,11 @@ void generate_program(CodeGenerator* gen, ASTNode* program) {
     print_line(gen, "#include <stdio.h>");
     print_line(gen, "#include <stdlib.h>");
     print_line(gen, "#include <string.h>");
+    print_line(gen, "#include <stdatomic.h>");
     print_line(gen, "#include \"actor_state_machine.h\"");
+    print_line(gen, "#include \"multicore_scheduler.h\"");
+    print_line(gen, "");
+    print_line(gen, "extern __thread int current_core_id;");
     print_line(gen, "");
 
     // Generate all top-level definitions
