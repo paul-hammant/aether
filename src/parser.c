@@ -92,6 +92,13 @@ Type* parse_type(Parser* parser) {
             advance_token(parser);
             type = create_type(TYPE_STRING);
             break;
+        case TOKEN_IDENTIFIER: {
+            // Could be a struct type
+            advance_token(parser);
+            type = create_type(TYPE_STRUCT);
+            type->struct_name = strdup(token->value);
+            break;
+        }
         case TOKEN_ACTOR_REF:
             advance_token(parser);
             if (!expect_token(parser, TOKEN_LEFT_BRACKET)) return NULL;
@@ -640,16 +647,63 @@ ASTNode* parse_main_function(Parser* parser) {
     advance_token(parser); // main
     expect_token(parser, TOKEN_LEFT_PAREN);
     expect_token(parser, TOKEN_RIGHT_PAREN);
-    
+
     ASTNode* main = create_ast_node(AST_MAIN_FUNCTION, "main", 0, 0);
     main->node_type = create_type(TYPE_VOID);
-    
+
     ASTNode* body = parse_block(parser);
     if (body) {
         add_child(main, body);
     }
-    
+
     return main;
+}
+
+ASTNode* parse_struct_definition(Parser* parser) {
+    Token* struct_token = advance_token(parser); // consume 'struct'
+    
+    Token* name_token = expect_token(parser, TOKEN_IDENTIFIER);
+    if (!name_token) return NULL;
+    
+    ASTNode* struct_def = create_ast_node(AST_STRUCT_DEFINITION, name_token->value, 
+                                         struct_token->line, struct_token->column);
+    
+    if (!expect_token(parser, TOKEN_LEFT_BRACE)) return NULL;
+    
+    // Parse fields
+    while (!match_token(parser, TOKEN_RIGHT_BRACE)) {
+        if (is_at_end(parser)) {
+            parser_error(parser, "Unexpected end of struct definition");
+            return NULL;
+        }
+        
+        // Parse field type
+        Type* field_type = parse_type(parser);
+        if (!field_type) {
+            parser_error(parser, "Expected field type");
+            return NULL;
+        }
+        
+        // Parse field name
+        Token* field_name = expect_token(parser, TOKEN_IDENTIFIER);
+        if (!field_name) {
+            free_type(field_type);
+            return NULL;
+        }
+        
+        // Create field node
+        ASTNode* field = create_ast_node(AST_STRUCT_FIELD, field_name->value, 
+                                        field_name->line, field_name->column);
+        field->node_type = field_type;
+        add_child(struct_def, field);
+        
+        // Expect semicolon
+        if (!expect_token(parser, TOKEN_SEMICOLON)) {
+            return NULL;
+        }
+    }
+    
+    return struct_def;
 }
 
 ASTNode* parse_program(Parser* parser) {
@@ -673,11 +727,14 @@ ASTNode* parse_program(Parser* parser) {
             case TOKEN_FUNC:
                 node = parse_function_definition(parser);
                 break;
+            case TOKEN_STRUCT:
+                node = parse_struct_definition(parser);
+                break;
             case TOKEN_MAIN:
                 node = parse_main_function(parser);
                 break;
             default:
-                parser_error(parser, "Expected actor, func, or main");
+                parser_error(parser, "Expected actor, func, struct, or main");
                 advance_token(parser);
                 continue;
         }

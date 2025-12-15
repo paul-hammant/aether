@@ -29,6 +29,7 @@ int typecheck_program(ASTNode* program);
 int typecheck_node(ASTNode* node, SymbolTable* table);
 int typecheck_actor_definition(ASTNode* actor, SymbolTable* table);
 int typecheck_function_definition(ASTNode* func, SymbolTable* table);
+int typecheck_struct_definition(ASTNode* struct_def, SymbolTable* table);
 int typecheck_statement(ASTNode* stmt, SymbolTable* table);
 int typecheck_expression(ASTNode* expr, SymbolTable* table);
 int typecheck_binary_expression(ASTNode* expr, SymbolTable* table);

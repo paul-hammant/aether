@@ -9,6 +9,8 @@ typedef enum {
     AST_ACTOR_DEFINITION,
     AST_FUNCTION_DEFINITION,
     AST_MAIN_FUNCTION,
+    AST_STRUCT_DEFINITION,
+    AST_STRUCT_FIELD,
     
     // Statements
     AST_BLOCK,
@@ -55,6 +57,7 @@ typedef enum {
     TYPE_STRING,
     TYPE_ACTOR_REF,
     TYPE_ARRAY,
+    TYPE_STRUCT,
     TYPE_VOID,
     TYPE_UNKNOWN
 } TypeKind;
@@ -63,6 +66,7 @@ typedef struct Type {
     TypeKind kind;
     struct Type* element_type; // For arrays and actor refs
     int array_size; // For fixed-size arrays
+    char* struct_name; // For struct types
 } Type;
 
 typedef struct ASTNode {

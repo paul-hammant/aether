@@ -16,6 +16,7 @@ void free_code_generator(CodeGenerator* gen);
 void generate_program(CodeGenerator* gen, ASTNode* program);
 void generate_actor_definition(CodeGenerator* gen, ASTNode* actor);
 void generate_function_definition(CodeGenerator* gen, ASTNode* func);
+void generate_struct_definition(CodeGenerator* gen, ASTNode* struct_def);
 void generate_main_function(CodeGenerator* gen, ASTNode* main);
 void generate_statement(CodeGenerator* gen, ASTNode* stmt);
 void generate_expression(CodeGenerator* gen, ASTNode* expr);

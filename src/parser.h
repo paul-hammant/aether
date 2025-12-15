@@ -18,6 +18,7 @@ ASTNode* parse_program(Parser* parser);
 ASTNode* parse_actor_definition(Parser* parser);
 ASTNode* parse_function_definition(Parser* parser);
 ASTNode* parse_main_function(Parser* parser);
+ASTNode* parse_struct_definition(Parser* parser);
 ASTNode* parse_statement(Parser* parser);
 ASTNode* parse_expression(Parser* parser);
 ASTNode* parse_primary_expression(Parser* parser);

@@ -145,6 +145,7 @@ Token* read_identifier() {
     if (strcmp(buffer, "spawn_actor") == 0) return create_token(TOKEN_SPAWN_ACTOR, buffer, current_line, current_column);
     if (strcmp(buffer, "self") == 0) return create_token(TOKEN_SELF, buffer, current_line, current_column);
     if (strcmp(buffer, "state") == 0) return create_token(TOKEN_STATE, buffer, current_line, current_column);
+    if (strcmp(buffer, "struct") == 0) return create_token(TOKEN_STRUCT, buffer, current_line, current_column);
     if (strcmp(buffer, "int") == 0) return create_token(TOKEN_INT, buffer, current_line, current_column);
     if (strcmp(buffer, "float") == 0) return create_token(TOKEN_FLOAT, buffer, current_line, current_column);
     if (strcmp(buffer, "bool") == 0) return create_token(TOKEN_BOOL, buffer, current_line, current_column);
@@ -314,6 +315,7 @@ const char* token_type_to_string(AeTokenType type) {
         case TOKEN_SPAWN_ACTOR: return "SPAWN_ACTOR";
         case TOKEN_SELF: return "SELF";
         case TOKEN_STATE: return "STATE";
+        case TOKEN_STRUCT: return "STRUCT";
         case TOKEN_INT: return "INT";
         case TOKEN_FLOAT: return "FLOAT";
         case TOKEN_BOOL: return "BOOL";

@@ -9,6 +9,7 @@ Type* create_type(TypeKind kind) {
     type->kind = kind;
     type->element_type = NULL;
     type->array_size = -1;
+    type->struct_name = NULL;
     return type;
 }
 
@@ -30,6 +31,9 @@ void free_type(Type* type) {
         if (type->element_type) {
             free_type(type->element_type);
         }
+        if (type->struct_name) {
+            free(type->struct_name);
+        }
         free(type);
     }
 }
@@ -43,6 +47,12 @@ const char* type_to_string(Type* type) {
         case TYPE_BOOL: return "bool";
         case TYPE_STRING: return "string";
         case TYPE_VOID: return "void";
+        case TYPE_STRUCT: {
+            static char buffer[256];
+            snprintf(buffer, sizeof(buffer), "struct %s", 
+                    type->struct_name ? type->struct_name : "unnamed");
+            return buffer;
+        }
         case TYPE_ARRAY: {
             static char buffer[256];
             snprintf(buffer, sizeof(buffer), "%s[%d]", 
@@ -64,6 +74,13 @@ int types_equal(Type* a, Type* b) {
     if (!a || !b) return a == b;
     if (a->kind != b->kind) return 0;
     if (a->array_size != b->array_size) return 0;
+    
+    // For struct types, compare names
+    if (a->kind == TYPE_STRUCT) {
+        if (!a->struct_name || !b->struct_name) return 0;
+        return strcmp(a->struct_name, b->struct_name) == 0;
+    }
+    
     return types_equal(a->element_type, b->element_type);
 }
 
@@ -75,6 +92,10 @@ Type* clone_type(Type* type) {
     
     if (type->element_type) {
         new_type->element_type = clone_type(type->element_type);
+    }
+    
+    if (type->struct_name) {
+        new_type->struct_name = strdup(type->struct_name);
     }
     
     return new_type;
@@ -153,6 +174,8 @@ const char* ast_node_type_to_string(ASTNodeType type) {
         case AST_ACTOR_DEFINITION: return "ACTOR_DEFINITION";
         case AST_FUNCTION_DEFINITION: return "FUNCTION_DEFINITION";
         case AST_MAIN_FUNCTION: return "MAIN_FUNCTION";
+        case AST_STRUCT_DEFINITION: return "STRUCT_DEFINITION";
+        case AST_STRUCT_FIELD: return "STRUCT_FIELD";
         case AST_BLOCK: return "BLOCK";
         case AST_VARIABLE_DECLARATION: return "VARIABLE_DECLARATION";
         case AST_ASSIGNMENT: return "ASSIGNMENT";

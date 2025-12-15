@@ -24,6 +24,7 @@ typedef enum {
     TOKEN_SPAWN_ACTOR,
     TOKEN_SELF,
     TOKEN_STATE,
+    TOKEN_STRUCT,
     
     // Types
     TOKEN_INT,

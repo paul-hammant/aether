@@ -56,6 +56,12 @@ const char* get_c_type(Type* type) {
         case TYPE_STRING: return "char*";
         case TYPE_VOID: return "void";
         case TYPE_ACTOR_REF: return "ActorRef*";
+        case TYPE_STRUCT: {
+            static char buffer[256];
+            snprintf(buffer, sizeof(buffer), "struct %s", 
+                    type->struct_name ? type->struct_name : "unnamed");
+            return buffer;
+        }
         case TYPE_ARRAY: {
             static char buffer[256];
             const char* element_type = get_c_type(type->element_type);
@@ -425,10 +431,10 @@ void generate_actor_definition(CodeGenerator* gen, ASTNode* actor) {
 
 void generate_function_definition(CodeGenerator* gen, ASTNode* func) {
     if (!func || func->type != AST_FUNCTION_DEFINITION) return;
-    
+
     generate_type(gen, func->node_type);
     fprintf(gen->output, " %s(", func->value);
-    
+
     // Generate parameters
     int param_count = 0;
     for (int i = 0; i < func->child_count - 1; i++) { // Last child is body
@@ -440,16 +446,38 @@ void generate_function_definition(CodeGenerator* gen, ASTNode* func) {
             param_count++;
         }
     }
-    
+
     fprintf(gen->output, ") {\n");
-    
+
     indent(gen);
     if (func->child_count > 0) {
         generate_statement(gen, func->children[func->child_count - 1]); // body
     }
     unindent(gen);
-    
+
     print_line(gen, "}");
+    print_line(gen, "");
+}
+
+void generate_struct_definition(CodeGenerator* gen, ASTNode* struct_def) {
+    if (!struct_def || struct_def->type != AST_STRUCT_DEFINITION) return;
+    
+    // Generate C struct
+    print_line(gen, "typedef struct %s {", struct_def->value);
+    indent(gen);
+    
+    // Generate fields
+    for (int i = 0; i < struct_def->child_count; i++) {
+        ASTNode* field = struct_def->children[i];
+        if (field->type == AST_STRUCT_FIELD) {
+            print_indent(gen);
+            generate_type(gen, field->node_type);
+            fprintf(gen->output, " %s;\n", field->value);
+        }
+    }
+    
+    unindent(gen);
+    print_line(gen, "} %s;", struct_def->value);
     print_line(gen, "");
 }
 
@@ -505,6 +533,10 @@ void generate_program(CodeGenerator* gen, ASTNode* program) {
             case AST_FUNCTION_DEFINITION:
                 fprintf(stderr, "[DEBUG] Generating function definition\n");
                 generate_function_definition(gen, child);
+                break;
+            case AST_STRUCT_DEFINITION:
+                fprintf(stderr, "[DEBUG] Generating struct definition\n");
+                generate_struct_definition(gen, child);
                 break;
             case AST_MAIN_FUNCTION:
                 fprintf(stderr, "[DEBUG] Generating main function\n");

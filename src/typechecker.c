@@ -249,6 +249,12 @@ int typecheck_program(ASTNode* program) {
                 add_symbol(global_table, child->value, clone_type(child->node_type), 0, 1, 0);
                 break;
             }
+            case AST_STRUCT_DEFINITION: {
+                Type* struct_type = create_type(TYPE_STRUCT);
+                struct_type->struct_name = strdup(child->value);
+                add_symbol(global_table, child->value, struct_type, 0, 0, 0);
+                break;
+            }
             case AST_MAIN_FUNCTION:
                 // Main function doesn't need to be in symbol table
                 break;
@@ -284,6 +290,8 @@ int typecheck_node(ASTNode* node, SymbolTable* table) {
             return typecheck_actor_definition(node, table);
         case AST_FUNCTION_DEFINITION:
             return typecheck_function_definition(node, table);
+        case AST_STRUCT_DEFINITION:
+            return typecheck_struct_definition(node, table);
         case AST_MAIN_FUNCTION:
             return typecheck_statement(node, table);
         default:
@@ -314,9 +322,9 @@ int typecheck_actor_definition(ASTNode* actor, SymbolTable* table) {
 
 int typecheck_function_definition(ASTNode* func, SymbolTable* table) {
     if (!func || func->type != AST_FUNCTION_DEFINITION) return 0;
-    
+
     SymbolTable* func_table = create_symbol_table(table);
-    
+
     // Add parameters to function's symbol table
     for (int i = 0; i < func->child_count - 1; i++) { // Last child is body
         ASTNode* param = func->children[i];
@@ -324,12 +332,50 @@ int typecheck_function_definition(ASTNode* func, SymbolTable* table) {
             add_symbol(func_table, param->value, clone_type(param->node_type), 0, 0, 0);
         }
     }
-    
+
     // Type check function body
     ASTNode* body = func->children[func->child_count - 1];
     typecheck_statement(body, func_table);
-    
+
     free_symbol_table(func_table);
+    return 1;
+}
+
+int typecheck_struct_definition(ASTNode* struct_def, SymbolTable* table) {
+    if (!struct_def || struct_def->type != AST_STRUCT_DEFINITION) return 0;
+    
+    // Type check all fields
+    for (int i = 0; i < struct_def->child_count; i++) {
+        ASTNode* field = struct_def->children[i];
+        
+        if (field->type != AST_STRUCT_FIELD) {
+            type_error("Invalid struct field", field->line, field->column);
+            return 0;
+        }
+        
+        // Verify field type is valid
+        if (!field->node_type) {
+            char error_msg[256];
+            snprintf(error_msg, sizeof(error_msg), 
+                    "Struct field '%s' has no type", field->value);
+            type_error(error_msg, field->line, field->column);
+            return 0;
+        }
+        
+        // Check for duplicate field names
+        for (int j = 0; j < i; j++) {
+            ASTNode* other_field = struct_def->children[j];
+            if (strcmp(field->value, other_field->value) == 0) {
+                char error_msg[256];
+                snprintf(error_msg, sizeof(error_msg), 
+                        "Duplicate field name '%s' in struct '%s'", 
+                        field->value, struct_def->value);
+                type_error(error_msg, field->line, field->column);
+                return 0;
+            }
+        }
+    }
+    
     return 1;
 }
 
