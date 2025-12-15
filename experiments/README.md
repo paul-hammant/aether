@@ -115,9 +115,9 @@ All benchmarks are:
 - Repeatable (multiple runs, variance reported)
 - Self-contained (single C file per experiment)
 
-## Comparison to Industry Standards
+## Documentation
 
-**See**: `COMPARISON_TO_ERLANG_AND_GO.md` for detailed technical analysis
+**See**: `docs/erlang-go-comparison.md` for detailed technical analysis
 
 We're not working in a vacuum. Erlang (BEAM) and Go have proven that lightweight concurrency works at massive scale. Our experiments directly compare against their approaches:
 
