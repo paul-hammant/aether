@@ -60,14 +60,15 @@ Ring benchmark (1000 actors, 1M messages):
 - Lexer, Parser, AST
 - Type checking
 - Code generation
-- State machine actors
-- Message passing
+- State machine actors (single-threaded: 166M msg/sec)
+- Multi-core scheduler (fixed core partitioning)
+- Message passing with lock-free queues
 - Spawn and send functions
 
-**Planned:**
-- Work-stealing scheduler
-- Multi-threaded runtime
+**Optional Future:**
 - Pattern matching
+- Work-stealing scheduler
+- NUMA-aware placement
 
 ## Architecture
 
