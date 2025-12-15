@@ -1,0 +1,14 @@
+actor Pinger {
+    state int count = 0;
+    
+    receive(msg) {
+        count = count + 1;
+        send(msg.sender_id, 1, count);
+    }
+}
+
+main() {
+    Pinger p = spawn(Pinger);
+    send_to_actor(p, 1, 0);
+    print("Spawned actor\n");
+}

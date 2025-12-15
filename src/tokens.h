@@ -22,6 +22,7 @@ typedef enum {
     TOKEN_RECEIVE,
     TOKEN_SEND,
     TOKEN_SPAWN_ACTOR,
+    TOKEN_SPAWN,
     TOKEN_SELF,
     TOKEN_STATE,
     TOKEN_STRUCT,

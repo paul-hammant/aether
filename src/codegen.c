@@ -510,6 +510,41 @@ void generate_actor_definition(CodeGenerator* gen, ASTNode* actor) {
     print_line(gen, "}");
     print_line(gen, "");
     
+    print_line(gen, "%s* spawn_%s() {", actor->value, actor->value);
+    indent(gen);
+    print_line(gen, "%s* actor = malloc(sizeof(%s));", actor->value, actor->value);
+    print_line(gen, "actor->id = 0;");
+    print_line(gen, "actor->active = 1;");
+    print_line(gen, "mailbox_init(&actor->mailbox);");
+    
+    for (int i = 0; i < actor->child_count; i++) {
+        ASTNode* child = actor->children[i];
+        if (child->type == AST_STATE_DECLARATION) {
+            if (child->child_count > 0) {
+                print_indent(gen);
+                fprintf(gen->output, "actor->%s = ", child->value);
+                generate_expression(gen, child->children[0]);
+                fprintf(gen->output, ";\n");
+            } else {
+                print_line(gen, "actor->%s = 0;", child->value);
+            }
+        }
+    }
+    
+    print_line(gen, "return actor;");
+    unindent(gen);
+    print_line(gen, "}");
+    print_line(gen, "");
+    
+    print_line(gen, "void send_%s(%s* actor, int type, int payload) {", actor->value, actor->value);
+    indent(gen);
+    print_line(gen, "Message msg = {type, 0, payload, NULL};");
+    print_line(gen, "mailbox_send(&actor->mailbox, msg);");
+    print_line(gen, "actor->active = 1;");
+    unindent(gen);
+    print_line(gen, "}");
+    print_line(gen, "");
+    
     if (gen->current_actor) free(gen->current_actor);
     gen->current_actor = NULL;
     if (gen->actor_state_vars) {

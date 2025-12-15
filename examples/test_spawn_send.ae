@@ -1,0 +1,14 @@
+actor Counter {
+    state int count = 0;
+    
+    receive(msg) {
+        count = count + 1;
+    }
+}
+
+main() {
+    Counter c = spawn(Counter);
+    send(c, 1, 0);
+    c.step();
+    print("Test complete\n");
+}

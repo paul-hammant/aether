@@ -143,6 +143,7 @@ Token* read_identifier() {
     if (strcmp(buffer, "receive") == 0) return create_token(TOKEN_RECEIVE, buffer, current_line, current_column);
     if (strcmp(buffer, "send") == 0) return create_token(TOKEN_SEND, buffer, current_line, current_column);
     if (strcmp(buffer, "spawn_actor") == 0) return create_token(TOKEN_SPAWN_ACTOR, buffer, current_line, current_column);
+    if (strcmp(buffer, "spawn") == 0) return create_token(TOKEN_SPAWN, buffer, current_line, current_column);
     if (strcmp(buffer, "self") == 0) return create_token(TOKEN_SELF, buffer, current_line, current_column);
     if (strcmp(buffer, "state") == 0) return create_token(TOKEN_STATE, buffer, current_line, current_column);
     if (strcmp(buffer, "struct") == 0) return create_token(TOKEN_STRUCT, buffer, current_line, current_column);
@@ -314,6 +315,7 @@ const char* token_type_to_string(AeTokenType type) {
         case TOKEN_RECEIVE: return "RECEIVE";
         case TOKEN_SEND: return "SEND";
         case TOKEN_SPAWN_ACTOR: return "SPAWN_ACTOR";
+        case TOKEN_SPAWN: return "SPAWN";
         case TOKEN_SELF: return "SELF";
         case TOKEN_STATE: return "STATE";
         case TOKEN_STRUCT: return "STRUCT";
