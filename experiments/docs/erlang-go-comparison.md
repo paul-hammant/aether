@@ -34,14 +34,11 @@ Aether compiles to C. We don't have a VM to count reductions. Our options:
 2. **Cooperative yielding** (trust the programmer - what we're doing now)
 3. **OS threads** (too heavy, we've proven this with pthread baseline)
 
-Erlang's model requires runtime support we don't have without building a full VM. And if we're building a VM, why even compile to C?
-
 ### What We're Taking From Erlang
 
 - **The insight that actors can be tiny structs** - This is huge. Their 2.6KB processes inspired our 128-byte actors.
 - **Message passing as the primary abstraction** - Not shared memory.
 - **Process isolation** - Each actor owns its state, period.
-- **Supervision trees** (on our roadmap) - Their "let it crash" philosophy is genius.
 
 ### What We're Doing Differently
 
@@ -84,16 +81,6 @@ Go's runtime is tightly integrated with the language:
 - Runtime has a netpoller (epoll/kqueue) for async I/O
 - Goroutines can block on channels, and the runtime handles it
 - Stack management is automatic (segmented stacks, then contiguous with copying)
-
-### Why We Can't Just Copy This Either
-
-Go has a runtime. A big one. It's part of every Go binary (~2MB minimum). When you compile Go to native code, you're including:
-
-- The scheduler
-- The garbage collector  
-- The netpoller
-- Stack management
-- Channel implementation
 
 Aether compiles to C and links against a small runtime (~few KB). We want:
 
@@ -169,52 +156,6 @@ Here's what we're actually building, and why:
 - Complexity. Two models = two sets of bugs.
 - But C interop is a first-class requirement for us.
 
-## Honest Trade-offs
-
-Let's be real about what we're giving up and gaining:
-
-### What We Lose vs Erlang
-
-- ❌ **Preemption** - Erlang can't get stuck in a tight loop, we can
-- ❌ **Battle-tested** - BEAM has 30+ years in production telecom systems
-- ❌ **Hot code reloading** - Erlang can swap code while running (we want this later)
-- ❌ **Distribution** - BEAM clustering is built-in and proven
-
-### What We Gain vs Erlang
-
-- ✅ **Native code speed** - No VM overhead
-- ✅ **Even lighter weight** - 128B vs 2.6KB
-- ✅ **C interop** - Call any C library without marshalling
-- ✅ **Small binaries** - No VM to bundle
-
-### What We Lose vs Go
-
-- ❌ **Automatic stack management** - Go grows stacks as needed
-- ❌ **Integrated runtime** - Their scheduler + netpoller + GC work together
-- ❌ **Proven at scale** - Go runs Google's infrastructure
-- ❌ **Easier to use** - `go func()` is simpler than our actor syntax
-
-### What We Gain vs Go
-
-- ✅ **Lighter weight** - 128B vs 2KB goroutines
-- ✅ **Faster single-core** - 125M msg/s vs Go's ~10-20M
-- ✅ **Explicit actor model** - Actors are first-class, not hidden behind goroutines
-- ✅ **No GC pauses** - We're exploring manual memory management options
-
-## Why Our Approach Makes Sense
-
-Here's the thesis: **Erlang and Go both need a runtime because they're runtime languages. We compile to C, so we can make different trade-offs.**
-
-Erlang needs the VM because:
-- Preemption requires reduction counting (VM does this)
-- Hot code reloading requires bytecode interpretation
-- Distribution requires serialization/deserialization
-
-Go needs the runtime because:
-- Stack management (segmented stacks, then contiguous)
-- Garbage collection
-- Netpoller for async I/O
-- Scheduler
 
 We're saying: **What if we compile the actor model down to simple C code?**
 
@@ -223,19 +164,6 @@ We're saying: **What if we compile the actor model down to simple C code?**
 - Scheduling = array iteration or work-stealing (simple)
 
 The bet is that by **giving up** preemption and automatic memory management, we can **gain** simplicity, speed, and C interop.
-
-## The Numbers Don't Lie
-
-Here's what we've actually measured:
-
-| Feature | Erlang | Go | Aether (State Machine) |
-|---------|--------|----|-----------------------|
-| **Memory/actor** | 2.6 KB | 2 KB | 128 B |
-| **Throughput** | ~1M msg/s | ~10-20M msg/s | 125M msg/s |
-| **Startup** | VM startup | Runtime init | None (just C) |
-| **Binary size** | BEAM VM | 2MB+ | <100KB |
-| **Multi-core** | ✅ Automatic | ✅ Automatic | 🚧 Work-stealing (planned) |
-| **Preemption** | ✅ Yes | ✅ Yes | ❌ Cooperative |
 
 We're not better at everything. But for **high-throughput, C-interop, minimal-runtime scenarios**, we're competitive.
 
@@ -272,4 +200,4 @@ We're standing on the shoulders of giants. Erlang taught us actors can be lightw
 
 Early results say yes. But we're honest about the trade-offs: no preemption, cooperative scheduling only, more complexity in the compiler.
 
-Time will tell if this is genius or hubris. That's why we're running experiments.
+Time will tell.
