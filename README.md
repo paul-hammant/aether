@@ -48,11 +48,10 @@ Ring benchmark (1000 actors, 1M messages):
 
 ## Documentation
 
-- [Getting Started](docs/getting-started.md) - Installation and first program
-- [Language Reference](docs/language-reference.md) - Complete syntax
-- [Runtime Guide](docs/runtime.md) - Actors and concurrency
-- [Architecture](docs/architecture.md) - Compiler internals
-- [Build Instructions](BUILD_INSTRUCTIONS.md) - Compilation guide
+- [Language Reference](docs/language-reference.md) - Complete syntax and semantics
+- [Runtime Guide](docs/runtime.md) - Actors and concurrency model
+- [Build Guide](docs/build.md) - Compilation and build instructions
+- [Architecture](docs/architecture.md) - Compiler internals and design
 
 ## Implementation Status
 
