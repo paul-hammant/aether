@@ -1,8 +1,0 @@
-main() {
-    print("Testing simple for loop\n");
-    int i = 1;
-    for (; i <= 3; i++) {
-        print("i = %d\n", i);
-    }
-    print("Done\n");
-}

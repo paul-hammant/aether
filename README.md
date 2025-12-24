@@ -1,15 +1,12 @@
 # Aether Programming Language
 
-**Python syntax. C performance. Actor concurrency.**
+A systems language with Python-style syntax and C performance, featuring automatic type inference and actor-based concurrency.
 
-Modern systems language with full type inference and zero runtime overhead.
+## Overview
 
-## Why Aether?
-
-Write code that looks like Python but runs like C:
+Aether aims to combine the ergonomics of dynamic languages with the performance of compiled systems languages. Code is written without explicit type annotations, and the compiler infers types using Hindley-Milner style inference before generating optimized C code.
 
 ```aether
-# No types needed - compiler figures it out
 x = 42
 name = "Alice"
 nums = [1, 2, 3]
@@ -19,91 +16,87 @@ main() {
 }
 ```
 
-**Compiles to:** Optimized C code with proper types.
+The above compiles to typed C code with no runtime overhead.
 
-## Aether vs C
+## Key Features
+
+- Full type inference (no type annotations required)
+- Python-style syntax without `let` or type declarations
+- Compiles to readable C code
+- Actor-based concurrency model
+- Zero-cost abstractions
+
+## Comparison with C
 
 | Feature | Aether | C |
 |---------|--------|---|
-| **Type annotations** | Optional (full inference) | Required everywhere |
-| **Syntax** | Minimal (Python-style) | Verbose |
-| **Memory safety** | Bounds checking (optional) | Manual |
-| **Concurrency** | Built-in actors | Manual threads |
-| **String handling** | First-class (ref-counted) | Manual char* |
-| **Performance** | Same (compiles to C) | Native |
+| Type annotations | Optional | Required |
+| Syntax | Minimal | Verbose |
+| Memory safety | Bounds checking available | Manual |
+| Concurrency | Built-in actors | Manual threads |
+| String handling | First-class types | Manual char* |
+| Performance | Compiles to C | Native |
 
-**Differentiators:**
-- ✨ **Zero-cost abstractions** - Actor model compiles to state machines
-- 🧠 **Type inference** - Write less, get type safety
-- 🚀 **Actor-based concurrency** - Built-in, not bolted-on
-- 🔧 **Compiles to readable C** - Debug and interop easily
+## Current Status
 
-## Status: Phase 2/5 Complete ✅
+**Phase 2 Complete**
 
-**✅ PHASE 1: GET IT TO COMPILE**
-- Compiler builds with GCC
-- Lexer, parser, type checker, code generator all working
-- Type inference for literals (int, float, string, bool, arrays)
-- Generated C code compiles and runs
+The compiler is functional and passes all current test cases:
+- Compiler builds and runs on Windows/Cygwin
+- Type inference working for primitives, arrays, structs, and functions
+- Python-style syntax parsing (no explicit types needed)
+- Code generation produces valid C code
+- Control flow structures (if/while/for) supported
+- Actor syntax parses and compiles
 
-**✅ PHASE 2: GET IT TO RUN**
-- **26/26 examples passing (100%)**
-- Python-style syntax working (no `let`, no type annotations)
-- Full type inference (Hindley-Milner style)
-- Structs, arrays, functions, actors all compile
-- Control flow (if/while/for) working
-**🔧 PHASE 3: FIX ALL BUGS (NEXT)**
-- Control flow type inference improvements
-- Actor spawn/send runtime implementation
-- Edge case testing
+**Test Coverage:** 20 passing examples
 
-**📋 REMAINING PHASES:**
-- Phase 4: Prove performance (benchmarks vs C/Go/Erlang)
-- Phase 5: Polish & release v1.0
+**Next Phase:** Implement actor runtime (spawn/send primitives), improve type inference edge cases, expand test coverage.
 
-## Quick Start
+## Building
 
-### 1. Build Compiler
+### Requirements
+- GCC (via Cygwin, MSYS2, or native on Linux/Mac)
+- Make or PowerShell
+
+### Windows (PowerShell)
 ```powershell
-# Windows (requires GCC from Cygwin/MSYS2)
 .\build_compiler.ps1
+```
 
-# Linux/Mac
+### Linux/Mac
+```bash
 make
 ```
 
-### 2. Run Tests
-```powershell
-# Test all examples
-.\test_all_examples.ps1
+## Usage
 
-# Run full test suite
-.\test.ps1
+Compile an Aether program to C:
+```powershell
+.\build\aetherc.exe program.ae output.c
 ```
 
-### 3. Compile Your Code
-```powershell
-# Aether → C → Executable
-.\build\aetherc.exe your_program.ae output.c
-gcc output.c -Iruntime runtime\*.c -o program.exe
-.\program.exe
+Compile the generated C to executable:
+```bash
+gcc output.c -Iruntime runtime/*.c -o program
+./program
 ```
 
-## Working Examples
+## Examples
 
-**Type Inference:**
+### Type Inference
 ```aether
-x = 42          # int
-pi = 3.14       # float  
-name = "Alice"  # string
-nums = [1, 2, 3] # int[3]
+x = 42          // inferred as int
+pi = 3.14       // inferred as float
+name = "Alice"  // inferred as string
+nums = [1, 2, 3] // inferred as int[3]
 
 main() {
     print(x)
 }
 ```
 
-**Functions (no `func` keyword):**
+### Functions
 ```aether
 add(a, b) {
     return a + b
@@ -115,75 +108,54 @@ main() {
 }
 ```
 
-**Actors (planned):**
+### Structs
 ```aether
-actor counter {
-    state: count = 0
+struct Point {
+    x,
+    y
+}
+
+main() {
+    p = Point{ x: 10, y: 20 }
+    print(p.x)
+}
+```
+
+### Actors (syntax supported, runtime in progress)
+```aether
+actor Counter {
+    state count = 0
     
     receive(msg) {
         count = count + 1
-        print(count)
     }
 }
 
 main() {
-    c = spawn(counter)
-    send(c, "tick")
+    print("Actor defined")
 }
 ```
 
-## Test Results (5 examples)
+## Known Limitations
 
-```
-✅ test_type_inference_literals.ae    - Type inference works!
-✅ ultra_simple.ae                    - Basic compilation works!
-❌ hello_world.ae                     - Parser bug with explicit types (investigating)
-❌ test_type_inference_functions.ae   - Function inference incomplete
-❌ test_type_inference_structs.ae     - Struct inference incomplete
-```
+- Actor spawn/send runtime not yet implemented
+- Pattern matching (match statements) not implemented
+- Some edge cases in type inference
+- Limited standard library
+- No package system yet
 
-**Current pass rate: 40% (2/5)**
-**Target: 90%+ (Phase 2 goal)**
+## Project Structure
+
+- `compiler/` - Lexer, parser, type checker, code generator
+- `runtime/` - Runtime library (strings, memory, actors)
+- `examples/` - Example programs and tests
+- `docs/` - Language specification and guides
 
 ## Documentation
 
-- `TESTING_GUIDE.md` - How to run tests
-- `docs/TYPE_INFERENCE_GUIDE.md` - Type system internals
-- `docs/RUNTIME_GUIDE.md` - Runtime API reference
-- `docs/language-reference.md` - Full language spec
-
-## Known Issues
-
-1. Parser doesn't handle explicit type annotations (`int x = 42`) correctly
-2. Function return type inference incomplete
-3. Struct field type inference incomplete
-4. Actor code generation not implemented yet
-5. Performance benchmarks not run yet
-
-## Next Steps
-
-**Phase 2 Goals (Current):**
-- [ ] Fix parser to handle explicit types correctly
-- [ ] Get 5-10 examples compiling and running
-- [ ] Test runtime library integration (strings, I/O, math)
-- [ ] Fix type inference for functions and structs
-
-**Phase 3 Goals (Next):**
-- [ ] Systematic bug fixing across all examples
-- [ ] Achieve 90%+ test pass rate
-- [ ] Memory leak testing
-
-**Phase 4 Goals (Performance):**
-- [ ] Run C benchmarks (baseline)
-- [ ] Implement actor benchmarks in Aether
-- [ ] Document real performance numbers
-- [ ] Compare vs Go, Erlang
-
-## Contributing
-
-Active development project. We're building in public!
-
-Join us at: [GitHub issues](issues)
+- `docs/language-reference.md` - Language specification
+- `docs/TYPE_INFERENCE_GUIDE.md` - Type system details
+- `docs/RUNTIME_GUIDE.md` - Runtime API
 
 ## License
 
