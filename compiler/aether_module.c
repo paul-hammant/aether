@@ -143,15 +143,129 @@ int module_is_exported(AetherModule* module, const char* symbol) {
     return 0;
 }
 
+// Resolve module file path
+// Converts import path like "std.collections.HashMap" to "std/collections/HashMap.ae"
+// or "game.player" to "game/player.ae"
+char* module_resolve_file_path(const char* import_path, const char* base_dir) {
+    if (!import_path) return NULL;
+    
+    // Convert dots to slashes
+    char path_buffer[1024];
+    snprintf(path_buffer, sizeof(path_buffer), "%s", import_path);
+    for (int i = 0; path_buffer[i]; i++) {
+        if (path_buffer[i] == '.') {
+            path_buffer[i] = '/';
+        }
+    }
+    
+    // Try various paths
+    char* attempts[4];
+    int attempt_count = 0;
+    
+    // 1. Base directory (current file's directory)
+    if (base_dir) {
+        attempts[attempt_count] = malloc(2048);
+        snprintf(attempts[attempt_count], 2048, "%s/%s.ae", base_dir, path_buffer);
+        attempt_count++;
+    }
+    
+    // 2. Current working directory
+    attempts[attempt_count] = malloc(2048);
+    snprintf(attempts[attempt_count], 2048, "%s.ae", path_buffer);
+    attempt_count++;
+    
+    // 3. std/ directory (standard library)
+    attempts[attempt_count] = malloc(2048);
+    snprintf(attempts[attempt_count], 2048, "std/%s.ae", path_buffer);
+    attempt_count++;
+    
+    // 4. Direct path if already has .ae extension
+    if (strstr(import_path, ".ae")) {
+        attempts[attempt_count] = malloc(1024);
+        snprintf(attempts[attempt_count], 1024, "%s", import_path);
+        attempt_count++;
+    }
+    
+    // Try each path
+    for (int i = 0; i < attempt_count; i++) {
+        FILE* f = fopen(attempts[i], "r");
+        if (f) {
+            fclose(f);
+            // Return this path, free others
+            char* result = attempts[i];
+            for (int j = 0; j < attempt_count; j++) {
+                if (j != i) free(attempts[j]);
+            }
+            return result;
+        }
+    }
+    
+    // Not found, free all
+    for (int i = 0; i < attempt_count; i++) {
+        free(attempts[i]);
+    }
+    
+    return NULL;
+}
+
+// Load module from file
+AetherModule* module_load_from_file(const char* import_path, const char* base_dir) {
+    // Check if already loaded
+    AetherModule* existing = module_find(import_path);
+    if (existing) {
+        return existing;
+    }
+    
+    // Resolve file path
+    char* file_path = module_resolve_file_path(import_path, base_dir);
+    if (!file_path) {
+        fprintf(stderr, "Error: Could not resolve module '%s'\n", import_path);
+        return NULL;
+    }
+    
+    // Read file content
+    FILE* f = fopen(file_path, "r");
+    if (!f) {
+        fprintf(stderr, "Error: Could not open module file '%s'\n", file_path);
+        free(file_path);
+        return NULL;
+    }
+    
+    fseek(f, 0, SEEK_END);
+    long size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    
+    char* content = malloc(size + 1);
+    fread(content, 1, size, f);
+    content[size] = '\0';
+    fclose(f);
+    
+    // Create module entry
+    AetherModule* module = module_create(import_path, file_path);
+    
+    // Note: Full AST parsing happens later in the compilation pipeline
+    // The module system tracks dependencies and load order, actual parsing
+    // is done by the main compiler when it processes each module
+    
+    free(content);
+    free(file_path);
+    
+    // Register module
+    module_register(module);
+    
+    return module;
+}
+
 // Module resolution
 AetherModule* module_resolve(const char* import_path) {
-    // Simple resolution: just look up by name
-    // In a full implementation, this would:
-    // 1. Check local modules
-    // 2. Check installed packages
-    // 3. Download from registry if needed
+    // First check if already loaded
+    AetherModule* existing = module_find(import_path);
+    if (existing) {
+        return existing;
+    }
     
-    return module_find(import_path);
+    // Try to load from file
+    return module_load_from_file(import_path, NULL);
 }
 
 char* module_resolve_symbol(const char* module_name, const char* symbol) {
@@ -239,5 +353,128 @@ void package_manifest_free(PackageManifest* manifest) {
     free(manifest->dependencies);
     
     free(manifest);
+}
+
+// Dependency Graph Implementation
+
+DependencyGraph* dependency_graph_create() {
+    DependencyGraph* graph = malloc(sizeof(DependencyGraph));
+    graph->nodes = NULL;
+    graph->node_count = 0;
+    return graph;
+}
+
+void dependency_graph_free(DependencyGraph* graph) {
+    if (!graph) return;
+    
+    for (int i = 0; i < graph->node_count; i++) {
+        DependencyNode* node = graph->nodes[i];
+        free(node->module_name);
+        free(node->dependencies);
+        free(node);
+    }
+    free(graph->nodes);
+    free(graph);
+}
+
+DependencyNode* dependency_graph_find_node(DependencyGraph* graph, const char* module_name) {
+    if (!graph) return NULL;
+    
+    for (int i = 0; i < graph->node_count; i++) {
+        if (strcmp(graph->nodes[i]->module_name, module_name) == 0) {
+            return graph->nodes[i];
+        }
+    }
+    return NULL;
+}
+
+DependencyNode* dependency_graph_add_node(DependencyGraph* graph, const char* module_name) {
+    if (!graph) return NULL;
+    
+    // Check if node already exists
+    DependencyNode* existing = dependency_graph_find_node(graph, module_name);
+    if (existing) return existing;
+    
+    // Create new node
+    DependencyNode* node = malloc(sizeof(DependencyNode));
+    node->module_name = strdup(module_name);
+    node->dependencies = NULL;
+    node->dependency_count = 0;
+    node->visited = 0;
+    node->in_stack = 0;
+    
+    // Add to graph
+    graph->nodes = realloc(graph->nodes, (graph->node_count + 1) * sizeof(DependencyNode*));
+    graph->nodes[graph->node_count++] = node;
+    
+    return node;
+}
+
+void dependency_graph_add_edge(DependencyGraph* graph, const char* from, const char* to) {
+    if (!graph) return;
+    
+    DependencyNode* from_node = dependency_graph_add_node(graph, from);
+    DependencyNode* to_node = dependency_graph_add_node(graph, to);
+    
+    // Check if edge already exists
+    for (int i = 0; i < from_node->dependency_count; i++) {
+        if (from_node->dependencies[i] == to_node) {
+            return;
+        }
+    }
+    
+    // Add edge
+    from_node->dependencies = realloc(from_node->dependencies,
+                                     (from_node->dependency_count + 1) * sizeof(DependencyNode*));
+    from_node->dependencies[from_node->dependency_count++] = to_node;
+}
+
+// DFS helper for cycle detection
+static int dfs_has_cycle(DependencyNode* node) {
+    if (node->in_stack) {
+        // Found a back edge (cycle)
+        return 1;
+    }
+    
+    if (node->visited) {
+        // Already checked this node
+        return 0;
+    }
+    
+    node->visited = 1;
+    node->in_stack = 1;
+    
+    // Visit all dependencies
+    for (int i = 0; i < node->dependency_count; i++) {
+        if (dfs_has_cycle(node->dependencies[i])) {
+            return 1;
+        }
+    }
+    
+    node->in_stack = 0;
+    return 0;
+}
+
+int dependency_graph_has_cycle(DependencyGraph* graph) {
+    if (!graph) return 0;
+    
+    // Reset visited flags
+    for (int i = 0; i < graph->node_count; i++) {
+        graph->nodes[i]->visited = 0;
+        graph->nodes[i]->in_stack = 0;
+    }
+    
+    // Run DFS from each unvisited node
+    for (int i = 0; i < graph->node_count; i++) {
+        if (!graph->nodes[i]->visited) {
+            if (dfs_has_cycle(graph->nodes[i])) {
+                fprintf(stderr, "Error: Circular dependency detected involving module '%s'\n",
+                       graph->nodes[i]->module_name);
+                return 1;
+            }
+        }
+    }
+    
+    return 0;
 }
 

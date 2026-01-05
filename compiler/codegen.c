@@ -744,15 +744,13 @@ void generate_function_definition(CodeGenerator* gen, ASTNode* func) {
 
     // Generate parameters - handle pattern matching
     int param_count = 0;
-    int has_guards = 0;
-    int has_list_patterns = 0;
     ASTNode* body = NULL;
     
     for (int i = 0; i < func->child_count; i++) {
         ASTNode* child = func->children[i];
         
         if (child->type == AST_GUARD_CLAUSE) {
-            has_guards = 1;
+            // has_guards = 1;  // Reserved for future optimization
             continue;
         }
         
@@ -782,7 +780,7 @@ void generate_function_definition(CodeGenerator* gen, ASTNode* func) {
             // List pattern becomes array pointer
             if (param_count > 0) fprintf(gen->output, ", ");
             fprintf(gen->output, "int* _list_%d, int _len_%d", param_count, param_count);
-            has_list_patterns = 1;
+            // has_list_patterns = 1;  // Reserved for future optimization
             param_count++;
         }
     }
@@ -977,9 +975,30 @@ void generate_program(CodeGenerator* gen, ASTNode* program) {
                 print_line(gen, "");
                 break;
             case AST_IMPORT_STATEMENT:
-                // Import statement: generate include or comment
-                print_line(gen, "// Import: %s", child->value ? child->value : "unnamed");
-                // TODO: Map to actual C includes when module system is complete
+                // Import statement: generate C includes
+                if (child->value) {
+                    print_line(gen, "// Import: %s", child->value);
+                    
+                    // Map Aether module paths to C header includes
+                    // std.collections.* -> #include "std/collections/*.h"
+                    char include_path[512];
+                    snprintf(include_path, sizeof(include_path), "%s", child->value);
+                    
+                    // Convert dots to slashes
+                    for (int j = 0; include_path[j]; j++) {
+                        if (include_path[j] == '.') {
+                            include_path[j] = '/';
+                        }
+                    }
+                    
+                    // Check for standard library modules
+                    if (strncmp(child->value, "std.", 4) == 0) {
+                        print_line(gen, "#include \"%s.h\"", include_path);
+                    } else {
+                        // Local module - generate relative include
+                        print_line(gen, "#include \"%s.h\"", include_path);
+                    }
+                }
                 print_line(gen, "");
                 break;
             case AST_EXPORT_STATEMENT:

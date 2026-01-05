@@ -1,204 +1,205 @@
 # Getting Started with Aether
 
-Welcome to Aether! This guide will help you get up and running with the language.
+This guide will help you install and start using the Aether programming language.
 
 ## Installation
 
-### Windows (Cygwin)
+### Prerequisites
 
-1. Install [Cygwin](https://www.cygwin.com/) with GCC
-2. Clone the repository:
-   ```bash
-   git clone https://github.com/yourusername/aether.git
-   cd aether
-   ```
-3. Build the compiler:
-   ```powershell
-   .\build_compiler.ps1
-   ```
+**All Platforms:**
+- Git
+- 1GB free disk space
+- 2GB RAM minimum (4GB recommended for parallel builds)
 
-### Linux/Mac
+**Linux/macOS:**
+- GCC 9.0+ or Clang 10.0+
+- Make
+- pthread support (usually built-in)
 
-1. Ensure you have GCC installed
-2. Clone and build:
-   ```bash
-   git clone https://github.com/yourusername/aether.git
-   cd aether
-   make
-   ```
+**Windows:**
+- MinGW-w64 GCC 11.0+ (MSVC not supported)
+- PowerShell 5.1+ (comes with Windows 10+)
+- Download MinGW: [mingw-w64.org](https://www.mingw-w64.org/) or via package manager
 
-## Your First Program
+### Building from Source
 
-Create a file called `hello.ae`:
+```bash
+git clone https://github.com/yourname/aether.git
+cd aether
+
+# Linux/macOS
+make compiler
+
+# Windows
+./build_compiler.ps1
+```
+
+## Your First Aether Program
+
+Create a file named `hello.ae`:
 
 ```aether
-main() {
-    print("Hello, Aether!\n")
+main {
+    print("Hello, Aether!")
 }
 ```
 
 Compile and run:
 
 ```bash
-# Compile Aether to C
-./build/aetherc hello.ae hello.c
-
-# Compile C to executable
-gcc hello.c -Iruntime runtime/*.c -o hello
-
-# Run
-./hello
+./build/aetherc run hello.ae
 ```
 
-## Language Basics
+## Actor-Based Programming
 
-### Type Inference
-
-Aether automatically infers types - no annotations needed!
+Aether is built around the actor model. Here's a simple ping-pong example:
 
 ```aether
-x = 42              // int
-pi = 3.14           // float
-name = "Alice"      // string
-```
-
-### Functions
-
-Functions are simple and clean:
-
-```aether
-add(a, b) {
-    return a + b
-}
-
-greet(name) {
-    print("Hello, ")
-    print(name)
-    print("!\n")
-}
-
-main() {
-    result = add(10, 20)
-    greet("World")
-}
-```
-
-### Control Flow
-
-Standard control structures work as expected:
-
-```aether
-// If statements
-check_age(age) {
-    if (age >= 18) {
-        print("Adult\n")
-    } else {
-        print("Minor\n")
-    }
-}
-
-// While loops
-count_to_ten() {
-    i = 0
-    while (i < 10) {
-        print(i)
-        i = i + 1
-    }
-}
-
-// For loops
-sum_numbers() {
-    sum = 0
-    for (i = 0; i < 100; i = i + 1) {
-        sum = sum + i
-    }
-    return sum
-}
-```
-
-### Structs
-
-Organize data with structs:
-
-```aether
-struct Point {
-    int x;
-    int y;
-}
-
-main() {
-    p = Point{ x: 10, y: 20 }
-    print(p.x)
-    print(p.y)
-}
-```
-
-### Actors
-
-Aether's killer feature - easy concurrency with actors:
-
-```aether
-actor Counter {
-    state count = 0;
-    
-    receive(msg) {
-        if (msg.type == 1) {
-            count = count + 1
+actor Pong {
+    receive {
+        "ping" => {
+            print("Pong!")
+            send msg.sender, "pong"
         }
     }
 }
 
-main() {
-    // Spawn an actor
-    counter = spawn_Counter()
+actor Ping {
+    state {
+        count: int
+        pong: ActorRef[Pong]
+    }
     
-    // Send messages
-    send_Counter(counter, 1, 0)
-    send_Counter(counter, 1, 0)
+    receive {
+        "start" => {
+            count = 0
+            send pong, "ping"
+        }
+        
+        "pong" => {
+            count = count + 1
+            print("Ping " + count)
+            
+            if (count < 5) {
+                send pong, "ping"
+            }
+        }
+    }
+}
+
+main {
+    let pong = spawn Pong
+    let ping = spawn Ping
     
-    // Process messages
-    Counter_step(counter)
-    Counter_step(counter)
+    send ping, "pong" -> pong
+    send ping, "start"
+}
+```
+
+## Module System
+
+Import modules using the `import` statement:
+
+```aether
+import std.collections.HashMap
+import std.log as Log
+
+main {
+    Log.info("Starting application")
     
-    print("Counter updated!\n")
+    let map = HashMap.new()
+    map.insert("key", "value")
+    
+    print(map.get("key"))
+}
+```
+
+## Standard Library
+
+Aether comes with a rich standard library:
+
+### Collections
+- **HashMap**: O(1) hash map with Robin Hood hashing
+- **Set**: Set operations (union, intersection, difference)
+- **Vector**: Dynamic array with amortized O(1) append
+- **PriorityQueue**: Binary heap for priority-based scheduling
+
+### Utilities
+- **log**: Structured logging with levels
+- **fs**: File system operations
+- **net**: Networking utilities
+
+## Pattern Matching
+
+Aether supports powerful pattern matching:
+
+```aether
+match value {
+    0 => print("Zero")
+    1 => print("One")
+    [h|t] => print("List with head: " + h)
+    _ => print("Other")
 }
 ```
 
 ## Next Steps
 
-- Check out the [examples/](../examples/) directory for more programs
-- Read the [Language Reference](language-reference.md) for complete syntax
-- Learn about [Actors](runtime.md) for concurrent programming
-- See [Type Inference](type-inference-guide.md) for advanced type system features
+- Read the [Language Reference](language-reference.md)
+- Explore [Standard Library Documentation](stdlib-reference.md)
+- Check out [Example Programs](../examples/)
+- Join the community on GitHub
 
-## Common Issues
+## Performance Tips
 
-### Compilation Errors
-
-If you get "undefined reference" errors, make sure you're linking all runtime files:
-
-```bash
-gcc output.c -Iruntime runtime/multicore_scheduler.c runtime/memory.c runtime/aether_string.c -o program
-```
-
-### Type Errors
-
-Aether infers types automatically, but sometimes you need explicit types in struct fields:
-
-```aether
-struct Point {
-    int x;    // Explicit type required
-    int y;
-}
-```
+1. Use pattern matching for cleaner code
+2. Leverage the profiler to identify bottlenecks
+3. Use appropriate collection types (HashMap for lookups, Vector for sequences)
+4. Keep actors lightweight and focused
+5. Use the import system to organize code
 
 ## Getting Help
 
-- Check the [docs/](../docs/) directory for detailed documentation
-- Look at [examples/](../examples/) for working code samples
-- File issues on GitHub for bugs or questions
+- GitHub Issues: Report bugs and request features
+- Documentation: Check docs/ folder
+- Examples: See examples/ folder for working code
 
-Happy coding with Aether!
+## Troubleshooting
 
+### Build Failures
 
+**"gcc: command not found" (Windows)**
+- Ensure MinGW bin directory is in PATH
+- Verify: `gcc --version`
+- Add to PATH: `$env:PATH += ";C:\mingw64\bin"`
 
+**"pthread.h: No such file or directory"**
+- Install pthread library: `sudo apt-get install libpthread-stubs0-dev` (Linux)
+- MinGW includes pthread by default
+
+**Test failures**
+- Run specific test category: `./build/test_runner --category=compiler`
+- Check for port conflicts if network tests fail (port 8080)
+- Ensure no antivirus blocking test executables
+
+### Common Pitfalls
+
+1. **Forgetting to rebuild after changes**: Run `make clean && make` or `.\build_compiler.ps1` after pulling updates
+2. **Using MSVC on Windows**: Aether requires GCC. MSVC will not work.
+3. **Missing -lpthread flag**: When compiling manually, always include `-lpthread`
+4. **Running out of memory during parallel builds**: Reduce job count (`make -j4` instead of `-j8`)
+5. **Permission denied on test_runner**: Ensure no previous test process is hanging (check Task Manager/htop)
+
+### Platform-Specific Notes
+
+**Windows MinGW:**
+- Use PowerShell, not CMD
+- Forward slashes in paths work: `./build/aetherc`
+- Some ANSI colors may not render correctly in older terminals
+
+**macOS:**
+- May need to install command line tools: `xcode-select --install`
+- Homebrew GCC recommended: `brew install gcc`
+
+**Linux:**
+- Requires kernel 4.14+ for full NUMA support
+- AddressSanitizer requires `sudo apt-get install gcc-multilib` on some distributions

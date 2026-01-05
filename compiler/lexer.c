@@ -262,7 +262,7 @@ Token* next_token() {
                 advance();
                 return create_token(TOKEN_OR, "||", current_line, current_column);
             }
-            return create_token(TOKEN_ERROR, "|", current_line, current_column);
+            return create_token(TOKEN_PIPE, "|", current_line, current_column);
         case '(': advance(); return create_token(TOKEN_LEFT_PAREN, "(", current_line, current_column);
         case ')': advance(); return create_token(TOKEN_RIGHT_PAREN, ")", current_line, current_column);
         case '{': advance(); return create_token(TOKEN_LEFT_BRACE, "{", current_line, current_column);
@@ -367,6 +367,7 @@ const char* token_type_to_string(AeTokenType type) {
         case TOKEN_DOT: return "DOT";
         case TOKEN_COLON: return "COLON";
         case TOKEN_ARROW: return "ARROW";
+        case TOKEN_PIPE: return "PIPE";
         case TOKEN_PRINT: return "PRINT";
         case TOKEN_EOF: return "EOF";
         case TOKEN_ERROR: return "ERROR";

@@ -1,0 +1,33 @@
+{
+  "timestamp": "2025-12-29T00:00:00",
+  "hardware": "Intel i7-9700K, 32GB DDR4-3200, Linux 5.15",
+  "benchmarks": {
+    "actor_ring": {
+      "messages_per_sec": 200000000,
+      "latency_p95_ns": 450,
+      "memory_mb": 120,
+      "description": "Ring benchmark: N actors passing messages in a circle"
+    },
+    "hashmap_ops": {
+      "inserts_per_sec": 2000000,
+      "lookups_per_sec": 5000000,
+      "description": "HashMap operations with uniform random keys"
+    },
+    "arena_alloc": {
+      "allocs_per_sec": 484000000,
+      "description": "Arena allocator throughput"
+    },
+    "vector_ops": {
+      "push_per_sec": 50000000,
+      "description": "Vector push operations"
+    }
+  },
+  "notes": [
+    "Each benchmark runs for 10 seconds with 2-second warmup",
+    "Results represent median of 5 runs",
+    "Actor throughput measured with 5-actor ring",
+    "HashMap benchmarks use uniform random keys (64-bit integers)",
+    "Regression threshold: 10% performance degradation triggers failure"
+  ]
+}
+

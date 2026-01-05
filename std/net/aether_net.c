@@ -5,7 +5,9 @@
 #ifdef _WIN32
     #include <winsock2.h>
     #include <ws2tcpip.h>
-    #pragma comment(lib, "ws2_32.lib")
+    #ifdef _MSC_VER
+        #pragma comment(lib, "ws2_32.lib")
+    #endif
     #define close closesocket
     typedef int socklen_t;
 #else
@@ -106,6 +108,11 @@ int aether_socket_close(Socket* sock) {
 
 ServerSocket* aether_server_create(int port) {
     net_init();
+    
+    // Validate port range (1-65535)
+    if (port < 1 || port > 65535) {
+        return NULL;
+    }
     
     int sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (sockfd < 0) {

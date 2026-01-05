@@ -1390,7 +1390,7 @@ ASTNode* parse_list_pattern(Parser* parser) {
         add_child(cons, first);   // Head
         add_child(cons, tail);    // Tail
         return cons;
-    }
+        }
     
     // Regular list pattern: [x, y, z]
     ASTNode* list = create_ast_node(AST_PATTERN_LIST, "[]",

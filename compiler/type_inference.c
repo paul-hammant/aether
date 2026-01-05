@@ -465,9 +465,11 @@ int has_unresolved_types(InferenceContext* ctx) {
     return 0;
 }
 
-// Propagate known types
+// Propagate known types through constraint graph
 void propagate_known_types(InferenceContext* ctx) {
+    // Track progress for iterative propagation
     int progress = 0;
+    (void)progress;  // Reserved for future iterative algorithm
     
     for (int i = 0; i < ctx->constraint_count; i++) {
         TypeConstraint* constraint = &ctx->constraints[i];

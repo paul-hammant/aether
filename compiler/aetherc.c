@@ -10,19 +10,24 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include <time.h>
 #include "tokens.h"
 #include "ast.h"
 #include "parser.h"
 #include "typechecker.h"
+#include "optimizer.h"
 #include "codegen.h"
 
 // Compiler limits
 #define MAX_TOKENS 10000
-#define AETHER_VERSION "0.1.0"
+#define AETHER_VERSION "0.4.0"
 
 // Constants for better maintainability
 #define DEFAULT_MAX_ACTORS 1000
 #define DEFAULT_WORKER_THREADS 4
+
+// Global flags
+static bool verbose_mode = false;
 
 #ifdef _WIN32
     #include <windows.h>
@@ -74,7 +79,12 @@ int compile_source(const char* input_path, const char* output_path) {
     printf("Compiling %s...\n", input_path);
     
     // Step 1: Lexical Analysis
-    printf("Step 1: Tokenizing...\n");
+    if (verbose_mode) {
+        printf("[Phase 1/5] Lexical Analysis...\n");
+    } else {
+        printf("Step 1: Tokenizing...\n");
+    }
+    
     lexer_init(source);
     
     Token* tokens[MAX_TOKENS];
@@ -136,6 +146,11 @@ int compile_source(const char* input_path, const char* output_path) {
     }
     
     printf("Type checking successful\n");
+    
+    // Step 3.5: Optimization
+    printf("Step 3.5: Optimizing...\n");
+    program = optimize_ast(program);
+    print_optimization_stats();
     
     // Step 4: Code Generation
     printf("Step 4: Generating C code...\n");
@@ -201,29 +216,56 @@ int compile_c_to_exe(const char* c_file, const char* exe_file) {
     return result == 0;
 }
 
+void print_help(const char* program_name) {
+    printf("Aether Compiler v%s\n\n", AETHER_VERSION);
+    printf("Usage:\n");
+    printf("  %s <input.ae> <output.c>         Compile Aether to C\n", program_name);
+    printf("  %s run <input.ae>                Compile and run immediately\n", program_name);
+    printf("\n");
+    printf("Options:\n");
+    printf("  --version, -v                    Show version information\n");
+    printf("  --verbose                        Show detailed compilation phases and timing\n");
+    printf("  --help, -h                       Show this help message\n");
+    printf("\n");
+    printf("Examples:\n");
+    printf("  %s hello.ae hello.c              Compile to C\n", program_name);
+    printf("  %s run hello.ae                  Quick run\n", program_name);
+    printf("  %s --verbose hello.ae hello.c    Compile with timing info\n", program_name);
+}
+
 int main(int argc, char *argv[]) {
-    // Version flag (check before other args)
-    if (argc >= 2 && (strcmp(argv[1], "--version") == 0 || strcmp(argv[1], "-v") == 0)) {
-        printf("Aether Compiler v%s\n", AETHER_VERSION);
-        return 0;
+    // Parse flags
+    int arg_offset = 1;
+    while (arg_offset < argc && argv[arg_offset][0] == '-') {
+        if (strcmp(argv[arg_offset], "--version") == 0 || strcmp(argv[arg_offset], "-v") == 0) {
+            printf("Aether Compiler v%s\n", AETHER_VERSION);
+            return 0;
+        } else if (strcmp(argv[arg_offset], "--help") == 0 || strcmp(argv[arg_offset], "-h") == 0) {
+            print_help(argv[0]);
+            return 0;
+        } else if (strcmp(argv[arg_offset], "--verbose") == 0) {
+            verbose_mode = true;
+            arg_offset++;
+        } else {
+            fprintf(stderr, "Unknown option: %s\n", argv[arg_offset]);
+            fprintf(stderr, "Use --help for usage information\n");
+            return 1;
+        }
     }
     
-    if (argc < 2) {
-        fprintf(stderr, "Usage:\n");
-        fprintf(stderr, "  Compile to C: %s <input.ae> <output.c>\n", argv[0]);
-        fprintf(stderr, "  Run directly: %s run <input.ae>\n", argv[0]);
-        fprintf(stderr, "  Version:     %s --version\n", argv[0]);
+    if (argc - arg_offset < 1) {
+        print_help(argv[0]);
         return 1;
     }
 
     // Check for "run" command
-    if (strcmp(argv[1], "run") == 0) {
-        if (argc < 3) {
+    if (strcmp(argv[arg_offset], "run") == 0) {
+        if (argc - arg_offset < 2) {
             fprintf(stderr, "Usage: %s run <input.ae>\n", argv[0]);
             return 1;
         }
         
-        const char* input_path = argv[2];
+        const char* input_path = argv[arg_offset + 1];
         
         // Generate temp filenames
         char c_path[256];
@@ -258,15 +300,16 @@ int main(int argc, char *argv[]) {
     }
     
     // Default mode: Compile to C (original behavior)
-    if (argc < 3) {
+    if (argc - arg_offset < 2) {
         fprintf(stderr, "Usage: %s <input.ae> <output.c>\n", argv[0]);
+        fprintf(stderr, "Use --help for more information\n");
         return 1;
     }
     
-    if (!compile_source(argv[1], argv[2])) {
+    if (!compile_source(argv[arg_offset], argv[arg_offset + 1])) {
         return 1;
     }
     
-    printf("Output written to %s\n", argv[2]);
+    printf("Output written to %s\n", argv[arg_offset + 1]);
     return 0;
 }

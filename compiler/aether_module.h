@@ -46,6 +46,29 @@ int module_is_exported(AetherModule* module, const char* symbol);
 // Module resolution
 AetherModule* module_resolve(const char* import_path);
 char* module_resolve_symbol(const char* module_name, const char* symbol);
+AetherModule* module_load_from_file(const char* import_path, const char* base_dir);
+char* module_resolve_file_path(const char* import_path, const char* base_dir);
+
+// Dependency graph
+typedef struct DependencyNode {
+    char* module_name;
+    struct DependencyNode** dependencies;
+    int dependency_count;
+    int visited;  // For circular detection
+    int in_stack; // For circular detection
+} DependencyNode;
+
+typedef struct {
+    DependencyNode** nodes;
+    int node_count;
+} DependencyGraph;
+
+DependencyGraph* dependency_graph_create();
+void dependency_graph_free(DependencyGraph* graph);
+DependencyNode* dependency_graph_add_node(DependencyGraph* graph, const char* module_name);
+void dependency_graph_add_edge(DependencyGraph* graph, const char* from, const char* to);
+int dependency_graph_has_cycle(DependencyGraph* graph);
+DependencyNode* dependency_graph_find_node(DependencyGraph* graph, const char* module_name);
 
 // Package manifest (aether.toml)
 typedef struct {

@@ -1,0 +1,13 @@
+# Aether language files
+*.ae linguist-language=Aether
+
+# Documentation
+*.md linguist-documentation
+
+# Generated files
+*.c linguist-generated=true
+*.h linguist-generated=false
+
+# Vendored dependencies (if any)
+# vendor/* linguist-vendored
+

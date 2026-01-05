@@ -6,6 +6,34 @@
 #include <string.h>
 #include <stdbool.h>
 #include <setjmp.h>
+#include <time.h>
+
+// ANSI color codes
+#ifdef _WIN32
+    #define COLOR_RED ""
+    #define COLOR_GREEN ""
+    #define COLOR_YELLOW ""
+    #define COLOR_CYAN ""
+    #define COLOR_RESET ""
+#else
+    #define COLOR_RED "\033[0;31m"
+    #define COLOR_GREEN "\033[0;32m"
+    #define COLOR_YELLOW "\033[1;33m"
+    #define COLOR_CYAN "\033[0;36m"
+    #define COLOR_RESET "\033[0m"
+#endif
+
+// Test categories
+typedef enum {
+    TEST_CATEGORY_COMPILER,
+    TEST_CATEGORY_RUNTIME,
+    TEST_CATEGORY_COLLECTIONS,
+    TEST_CATEGORY_NETWORK,
+    TEST_CATEGORY_MEMORY,
+    TEST_CATEGORY_STDLIB,
+    TEST_CATEGORY_PARSER,
+    TEST_CATEGORY_OTHER
+} TestCategory;
 
 // Test failure handling
 extern jmp_buf test_failure_jmp;
@@ -18,6 +46,8 @@ typedef struct {
     const char* file;
     int line;
     const char* message;
+    long duration_ms;
+    TestCategory category;
 } TestResult;
 
 // Test function pointer
@@ -25,10 +55,13 @@ typedef void (*TestFunction)(void);
 
 // Test registration
 void register_test(const char* name, TestFunction func);
+void register_test_with_category(const char* name, TestFunction func, TestCategory category);
 void run_all_tests(void);
+void run_tests_by_category(TestCategory category);
 int get_test_count(void);
 int get_passed_count(void);
 int get_failed_count(void);
+const char* get_category_name(TestCategory category);
 
 // Assertion macros - now use longjmp for proper test isolation
 #define ASSERT_TRUE(condition) \
@@ -120,11 +153,27 @@ int get_failed_count(void);
         } \
         static int register_##name##_dummy = register_##name(); \
         static void test_##name(void)
+    
+    #define TEST_CATEGORY(name, cat) \
+        static void test_##name(void); \
+        static int register_##name(void) { \
+            register_test_with_category(#name, test_##name, cat); \
+            return 0; \
+        } \
+        static int register_##name##_dummy = register_##name(); \
+        static void test_##name(void)
 #else
     #define TEST(name) \
         static void test_##name(void); \
         static void __attribute__((constructor)) register_##name(void) { \
             register_test(#name, test_##name); \
+        } \
+        static void test_##name(void)
+    
+    #define TEST_CATEGORY(name, cat) \
+        static void test_##name(void); \
+        static void __attribute__((constructor)) register_##name(void) { \
+            register_test_with_category(#name, test_##name, cat); \
         } \
         static void test_##name(void)
 #endif

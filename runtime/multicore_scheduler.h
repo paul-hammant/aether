@@ -8,6 +8,7 @@
 
 #define MAX_ACTORS_PER_CORE 10000
 #define MAX_CORES 16
+#define BATCH_SIZE 32  // Process up to 32 messages per actor per round
 
 typedef struct {
     int id;
@@ -25,6 +26,8 @@ typedef struct {
     int capacity;
     LockFreeQueue incoming_queue;
     atomic_int running;
+    atomic_int work_count;  // For work stealing
+    atomic_int steal_attempts;  // Statistics
 } Scheduler;
 
 extern Scheduler schedulers[MAX_CORES];

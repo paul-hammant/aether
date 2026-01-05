@@ -1,266 +1,297 @@
 # Contributing to Aether
 
-Thank you for your interest in contributing to Aether! This document provides guidelines for contributing to the project.
-
-## Code of Conduct
-
-By participating in this project, you agree to abide by our [Code of Conduct](CODE_OF_CONDUCT.md). Please read it before contributing.
-
-## Getting Started
-
-### Prerequisites
-
-- **GCC compiler** (MinGW on Windows)
-- **Git** for version control
-- **Make** (optional, can use build scripts)
-- Basic knowledge of C and compilers (helpful but not required)
-
-### Setting Up Development Environment
-
-1. **Fork and clone the repository:**
-```bash
-git clone https://github.com/YOUR_USERNAME/aether.git
-cd aether
-```
-
-2. **Build the compiler:**
-```bash
-# Linux/macOS
-make
-
-# Windows
-.\build_compiler.ps1
-```
-
-3. **Run tests to verify:**
-```bash
-make test
-# or
-.\test_all_examples.ps1
-```
-
-## Development Workflow
-
-### Before You Start
-
-1. **Check existing issues** - Someone might already be working on it
-2. **Open an issue** - Discuss major changes before implementing
-3. **Create a branch** - Use descriptive names: `feature/add-pattern-matching` or `fix/parser-infinite-loop`
-
-### Making Changes
-
-1. **Write clean code:**
-   - Follow the code style guide (below)
-   - Add comments for complex logic
-   - Keep functions focused and small
-
-2. **Add tests:**
-   - Add test cases for new features in `tests/`
-   - Add example programs in `examples/`
-   - Ensure all tests pass
-
-3. **Update documentation:**
-   - Update relevant docs in `docs/`
-   - Add docstrings to new functions
-   - Update README if needed
-
-4. **Commit messages:**
-   - Use clear, descriptive commit messages
-   - Format: `type: brief description`
-   - Types: `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `chore`
-   - Example: `feat: add pattern matching for match statements`
-
-### Submitting Changes
-
-1. **Push your branch:**
-```bash
-git push origin feature/your-feature-name
-```
-
-2. **Create a Pull Request:**
-   - Use the PR template
-   - Link related issues
-   - Describe your changes clearly
-   - Add screenshots if applicable
-
-3. **Code Review:**
-   - Respond to feedback promptly
-   - Make requested changes
-   - Be open to suggestions
+Thank you for your interest in contributing to Aether. This document outlines the guidelines for contributing code, tests, and documentation.
 
 ## Code Style
 
-### C Code
+### General Guidelines
 
-- **Indentation:** 4 spaces (no tabs)
-- **Function names:** `snake_case`
-- **Type names:** `PascalCase`
-- **Constants:** `UPPER_SNAKE_CASE`
-- **Macros:** `UPPER_SNAKE_CASE`
-- **Brace style:** K&R (opening brace on same line)
+- Use 2-space indentation (no tabs)
+- Maximum line length: 100 characters
+- Use descriptive variable and function names
+- Add comments for complex logic
+
+### Naming Conventions
+
+```c
+// Types: PascalCase
+typedef struct AetherModule { ... } AetherModule;
+
+// Functions: snake_case
+void parse_expression(Parser* parser);
+ASTNode* create_ast_node(ASTNodeType type);
+
+// Variables: snake_case
+int token_count = 0;
+const char* module_name = "std.io";
+
+// Constants: UPPER_SNAKE_CASE
+#define MAX_TOKENS 1000
+#define DEFAULT_BUFFER_SIZE 4096
+
+// Private functions: static with leading underscore (optional)
+static void _internal_helper(void);
+```
+
+### File Organization
+
+```c
+// 1. Includes (system headers first, then local)
+#include <stdio.h>
+#include <stdlib.h>
+#include "aether_types.h"
+#include "aether_parser.h"
+
+// 2. Constants and macros
+#define MAX_BUFFER 256
+
+// 3. Type definitions
+typedef struct { ... } MyStruct;
+
+// 4. Forward declarations
+static void helper_function(void);
+
+// 5. Global variables (avoid when possible)
+static int global_counter = 0;
+
+// 6. Function implementations
+void public_function(void) {
+    // Implementation
+}
+
+static void helper_function(void) {
+    // Implementation
+}
+```
+
+### Memory Management
+
+- Always check for `NULL` returns from allocation functions
+- Free all allocated memory
+- Use `defer` statement when available for automatic cleanup
+- Run Valgrind to verify no memory leaks
 
 ```c
 // Good
-int calculate_sum(int a, int b) {
-    return a + b;
+char* buffer = malloc(256);
+if (!buffer) {
+    return NULL;
 }
+// ... use buffer ...
+free(buffer);
 
-// Bad
-int CalculateSum(int a, int b)
-{
-  return a+b;
+// Better (when available)
+char* buffer = malloc(256);
+defer(free(buffer));
+if (!buffer) {
+    return NULL;
 }
+// ... use buffer ...
+// Automatically freed on scope exit
 ```
 
-### Aether Code
+## Adding Tests
 
-- Clean, readable syntax
-- Meaningful variable names
-- Comments for complex logic
-- Follow examples in `examples/`
+### Test Structure
 
-### Comments
+Tests are located in the `tests/` directory and use the test harness framework.
 
 ```c
-// Good: Explains WHY
-// Use binary search because the array is sorted
-int result = binary_search(arr, target);
+#include "test_harness.h"
 
-// Bad: Explains WHAT (obvious from code)
-// Call binary search function
-int result = binary_search(arr, target);
+// Simple test
+TEST(my_feature) {
+    ASSERT_EQ(add(2, 3), 5);
+    ASSERT_TRUE(is_valid("test"));
+}
+
+// Test with category
+TEST_CATEGORY(hashmap_insert, TEST_CATEGORY_COLLECTIONS) {
+    HashMap* map = hashmap_create(16);
+    ASSERT_NOT_NULL(map);
+    
+    hashmap_insert(map, "key", "value");
+    ASSERT_STREQ(hashmap_get(map, "key"), "value");
+    
+    hashmap_free(map);
+}
 ```
 
-## Project Structure
+### Test Categories
 
+- `TEST_CATEGORY_COMPILER` - Lexer, parser, type checker, code generator
+- `TEST_CATEGORY_RUNTIME` - Actor system, scheduler, message passing
+- `TEST_CATEGORY_COLLECTIONS` - HashMap, Set, Vector, PriorityQueue
+- `TEST_CATEGORY_NETWORK` - HTTP, TCP, networking utilities
+- `TEST_CATEGORY_MEMORY` - Arena allocators, memory pools, leak detection
+- `TEST_CATEGORY_STDLIB` - Standard library functions
+- `TEST_CATEGORY_PARSER` - Parser-specific tests
+- `TEST_CATEGORY_OTHER` - Miscellaneous tests
+
+### Assertion Macros
+
+```c
+ASSERT_TRUE(condition)          // Assert condition is true
+ASSERT_FALSE(condition)         // Assert condition is false
+ASSERT_EQ(expected, actual)     // Assert equality (integers)
+ASSERT_NE(expected, actual)     // Assert inequality
+ASSERT_STREQ(expected, actual)  // Assert string equality
+ASSERT_STRNE(expected, actual)  // Assert string inequality
+ASSERT_NULL(ptr)                // Assert pointer is NULL
+ASSERT_NOT_NULL(ptr)            // Assert pointer is not NULL
 ```
-aether/
-├── compiler/           # Compiler source code
-│   ├── lexer.c/.h     # Tokenization
-│   ├── parser.c/.h    # AST generation
-│   ├── typechecker.c  # Type checking
-│   ├── codegen.c/.h   # C code generation
-│   └── ...
-├── runtime/           # Runtime libraries
-│   ├── aether_string.c/.h
-│   ├── aether_math.c/.h
-│   ├── multicore_scheduler.c/.h
-│   └── ...
-├── examples/          # Example Aether programs
-├── tests/            # Test suite (C tests)
-├── docs/             # Documentation
-├── lsp/              # Language server
-└── editor/           # Editor integrations
-```
-
-## Areas to Contribute
-
-### For Beginners
-
-- **Documentation:** Fix typos, improve clarity, add examples
-- **Examples:** Create new example programs
-- **Tests:** Add test cases for edge cases
-- **Bug reports:** File detailed bug reports with reproducible examples
-
-### Intermediate
-
-- **Bug fixes:** Fix reported bugs
-- **Error messages:** Improve error reporting
-- **Standard library:** Add new stdlib functions
-- **Tooling:** Improve build scripts, testing
-
-### Advanced
-
-- **Compiler features:** New language features
-- **Optimizations:** Performance improvements
-- **Runtime:** Actor system enhancements
-- **LSP:** Language server implementation
-
-## Testing
 
 ### Running Tests
 
 ```bash
-# Run all tests
+# All tests
 make test
 
-# Run specific example
-aether run examples/basic/hello_world.ae
+# Specific category (when implemented)
+./build/test_runner --category=collections
 
-# Test on multiple platforms (CI will do this)
+# With Valgrind
+make test-valgrind
+
+# With AddressSanitizer
+make test-asan
 ```
 
-### Writing Tests
+## Pull Request Requirements
 
-1. **Unit tests** go in `tests/test_*.c`
-2. **Integration tests** are `.ae` files in `examples/tests/`
-3. **Add to test suite** in `test_all_examples.ps1`
+### Before Submitting
 
-Example test:
+1. **Code compiles without warnings**
+   ```bash
+   make clean
+   make compiler
+   ```
+
+2. **All tests pass**
+   ```bash
+   make test
+   ```
+
+3. **No memory leaks**
+   ```bash
+   valgrind ./build/test_runner
+   # Should report: "definitely lost: 0 bytes"
+   ```
+
+4. **Add tests for new features**
+   - New feature = new test
+   - Bug fix = regression test
+
+5. **Update documentation**
+   - Add/update comments in code
+   - Update README.md if adding user-facing features
+   - Update docs/ if changing language behavior
+
+### PR Template
+
+```markdown
+## Description
+Brief description of changes
+
+## Type of Change
+- [ ] Bug fix
+- [ ] New feature
+- [ ] Performance improvement
+- [ ] Documentation update
+
+## Testing
+- [ ] Added tests for new functionality
+- [ ] All tests pass (make test)
+- [ ] Valgrind reports no leaks
+- [ ] Tested on Linux/macOS/Windows (if applicable)
+
+## Performance Impact
+- [ ] No performance impact
+- [ ] Performance improvement (include benchmarks)
+- [ ] Performance regression (explain why acceptable)
+
+## Checklist
+- [ ] Code follows style guidelines
+- [ ] Self-review completed
+- [ ] Comments added for complex logic
+- [ ] Documentation updated
+```
+
+### Review Process
+
+1. Automated CI checks must pass (all platforms, memory safety, benchmarks)
+2. Code review by maintainer
+3. Address feedback
+4. Merge when approved
+
+## Common Pitfalls
+
+### Memory Management
+
 ```c
-TEST(example_feature) {
-    // Arrange
-    int input = 42;
-    
-    // Act
-    int result = my_function(input);
-    
-    // Assert
-    ASSERT_EQ(result, expected_value);
+// BAD: Memory leak
+char* create_string(void) {
+    char* str = malloc(100);
+    strcpy(str, "test");
+    return str;  // Caller must remember to free
+}
+
+// GOOD: Document ownership
+// Returns: Newly allocated string (caller must free)
+char* create_string(void) {
+    char* str = malloc(100);
+    strcpy(str, "test");
+    return str;
+}
+
+// BETTER: Use arena allocation
+char* create_string(Arena* arena) {
+    char* str = arena_alloc(arena, 100);
+    strcpy(str, "test");
+    return str;  // Freed when arena is freed
 }
 ```
 
-## Documentation
+### Error Handling
 
-### What to Document
+```c
+// BAD: Ignoring errors
+FILE* f = fopen("file.txt", "r");
+fread(buffer, 1, 100, f);  // Crashes if f is NULL
 
-- **New features:** Add to `docs/language-reference.md`
-- **API changes:** Update `docs/runtime-guide.md`
-- **Tutorials:** Add to `docs/tutorial.md`
-- **Code:** Add docstrings to functions
+// GOOD: Check for errors
+FILE* f = fopen("file.txt", "r");
+if (!f) {
+    fprintf(stderr, "Failed to open file\n");
+    return -1;
+}
+defer(fclose(f));
+```
 
-### Documentation Style
+### Platform-Specific Code
 
-- Clear and concise
-- Include code examples
-- Explain the "why" not just the "what"
-- Keep it up-to-date with code changes
+```c
+// BAD: Linux-specific
+#include <unistd.h>
+usleep(1000);
 
-## Issue Labels
-
-- `bug` - Something isn't working
-- `enhancement` - New feature or request
-- `documentation` - Documentation improvements
-- `good first issue` - Good for newcomers
-- `help wanted` - Extra attention needed
-- `question` - Further information requested
-
-## Release Process
-
-(For maintainers)
-
-1. Update version in `compiler/aetherc.c`
-2. Update CHANGELOG.md
-3. Create git tag: `git tag v0.1.0`
-4. Push tag: `git push origin v0.1.0`
-5. GitHub Actions will create release
+// GOOD: Cross-platform
+#ifdef _WIN32
+    #include <windows.h>
+    Sleep(1);  // milliseconds
+#else
+    #include <unistd.h>
+    usleep(1000);  // microseconds
+#endif
+```
 
 ## Getting Help
 
-- **Questions:** Open an issue with the `question` label
-- **Discussions:** Use GitHub Discussions
-- **Discord:** [Coming soon]
-- **Email:** [Coming soon]
+- GitHub Issues: Report bugs and request features
+- Discussions: Ask questions and share ideas
+- Code Comments: Explain complex implementations
+- Documentation: Check docs/ folder for language details
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the MIT License.
-
-## Recognition
-
-Contributors will be recognized in:
-- GitHub contributors page
-- CONTRIBUTORS.md file (planned)
-- Release notes for significant contributions
-
-Thank you for contributing to Aether! 🚀
+By contributing to Aether, you agree that your contributions will be licensed under the MIT License.

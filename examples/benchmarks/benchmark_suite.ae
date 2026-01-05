@@ -1,0 +1,146 @@
+// Comprehensive Aether Benchmark Suite
+// Tests: Actor throughput, Collections, Memory allocation
+
+import std.collections.HashMap
+import std.collections.Vector
+
+// Benchmark 1: Actor Ring (Message Throughput)
+actor RingNode {
+    state {
+        next: ActorRef[RingNode]
+        count: int
+    }
+    
+    receive {
+        "init" => {
+            count = 0
+        }
+        
+        "token" => {
+            count = count + 1
+            if (count < 10000) {
+                send next, "token"
+            } else {
+                print("Ring complete: " + count + " messages")
+            }
+        }
+    }
+}
+
+// Benchmark 2: HashMap Performance
+actor HashMapBench {
+    receive {
+        "run" => {
+            let map = HashMap.new()
+            
+            // Insert 100k entries
+            for (let i = 0; i < 100000; i = i + 1) {
+                map.insert("key" + i, i)
+            }
+            
+            // Lookup all entries
+            let sum = 0
+            for (let i = 0; i < 100000; i = i + 1) {
+                sum = sum + map.get("key" + i)
+            }
+            
+            print("HashMap benchmark: " + sum)
+        }
+    }
+}
+
+// Benchmark 3: Vector Operations  
+actor VectorBench {
+    receive {
+        "run" => {
+            let vec = Vector.new()
+            
+            // Push 50k elements
+            for (let i = 0; i < 50000; i = i + 1) {
+                vec.push(i)
+            }
+            
+            // Access elements
+            let sum = 0
+            for (let i = 0; i < 50000; i = i + 1) {
+                sum = sum + vec.get(i)
+            }
+            
+            print("Vector benchmark: " + sum)
+        }
+    }
+}
+
+// Benchmark 4: Recursive Fibonacci (Tail Call Optimization Test)
+func fib_tail(n: int, a: int, b: int): int {
+    if (n == 0) {
+        return a
+    }
+    return fib_tail(n - 1, b, a + b)
+}
+
+actor FibBench {
+    receive {
+        "run" => {
+            let result = fib_tail(10000, 0, 1)
+            print("Fibonacci(10000): " + result)
+        }
+    }
+}
+
+// Benchmark 5: Constant Folding Test
+actor ConstantBench {
+    receive {
+        "run" => {
+            // These should be folded at compile time
+            let a = 2 + 3 * 4
+            let b = 100 / 5 + 20
+            let c = (10 * 10) - (5 * 5)
+            
+            let result = a + b + c
+            print("Constant folding: " + result)
+        }
+    }
+}
+
+main {
+    print("=== Aether Benchmark Suite ===")
+    print("")
+    
+    print("1. Actor Ring Benchmark (10k messages)")
+    let first = spawn RingNode
+    let prev = first
+    
+    for (let i = 0; i < 100; i = i + 1) {
+        let node = spawn RingNode
+        send prev, "next" -> node
+        send node, "init"
+        prev = node
+    }
+    
+    send first, "token"
+    
+    print("")
+    print("2. HashMap Benchmark")
+    let mapbench = spawn HashMapBench
+    send mapbench, "run"
+    
+    print("")
+    print("3. Vector Benchmark")
+    let vecbench = spawn VectorBench
+    send vecbench, "run"
+    
+    print("")
+    print("4. Tail Call Optimization")
+    let fibbench = spawn FibBench
+    send fibbench, "run"
+    
+    print("")
+    print("5. Constant Folding")
+    let constbench = spawn ConstantBench
+    send constbench, "run"
+    
+    print("")
+    print("=== Benchmark Complete ===")
+}
+

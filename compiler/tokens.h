@@ -81,6 +81,7 @@ typedef enum {
     TOKEN_DOT,
     TOKEN_COLON,
     TOKEN_ARROW,
+    TOKEN_PIPE,
     
     // Special
     TOKEN_PRINT,
