@@ -62,15 +62,64 @@ make test              # Run tests
 
 ## Building from Source
 
+### Prerequisites
+
+- **GCC** 11+ or Clang 14+
+- **Make** (optional, can use `build.ps1` on Windows)
+- **Git**
+
+### Platform-Specific Setup
+
+**Windows:**
+- Install MinGW-w64: https://www.mingw-w64.org/
+- Use `build.ps1` PowerShell script (no make required)
+- See [WINDOWS_SETUP.md](WINDOWS_SETUP.md) for detailed guide
+
+**Linux/macOS:**
+- Install GCC: `sudo apt install gcc make` (Ubuntu) or `brew install gcc` (macOS)
+- Use Makefile for builds
+
+**Docker (All Platforms):**
+- Install Docker Desktop
+- See [DOCKER.md](DOCKER.md) for complete guide
+- Provides consistent Linux environment on any OS
+
 ### Quick Build (Development)
 
 ```bash
-# Windows
-gcc compiler/*.c runtime/*.c -I runtime -o aetherc.exe -O2
+# Windows - PowerShell script (Recommended)
+.\build.ps1 -Fast              # Fast build
+.\build.ps1 -Parallel          # Parallel build (2-4x faster)
 
-# Linux/macOS
-make
+# Linux/macOS - Makefile
+make compiler                  # Build compiler
+make -j$(nproc) compiler       # Parallel build
+
+# Docker (Any OS)
+docker build -t aether:latest .
+docker run -it -v $(pwd):/aether aether:latest make compiler
 ```
+
+### Docker Quick Start
+
+Docker provides the easiest cross-platform development environment:
+
+```powershell
+# Windows PowerShell
+docker build -t aether:latest .
+docker run -it -v ${PWD}:/aether aether:latest /bin/bash
+
+# Inside container
+make compiler
+make test
+./build/aetherc examples/basic/hello_world.ae output.c
+```
+
+See [DOCKER.md](DOCKER.md) for:
+- Docker Compose workflows
+- Development environment setup
+- CI/CD integration
+- Volume mounting and file sharing
 
 ### Optimized Build (Production)
 
