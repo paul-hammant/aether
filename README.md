@@ -11,31 +11,32 @@ A high-performance, actor-based systems programming language designed for modern
 Aether is a compiled language that brings Erlang-style actor concurrency to systems programming. Built for performance-critical applications requiring high throughput and low latency, Aether compiles directly to C for maximum portability and zero runtime overhead.
 
 **What makes Aether different:**
-- Lock-free actor mailboxes with 1.8x speedup under multi-core contention
+- Lock-free actor mailboxes for high-throughput message passing
+- Type-specific memory pools for efficient allocation
+- Zero-copy ownership transfer for large messages
 - Gradual type system combining type inference with optional annotations
-- Zero-copy message passing between actors
-- Sub-microsecond actor spawn latency
 - Compiles to readable, portable C code
 
 ## Performance
 
-Real-world benchmark results on Intel i7-13700K (4 cores):
+Aether's runtime system is designed for high-throughput, low-latency actor communication on modern multi-core hardware. The implementation uses lock-free data structures, zero-copy message passing, and cache-conscious memory layouts.
 
-| Metric | Performance |
-|--------|-------------|
-| Message throughput (lock-free) | 2,764 M msg/sec |
-| Message throughput (simple) | 1,536 M msg/sec |
-| Multi-core speedup | 1.8x |
-| Actor memory footprint | 128 bytes |
+Key architectural features:
+- Lock-free SPSC mailboxes eliminate synchronization overhead
+- Type-specific memory pools reduce allocation latency
+- Zero-copy ownership transfer avoids memcpy for large messages
+- Computed goto dispatch minimizes message handling overhead
 
-See [experiments/concurrency/RESULTS.md](experiments/concurrency/RESULTS.md) for detailed benchmarks.
+For detailed performance analysis and benchmarks, see [experiments/concurrency/](experiments/concurrency/).
 
 ## Key Features
 
 ### Concurrency & Performance
-- **Lock-Free Mailboxes**: SPSC atomic queues with cache-line alignment
+- **Lock-Free Mailboxes**: SPSC atomic queues eliminate synchronization overhead
+- **Zero-Copy Messaging**: Ownership transfer avoids memcpy for large messages
+- **Type-Specific Pools**: Compile-time pool generation with zero-branch allocation
+- **Computed Goto Dispatch**: Direct label jumps minimize dispatch overhead
 - **Auto-Tuning Runtime**: CPU feature detection (AVX2, MWAIT, SSE4.2)
-- **Zero-Sharing Design**: Partitioned scheduler eliminates contention
 - **Adaptive Idle**: Multi-phase idle strategy (spin → pause → MWAIT → sleep)
 
 ### Type System

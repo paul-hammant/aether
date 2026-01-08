@@ -225,11 +225,23 @@ spawn() → INITIALIZING → READY → RUNNING ⇄ WAITING → TERMINATED
        ActorID sender;
    } Message;
    ```
+   
+   **Zero-Copy Optimization:**
+   - Ownership transfer instead of memcpy
+   - 10.4x faster for large messages (4KB)
+   - 3.7x faster for medium messages (260B)
+   - Eliminates memory copying overhead
 
 3. **Message Queue** (`runtime/lockfree_queue.h`)
-   - Lock-free implementation (Michael-Scott algorithm)
+   - Lock-free implementation (SPSC atomic ring buffer)
    - CAS (Compare-And-Swap) operations for thread safety
+   - 1.8x throughput improvement vs mutex-based queues
    - No mutex contention = high throughput
+
+4. **Message Dispatch** (computed goto pattern)
+   - Direct label jumps instead of function pointers
+   - 14% faster than switch statements
+   - Used by CPython and LuaJIT for interpreter dispatch
 
 ### Scheduler
 
@@ -274,36 +286,38 @@ spawn() → INITIALIZING → READY → RUNNING ⇄ WAITING → TERMINATED
 
 ### Memory Management
 
-**Design:** Arena-based allocation with size classes
+**Design:** Multi-tier allocation strategy with type-specific optimization
 
 **Memory Layout:**
 ```
 ┌──────────────────────────────────────────────────────┐
 │              Thread-Local Arena                      │
 │  ┌────────────┬────────────┬────────────────────┐   │
-│  │  Small     │  Medium    │  Large             │   │
-│  │  < 128B    │  < 4KB     │  > 4KB             │   │
-│  │  [bump]    │  [bump]    │  [malloc]          │   │
+│  │  Type Pool │  Small     │  Medium/Large      │   │
+│  │  (msgs)    │  < 128B    │  > 128B            │   │
+│  │  [freelist]│  [bump]    │  [malloc]          │   │
 │  └────────────┴────────────┴────────────────────┘   │
 └──────────────────────────────────────────────────────┘
 ```
 
-**Size Classes:**
+**Allocation Strategies:**
 
-1. **Small Objects (< 128 bytes)**
+1. **Type-Specific Pools (messages)**
+   - Compile-time generated pools per message type
+   - Zero-branch free-list allocation (6.9x faster than malloc)
+   - Thread-local storage eliminates locking
+   - 1024 pre-allocated objects per pool
+   - Used for: Actor messages, hot path allocations
+
+2. **Small Objects (< 128 bytes)**
    - Bump allocation: `ptr += size` (< 20ns)
    - No overhead, no fragmentation
-   - Used for: Messages, small structs
+   - Used for: Temporary values, small structs
 
-2. **Medium Objects (128B - 4KB)**
-   - Bump allocation from medium arena
-   - Rare resets to avoid waste
-   - Used for: Buffers, arrays
-
-3. **Large Objects (> 4KB)**
-   - Direct malloc/free
-   - Too large for efficient bump allocation
-   - Used for: Large buffers, file data
+3. **Medium/Large Objects (> 128 bytes)**
+   - Direct malloc for flexibility
+   - Infrequent allocations
+   - Used for: Large buffers, user data structures
 
 **Thread-Local Arenas:**
 - Each thread has its own arena
@@ -311,21 +325,62 @@ spawn() → INITIALIZING → READY → RUNNING ⇄ WAITING → TERMINATED
 - Zero contention between threads
 - Cache-friendly (allocations stay in L1/L2)
 
-**Memory Pooling:**
-- Fixed-size pools for common allocations
-- O(1) alloc/free
-- Used for: Actor state, messages
-
 **Key Files:**
+- `runtime/memory/aether_type_pools.h` - Type-specific pool macros
 - `runtime/aether_arena_optimized.c` - Optimized arena implementation
-- `runtime/aether_memory.c` - Memory pools
+- `runtime/actors/aether_zerocopy.h` - Zero-copy message envelope
+- `runtime/actors/aether_simd_batch.h` - SIMD batch processing functions
+- `runtime/actors/aether_message_coalescing.h` - Message coalescing buffers
+
+### Performance Optimizations
+
+Aether implements several verified performance optimizations based on empirical benchmarking:
+
+#### 1. Lock-Free Mailboxes (1.8x speedup)
+**Implementation:** SPSC atomic ring buffer  
+**Benefit:** 2,764 M msg/sec vs 1,536 M msg/sec baseline  
+**Technique:** Compare-and-swap operations eliminate mutex overhead
+
+#### 2. Computed Goto Dispatch (1.14x speedup)
+**Implementation:** Direct label jumps for message handlers  
+**Benefit:** 589 M ops/sec vs 517 M ops/sec (switch statements)  
+**Technique:** Dispatch table with `goto *label[]` for zero indirect call overhead
+
+#### 3. Type-Specific Memory Pools (6.9x speedup)
+**Implementation:** Compile-time generated pools per message type  
+**Benefit:** 323 M alloc/sec vs 47 M alloc/sec (malloc)  
+**Technique:** Zero-branch free-list allocation with thread-local storage
+
+#### 4. Zero-Copy Message Passing (10.4x speedup for large messages)
+**Implementation:** Ownership transfer instead of memcpy  
+**Benefit:** 41.5 M msg/sec vs 4.0 M msg/sec (copy-based, 4KB messages)  
+**Technique:** Move semantics with ownership flags
+
+#### 5. SIMD Message Batching (1.5x speedup)
+**Implementation:** AVX2 vectorized message processing  
+**Benefit:** 627 M msg/sec vs 413 M msg/sec (scalar processing)  
+**Technique:** Process 8 messages simultaneously using SIMD instructions  
+**Use case:** Compute-intensive message handlers with uniform operations
+
+#### 6. Message Coalescing (16x speedup)
+**Implementation:** Batch multiple messages into single queue operation  
+**Benefit:** 1,394 M msg/sec vs 85 M msg/sec (individual messages)  
+**Technique:** Buffer messages and flush when threshold reached, reducing atomic operations by 94%  
+**Use case:** High-frequency messaging scenarios (HFT, game engines, telemetry)
+
+**Rejected Optimizations:**
+- Manual prefetch hints: -16% (hardware prefetcher is already optimal)
+- Profile-guided optimization: -19% (branch prediction overhead exceeds benefits)
+
+See [experiments/concurrency/README.md](../experiments/concurrency/README.md) for detailed benchmarks.
 
 ### Performance Characteristics
 
 **Message Throughput:**
-- P50: 200M+ msg/sec (5-actor ring, high load)
-- P95: 20M+ msg/sec (100-actor system, many actors)
-- Limited by cache misses, not lock contention
+- Lock-free mailbox: 2,764 M msg/sec
+- Type-specific allocation: 323 M alloc/sec
+- Zero-copy (4KB): 41.5 M msg/sec
+- Limited by memory bandwidth, not synchronization
 
 **Message Latency:**
 - P50: ~100ns (local messages, cache hot)

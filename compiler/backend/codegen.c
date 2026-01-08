@@ -1236,6 +1236,7 @@ void generate_program(CodeGenerator* gen, ASTNode* program) {
         print_line(gen, "#include \"aether_tracing.h\"");
         print_line(gen, "#include \"aether_bounds_check.h\"");
         print_line(gen, "#include \"aether_runtime_types.h\"");
+        print_line(gen, "#include \"aether_type_pools.h\"");
         print_line(gen, "");
         print_line(gen, "extern __thread int current_core_id;");
     }
@@ -1382,6 +1383,12 @@ void generate_program(CodeGenerator* gen, ASTNode* program) {
                     }
                     unindent(gen);
                     print_line(gen, "} %s;", child->value);
+                    print_line(gen, "");
+                    
+                    // Generate type-specific memory pool for this message type
+                    print_line(gen, "// Type-specific memory pool for %s", child->value);
+                    print_line(gen, "DECLARE_TYPE_POOL(%s)", child->value);
+                    print_line(gen, "DECLARE_TLS_POOL(%s)", child->value);
                     print_line(gen, "");
                     
                     register_message_type(gen->message_registry, child->value, first_field);
