@@ -1,30 +1,33 @@
 # Extreme Performance Optimizations - Beyond C
 
-This document outlines advanced optimization techniques to make Aether **competitive with or faster than** raw C in specific domains.
+Advanced optimization techniques to make Aether competitive with or faster than raw C.
 
-## Current Status: Already Excellent
+## Current Status
 
-✅ Lock-free mailbox (1.8x speedup)  
-✅ SIMD vectorization (AVX2)  
-✅ Thread-local storage pools  
-✅ MWAIT idle optimization  
-✅ Cache-line alignment  
-✅ Branch prediction hints  
+IMPLEMENTED:
+- Lock-free mailbox: 1.8x speedup (runtime/actors/lockfree_mailbox.h)
+- Computed goto dispatch: 1.14x speedup (compiler/backend/codegen.c)
+- SIMD vectorization: AVX2 support (runtime/utils/aether_simd_vectorized.c)
+- Thread-local storage pools (runtime/memory/aether_pool.c)
+- MWAIT idle optimization (runtime/scheduler/multicore_scheduler.c)
+- Cache-line alignment (64-byte alignment throughout)
+- Branch prediction hints (__builtin_expect everywhere)
 
-**But we can go further.**
+INVESTIGATED AND REJECTED:
+- Manual prefetch hints: -16% performance loss
+- Profile-guided optimization: -19% performance loss (for simple code)
+
+## Tested Optimizations
 
 ---
 
-## 1. Computed Goto Dispatch ✅ IMPLEMENTED
+## 1. Computed Goto Dispatch - IMPLEMENTED
 
-**Status:** ✅ **Implemented and benchmarked**
+**Status:** IMPLEMENTED in compiler/backend/codegen.c
 
-**Problem:** Actor message handlers use function pointer tables. Even better: computed goto.
+**Problem:** Message dispatch using switch statements or function pointers has indirect branch overhead.
 
-**Why it's faster:**
-- Direct jump to label (no indirect branch)
-- No branch predictor pollution
-- GCC-specific extension, but **blazing fast**
+**Solution:** Computed goto using GCC extension for direct label jumps.
 
 **Implementation:**
 
@@ -44,25 +47,29 @@ void actor_dispatch(Actor* self, Message* msg) {
         goto *dispatch_table[id];  // DIRECT JUMP - no branch misprediction
     }
     return;
-    
 handle_0:
     actor_handle_increment(self, msg);
     return;
 handle_1:
     actor_handle_decrement(self, msg);
     return;
-// ... etc
 }
 ```
 
-**Benchmark results (100M dispatches):**
-- Switch statement: 517.50 M/sec (baseline)
-- Function pointer: 581.57 M/sec (1.12x)
-- **Computed goto: 589.36 M/sec (1.14x)** ✅
+**Benchmark Results (100M dispatches, GCC -O3):**
 
-**Measured improvement:** 13.9% faster than switch, 1.3% faster than function pointers
+| Method | Throughput | Speedup |
+|--------|------------|---------|
+| Switch statement | 517.50 M/sec | 1.00x |
+| Function pointer | 581.57 M/sec | 1.12x |
+| Computed goto | 589.36 M/sec | 1.14x |
 
-**Rationale:** CPython uses this for bytecode dispatch (15-20% faster). JVM hotspot too.
+**Improvement:** 14% faster than switch, 1.3% faster than function pointers
+
+**Why it works:**
+- Direct jump to label (no indirect branch)
+- Eliminates branch predictor pollution
+- Used by CPython and JVM for bytecode dispatch
 
 **Run benchmark:**
 ```bash
@@ -71,21 +78,19 @@ make bench-dispatch
 
 ---
 
-## 2. Manual Prefetch Investigation ❌ NEGATIVE RESULT
+## 2. Manual Prefetch Investigation - NOT EFFECTIVE
 
-**Hypothesis:** Manual `__builtin_prefetch()` could improve ring buffer performance by 5-10%.
+**Status:** NOT IMPLEMENTED
 
-**Result:** **16% PERFORMANCE LOSS** - Hardware prefetcher already optimal.
+**Expected:** 5-10% improvement via manual cache line prefetching.  
+**Result:** -16% performance loss - Hardware prefetcher already optimal.
 
-**Benchmark Results (100M message ops, GCC -O3):**
-```
-Without prefetch:  633.65 M ops/sec  ✅ FASTER
-With prefetch:     531.14 M ops/sec  ❌ SLOWER (-16.2%)
+**Benchmark Results (100M ops, GCC -O3):**
 
-Batch operations:
-Without prefetch:  364.95 M ops/sec  ✅ FASTER
-With prefetch:     328.82 M ops/sec  ❌ SLOWER (-9.9%)
-```
+| Test | Without Prefetch | With Prefetch | Impact |
+|------|-----------------|---------------|--------|
+| Single Operations | 633.65 M/sec | 531.14 M/sec | -16% |
+| Batch Operations | 364.95 M/sec | 328.82 M/sec | -10% |
 
 **Why it failed:**
 - Ring buffer access is **sequential and predictable**
@@ -102,61 +107,50 @@ __builtin_prefetch(&mbox->messages[next_head], 0, 1);  // ❌ Hurts perf
 **When prefetch DOES help:**
 - Random/irregular access patterns (hash tables, skip lists)
 - Pointer chasing in linked structures with large gaps
-- Large datasets where hardware can't predict far ahead
+- Large datasets where hardware cannot predict far ahead
 
 **Conclusion:** Trust the hardware prefetcher for sequential ring buffers.
 
 **Run benchmark:**
-```bash
-make bench-prefetch
 ```
 
 ---
 
 ## 3. Inline Assembly for Ultra-Hot Paths
 
-**Problem:** Some operations are so hot they need **direct hardware access**.
+**Status:** PARTIALLY IMPLEMENTED (PAUSE instruction in scheduler)
 
-**Where:**
-1. **RDTSC** for high-precision timing (profiling)
-2. **PAUSE** in spin loops (better than `sched_yield()`)
-3. **MFENCE** for precise memory ordering
+**Problem:** Some operations benefit from direct hardware instructions.
+
+**Current usage:**
+1. PAUSE in spin loops (runtime/scheduler/multicore_scheduler.c)
+2. MFENCE for memory ordering (lock-free data structures)
 
 **Example:**
 
 ```c
-// Hot path: actor mailbox check with manual prefetch
-static inline int __attribute__((always_inline)) 
-mailbox_receive_optimized(Mailbox* mbox, Message* out) {
-    // Prefetch next message while checking current
-    __builtin_prefetch(&mbox->messages[(mbox->head + 1) & MAILBOX_MASK], 0, 1);
-    
-    if (unlikely(mbox->count == 0)) {
-        // Spin-wait hint (better than sched_yield)
-        #ifdef __x86_64__
-        __asm__ volatile("pause" ::: "memory");
-        #elif defined(__aarch64__)
-        __asm__ volatile("yield" ::: "memory");
-        #endif
-        return 0;
-    }
-    
-    *out = mbox->messages[mbox->head];
-    mbox->head = (mbox->head + 1) & MAILBOX_MASK;
-    mbox->count--;
-    return 1;
+// Spin-wait with CPU yield hint
+if (mailbox_empty(mbox)) {
+    #ifdef __x86_64__
+    __asm__ volatile("pause" ::: "memory");
+    #elif defined(__aarch64__)
+    __asm__ volatile("yield" ::: "memory");
+    #endif
+    return 0;
 }
 ```
 
-**Benchmark target:** 5-10% improvement in message receive hot path.
+**Note:** Most inline assembly is already handled by compiler intrinsics (__builtin_prefetch, atomics, etc).
 
 ---
 
-## 4. Type-Specific Memory Pools (Zero Malloc Overhead)
+## 4. Type-Specific Memory Pools
 
-**Problem:** Even TLS pools have *some* overhead. Type-specific pools are **faster**.
+**Status:** NOT YET IMPLEMENTED
 
-**Idea:** Generate a custom allocator per message type at compile time.
+**Problem:** General-purpose allocators have overhead from size calculation and fragmentation.
+
+**Idea:** Generate custom allocator per message type at compile time.
 
 ```c
 // Compiler generates this for each actor type:
@@ -181,21 +175,19 @@ static inline void free_increment_message(IncrementMessage* msg) {
 }
 ```
 
-**Why faster:**
-- No size calculation
-- No fragmentation
-- Cache-friendly (same type in same region)
-- **Zero branches** in allocation
+**Expected benefit:** 2-3x faster allocation for hot message types
 
-**Benchmark target:** 2-3x faster than general TLS pool for hot message types.
+**Implementation effort:** 4-6 hours (requires compiler codegen changes)
 
 ---
 
-## 5. Compile-Time Constant Folding (Beat C at Its Own Game)
+## 5. Compile-Time Constant Folding
 
-**Problem:** C compilers fold constants. But we control the **whole program**.
+**Status:** NOT YET IMPLEMENTED
 
-**Aether advantage:** We see the entire actor graph at compile time.
+**Problem:** Runtime computation of compile-time known values.
+
+**Advantage:** Compiler sees entire program, can fold constants and eliminate dispatch.
 
 **Example:**
 
@@ -248,41 +240,35 @@ void Counter_receive(Counter* self, Message* msg) {
 
 ---
 
-## 6. Profile-Guided Optimization (PGO) ❌ NOT EFFECTIVE FOR SIMPLE CODE
+## 6. Profile-Guided Optimization - NOT EFFECTIVE
 
-**Expected:** 10-20% improvement through better branch prediction and code layout.  
-**Result:** **-19% performance loss** for simple benchmarks - Actually hurts!
+**Status:** NOT IMPLEMENTED
+
+**Expected:** 10-20% improvement through better branch prediction.  
+**Result:** -19% performance loss for simple benchmarks.
 
 **Benchmark Results (100M operations, GCC -O3):**
-```
-                    Baseline    PGO         Change
-Message Dispatch:   1642 M/s    800 M/s    -51% ❌
-Memory Allocation:  27.8 M/s    29.7 M/s   +7%  ✓
-String Operations:  11.4 M/s    11.8 M/s   +4%  ✓
-Nested Loops:       3738 M/s    3560 M/s   -5%  ❌
----------------------------------------------------
-TOTAL SCORE:        5416        4399       -19% ❌
-```
+
+| Workload | Baseline | PGO | Impact |
+|----------|----------|-----|--------|
+| Message Dispatch | 1,642 M/sec | 800 M/sec | -51% |
+| Memory Allocation | 27.8 M/sec | 29.7 M/sec | +7% |
+| String Operations | 11.4 M/sec | 11.8 M/sec | +4% |
+| Nested Loops | 3,738 M/sec | 3,560 M/sec | -5% |
+| **Total Score** | **5,416** | **4,399** | **-19%** |
 
 **Why it failed:**
-- **Simple benchmarks have predictable branches** - hardware branch predictor already optimal
-- PGO adds overhead for profile checking and branch hints
-- Modern CPUs (post-2015) have excellent speculative execution
-- PGO's code reordering can hurt cache locality for small loops
+- Simple benchmarks have predictable branches
+- Hardware branch predictor already optimal for tight loops
+- PGO adds profile-checking overhead
+- Code reordering hurts cache locality for small loops
 
 **When PGO DOES help:**
-- **Complex real-world applications** with many unpredictable branches
-- **Large codebases** with diverse execution paths (compilers, databases, servers)
-- **Rare edge cases** that benefit from outlining (moving cold code away)
-- **Function call patterns** that benefit from reordering
+- Complex real-world applications (GCC: +10-15%, Chrome: +5-10%)
+- Large codebases with diverse execution paths
+- Rare edge cases benefiting from code outlining
 
-**Examples where PGO wins:**
-- GCC itself: +10-15% compilation speed with PGO
-- Chrome/Firefox: +5-10% rendering performance
-- LLVM: +8-12% compilation throughput
-- PostgreSQL: +5-8% query performance
-
-**Conclusion:** Skip PGO for Aether unless deploying production systems with complex workloads.
+**Conclusion:** Skip PGO unless deploying complex production systems.
 
 **Run benchmark:**
 ```bash
