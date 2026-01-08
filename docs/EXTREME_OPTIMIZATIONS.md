@@ -248,36 +248,45 @@ void Counter_receive(Counter* self, Message* msg) {
 
 ---
 
-## 6. Profile-Guided Optimization (PGO) - Production Speed
+## 6. Profile-Guided Optimization (PGO) ❌ NOT EFFECTIVE FOR SIMPLE CODE
 
-**Problem:** We don't know which paths are hot until runtime.
+**Expected:** 10-20% improvement through better branch prediction and code layout.  
+**Result:** **-19% performance loss** for simple benchmarks - Actually hurts!
 
-**Solution:** Two-phase compilation:
-
-```bash
-# Phase 1: Instrumented build
-ae build --profile-generate myapp.ae
-
-# Phase 2: Collect profile
-./myapp  # Generates myapp.profdata
-
-# Phase 3: Optimized build with profile data
-ae build --profile-use=myapp.profdata myapp.ae
+**Benchmark Results (100M operations, GCC -O3):**
+```
+                    Baseline    PGO         Change
+Message Dispatch:   1642 M/s    800 M/s    -51% ❌
+Memory Allocation:  27.8 M/s    29.7 M/s   +7%  ✓
+String Operations:  11.4 M/s    11.8 M/s   +4%  ✓
+Nested Loops:       3738 M/s    3560 M/s   -5%  ❌
+---------------------------------------------------
+TOTAL SCORE:        5416        4399       -19% ❌
 ```
 
-**What PGO enables:**
-- Hot path inlining (aggressive)
-- Cold path outlining (move to separate function)
-- Branch prediction hints (based on real data)
-- Function reordering (hot functions together in memory)
+**Why it failed:**
+- **Simple benchmarks have predictable branches** - hardware branch predictor already optimal
+- PGO adds overhead for profile checking and branch hints
+- Modern CPUs (post-2015) have excellent speculative execution
+- PGO's code reordering can hurt cache locality for small loops
 
-**Expected speedup:** 10-20% for complex applications.
+**When PGO DOES help:**
+- **Complex real-world applications** with many unpredictable branches
+- **Large codebases** with diverse execution paths (compilers, databases, servers)
+- **Rare edge cases** that benefit from outlining (moving cold code away)
+- **Function call patterns** that benefit from reordering
 
-**GCC flags:**
+**Examples where PGO wins:**
+- GCC itself: +10-15% compilation speed with PGO
+- Chrome/Firefox: +5-10% rendering performance
+- LLVM: +8-12% compilation throughput
+- PostgreSQL: +5-8% query performance
+
+**Conclusion:** Skip PGO for Aether unless deploying production systems with complex workloads.
+
+**Run benchmark:**
 ```bash
-gcc -fprofile-generate ...   # Instrument
-# Run program
-gcc -fprofile-use ...         # Optimize
+make pgo-benchmark
 ```
 
 ---

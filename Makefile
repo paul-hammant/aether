@@ -350,6 +350,47 @@ bench-prefetch:
 	@echo "Running benchmark..."
 	@./build/bench_prefetch$(EXE_EXT)
 
+# Profile-Guided Optimization (PGO) - 10-20% improvement
+pgo-generate:
+	@echo "==================================="
+	@echo "PGO Step 1: Building with instrumentation..."
+	@echo "==================================="
+	@$(CC) -O3 -fprofile-generate experiments/concurrency/pgo_workload.c -o build/pgo_workload$(EXE_EXT)
+	@echo "Running workload to collect profile data..."
+	@./build/pgo_workload$(EXE_EXT)
+	@echo "✓ Profile data collected in *.gcda files"
+
+pgo-build:
+	@echo "==================================="
+	@echo "PGO Step 2: Building with profile data..."
+	@echo "==================================="
+	@$(CC) -O3 -fprofile-use -D__PGO__ experiments/concurrency/bench_pgo.c -o build/bench_pgo_optimized$(EXE_EXT)
+	@echo "✓ PGO-optimized benchmark built"
+
+pgo-baseline:
+	@echo "Building baseline (no PGO)..."
+	@$(CC) -O3 experiments/concurrency/bench_pgo.c -o build/bench_pgo_baseline$(EXE_EXT)
+	@echo "✓ Baseline benchmark built"
+
+pgo-benchmark: pgo-baseline pgo-generate pgo-build
+	@echo "==================================="
+	@echo "PGO BENCHMARK COMPARISON"
+	@echo "==================================="
+	@echo ""
+	@echo "Baseline (no PGO):"
+	@./build/bench_pgo_baseline$(EXE_EXT)
+	@echo ""
+	@echo "-----------------------------------"
+	@echo ""
+	@echo "PGO-Optimized:"
+	@./build/bench_pgo_optimized$(EXE_EXT)
+
+pgo-clean:
+	@echo "Cleaning PGO profile data..."
+	@$(RM) *.gcda *.gcno 2>nul || true
+	@$(RM) build/pgo_workload$(EXE_EXT) build/bench_pgo_baseline$(EXE_EXT) build/bench_pgo_optimized$(EXE_EXT) 2>nul || true
+	@echo "✓ PGO data cleaned"
+
 # Interactive REPL (requires linenoise or equivalent)
 repl: compiler
 	@echo "Starting Aether REPL..."
