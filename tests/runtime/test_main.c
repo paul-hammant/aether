@@ -1,6 +1,17 @@
 #include "test_harness.h"
 #include <string.h>
 
+// External test registration functions
+void register_scheduler_tests(void);
+void register_stress_tests(void);
+void register_zerocopy_tests(void);
+void register_actor_pool_tests(void);
+void register_lockfree_mailbox_tests(void);
+void register_memory_arena_tests(void);
+void register_memory_pool_tests(void);
+void register_lexer_tests(void);
+void register_scheduler_optimization_tests(void);
+
 void print_test_help(const char* program) {
     printf("Aether Test Runner\n\n");
     printf("Usage:\n");
@@ -64,6 +75,17 @@ int main(int argc, char** argv) {
     
     printf("Aether Language Test Suite\n");
     printf("==========================\n\n");
+    
+    // Register tests
+    register_scheduler_tests();
+    register_stress_tests();
+    register_zerocopy_tests();
+    register_actor_pool_tests();
+    register_lockfree_mailbox_tests();
+    register_memory_arena_tests();
+    register_memory_pool_tests();
+    register_lexer_tests();
+    register_scheduler_optimization_tests();
     
     run_all_tests();
     

@@ -1,9 +1,9 @@
 #include "../runtime/test_harness.h"
-#include "../../compiler/lexer.h"
-#include "../../compiler/tokens.h"
+#include "../../compiler/frontend/lexer.h"
+#include "../../compiler/frontend/tokens.h"
 #include <string.h>
 
-TEST(lexer_basic_tokens) {
+TEST_CATEGORY(lexer_basic_tokens, TEST_CATEGORY_COMPILER) {
     lexer_init("int x = 42;");
     Token* token = next_token();
     ASSERT_NOT_NULL(token);
@@ -11,7 +11,7 @@ TEST(lexer_basic_tokens) {
     free_token(token);
 }
 
-TEST(lexer_keywords) {
+TEST_CATEGORY(lexer_keywords, TEST_CATEGORY_COMPILER) {
     lexer_init("actor struct func main");
     Token* t1 = next_token();
     ASSERT_EQ(t1->type, TOKEN_ACTOR);
@@ -30,7 +30,7 @@ TEST(lexer_keywords) {
     free_token(t4);
 }
 
-TEST(lexer_numbers) {
+TEST_CATEGORY(lexer_numbers, TEST_CATEGORY_COMPILER) {
     lexer_init("123 456");
     Token* t1 = next_token();
     ASSERT_EQ(t1->type, TOKEN_NUMBER);
@@ -43,7 +43,7 @@ TEST(lexer_numbers) {
     free_token(t2);
 }
 
-TEST(lexer_strings) {
+TEST_CATEGORY(lexer_strings, TEST_CATEGORY_COMPILER) {
     lexer_init("\"hello\" \"world\"");
     Token* t1 = next_token();
     ASSERT_EQ(t1->type, TOKEN_STRING_LITERAL);
@@ -54,4 +54,9 @@ TEST(lexer_strings) {
     ASSERT_EQ(t2->type, TOKEN_STRING_LITERAL);
     ASSERT_STREQ(t2->value, "world");
     free_token(t2);
+}
+
+// Note: Tests are auto-registered via TEST_CATEGORY macro
+void register_lexer_tests() {
+    // Empty - tests registered by constructor
 }

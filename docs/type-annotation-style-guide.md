@@ -6,7 +6,7 @@ Aether supports **both type inference and explicit type annotations**, giving yo
 
 ## Type Inference (Recommended Default)
 
-Aether's Hindley-Milner type inference can deduce types automatically in most cases.
+Aether's type inference can deduce types automatically in most cases.
 
 ### When to Use Type Inference
 

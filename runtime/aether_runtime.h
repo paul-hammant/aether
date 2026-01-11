@@ -4,6 +4,12 @@
 #include <pthread.h>
 #include <stdint.h>
 
+// Error codes
+#define AETHER_SUCCESS 0
+#define AETHER_ERROR_OUT_OF_MEMORY -1
+#define AETHER_ERROR_INVALID_ARGUMENT -2
+#define AETHER_ERROR_NOT_INITIALIZED -3
+
 // Runtime configuration flags
 #define AETHER_FLAG_AUTO_DETECT      (1 << 0)  // Auto-detect CPU features (recommended)
 #define AETHER_FLAG_LOCKFREE_MAILBOX (1 << 1)  // Use lock-free SPSC mailboxes

@@ -1,8 +1,8 @@
 #include "../runtime/test_harness.h"
-#include "../../runtime/aether_arena.h"
+#include "../../runtime/memory/aether_arena.h"
 #include <string.h>
 
-TEST(arena_create_destroy) {
+TEST_CATEGORY(arena_create_destroy, TEST_CATEGORY_MEMORY) {
     Arena* arena = arena_create(1024);
     ASSERT_NOT_NULL(arena);
     ASSERT_EQ(1024, arena_get_size(arena));
@@ -10,7 +10,7 @@ TEST(arena_create_destroy) {
     arena_destroy(arena);
 }
 
-TEST(arena_alloc_single) {
+TEST_CATEGORY(arena_alloc_single, TEST_CATEGORY_MEMORY) {
     Arena* arena = arena_create(1024);
     
     int* ptr = (int*)arena_alloc(arena, sizeof(int));
@@ -22,7 +22,7 @@ TEST(arena_alloc_single) {
     arena_destroy(arena);
 }
 
-TEST(arena_alloc_multiple) {
+TEST_CATEGORY(arena_alloc_multiple, TEST_CATEGORY_MEMORY) {
     Arena* arena = arena_create(1024);
     
     int* a = (int*)arena_alloc(arena, sizeof(int));
@@ -44,7 +44,7 @@ TEST(arena_alloc_multiple) {
     arena_destroy(arena);
 }
 
-TEST(arena_reset) {
+TEST_CATEGORY(arena_reset, TEST_CATEGORY_MEMORY) {
     Arena* arena = arena_create(1024);
     
     arena_alloc(arena, 100);
@@ -57,7 +57,7 @@ TEST(arena_reset) {
     arena_destroy(arena);
 }
 
-TEST(arena_scope) {
+TEST_CATEGORY(arena_scope, TEST_CATEGORY_MEMORY) {
     Arena* arena = arena_create(1024);
     
     ArenaScope scope = arena_begin(arena);
@@ -72,7 +72,7 @@ TEST(arena_scope) {
     arena_destroy(arena);
 }
 
-TEST(arena_overflow_creates_chain) {
+TEST_CATEGORY(arena_overflow_creates_chain, TEST_CATEGORY_MEMORY) {
     Arena* arena = arena_create(64);
     
     void* p1 = arena_alloc(arena, 32);
@@ -88,7 +88,7 @@ TEST(arena_overflow_creates_chain) {
     arena_destroy(arena);
 }
 
-TEST(arena_large_allocation) {
+TEST_CATEGORY(arena_large_allocation, TEST_CATEGORY_MEMORY) {
     Arena* arena = arena_create(1024);
     
     void* large = arena_alloc(arena, 2048);
@@ -99,7 +99,7 @@ TEST(arena_large_allocation) {
     arena_destroy(arena);
 }
 
-TEST(arena_alignment) {
+TEST_CATEGORY(arena_alignment, TEST_CATEGORY_MEMORY) {
     Arena* arena = arena_create(1024);
     
     void* p1 = arena_alloc(arena, 1);
@@ -117,7 +117,7 @@ TEST(arena_alignment) {
     arena_destroy(arena);
 }
 
-TEST(arena_string_operations) {
+TEST_CATEGORY(arena_string_operations, TEST_CATEGORY_MEMORY) {
     Arena* arena = arena_create(1024);
     
     char* str1 = (char*)arena_alloc(arena, 32);
@@ -132,14 +132,14 @@ TEST(arena_string_operations) {
     arena_destroy(arena);
 }
 
-TEST(arena_zero_size_defaults) {
+TEST_CATEGORY(arena_zero_size_defaults, TEST_CATEGORY_MEMORY) {
     Arena* arena = arena_create(0);
     ASSERT_NOT_NULL(arena);
     ASSERT_TRUE(arena_get_size(arena) > 0);
     arena_destroy(arena);
 }
 
-TEST(arena_nested_scopes) {
+TEST_CATEGORY(arena_nested_scopes, TEST_CATEGORY_MEMORY) {
     Arena* arena = arena_create(1024);
     
     ArenaScope outer = arena_begin(arena);
@@ -159,3 +159,7 @@ TEST(arena_nested_scopes) {
     arena_destroy(arena);
 }
 
+// Note: Tests are auto-registered via TEST_CATEGORY macro
+void register_memory_arena_tests() {
+    // Empty - tests registered by constructor
+}

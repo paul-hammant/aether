@@ -4,7 +4,7 @@ Complete syntax and semantics of the Aether programming language.
 
 ## Overview
 
-Aether is a statically-typed, compiled language combining Erlang-inspired actor concurrency with ML-family type inference (Hindley-Milner). It features clean, minimal syntax and compiles to optimized C code for maximum performance.
+Aether is a statically-typed, compiled language combining Erlang-inspired actor concurrency with type inference. It features clean, minimal syntax and compiles to C code.
 
 ## Types
 

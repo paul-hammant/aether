@@ -2,7 +2,7 @@
 #include "../../std/string/aether_string.h"
 #include <string.h>
 
-TEST(string_concat_basic) {
+TEST_CATEGORY(string_concat_basic, TEST_CATEGORY_STDLIB) {
     AetherString* s1 = aether_string_from_cstr("Hello");
     AetherString* s2 = aether_string_from_cstr(" World");
     AetherString* result = aether_string_concat(s1, s2);
@@ -15,13 +15,13 @@ TEST(string_concat_basic) {
     aether_string_free(result);
 }
 
-TEST(string_length) {
+TEST_CATEGORY(string_length, TEST_CATEGORY_STDLIB) {
     AetherString* s = aether_string_from_cstr("Hello");
     ASSERT_EQ(5, aether_string_length(s));
     aether_string_free(s);
 }
 
-TEST(string_char_at) {
+TEST_CATEGORY(string_char_at, TEST_CATEGORY_STDLIB) {
     AetherString* s = aether_string_from_cstr("Hello");
     ASSERT_EQ('H', aether_string_char_at(s, 0));
     ASSERT_EQ('e', aether_string_char_at(s, 1));
@@ -29,7 +29,7 @@ TEST(string_char_at) {
     aether_string_free(s);
 }
 
-TEST(string_index_of) {
+TEST_CATEGORY(string_index_of, TEST_CATEGORY_STDLIB) {
     AetherString* s = aether_string_from_cstr("Hello World");
     AetherString* world = aether_string_from_cstr("World");
     AetherString* xyz = aether_string_from_cstr("xyz");
@@ -40,13 +40,13 @@ TEST(string_index_of) {
     aether_string_free(xyz);
 }
 
-TEST(string_empty) {
+TEST_CATEGORY(string_empty, TEST_CATEGORY_STDLIB) {
     AetherString* s = aether_string_from_cstr("");
     ASSERT_EQ(0, aether_string_length(s));
     aether_string_free(s);
 }
 
-TEST(string_reference_counting) {
+TEST_CATEGORY(string_reference_counting, TEST_CATEGORY_STDLIB) {
     AetherString* s1 = aether_string_from_cstr("Test");
     ASSERT_EQ(1, s1->ref_count);
     
@@ -61,7 +61,7 @@ TEST(string_reference_counting) {
     aether_string_free(s1);
 }
 
-TEST(string_concat_empty) {
+TEST_CATEGORY(string_concat_empty, TEST_CATEGORY_STDLIB) {
     AetherString* s1 = aether_string_from_cstr("");
     AetherString* s2 = aether_string_from_cstr("Hello");
     AetherString* result = aether_string_concat(s1, s2);
@@ -73,7 +73,7 @@ TEST(string_concat_empty) {
     aether_string_free(result);
 }
 
-TEST(string_special_chars) {
+TEST_CATEGORY(string_special_chars, TEST_CATEGORY_STDLIB) {
     AetherString* s = aether_string_from_cstr("Hello\nWorld\t!");
     ASSERT_EQ(13, aether_string_length(s));
     ASSERT_EQ('\n', aether_string_char_at(s, 5));
@@ -81,14 +81,14 @@ TEST(string_special_chars) {
     aether_string_free(s);
 }
 
-TEST(string_unicode_basic) {
+TEST_CATEGORY(string_unicode_basic, TEST_CATEGORY_STDLIB) {
     // Basic unicode test (if supported)
     AetherString* s = aether_string_from_cstr("Hello 世界");
     ASSERT_NOT_NULL(s);
     aether_string_free(s);
 }
 
-TEST(string_large) {
+TEST_CATEGORY(string_large, TEST_CATEGORY_STDLIB) {
     // Test with large string
     char large[1000];
     memset(large, 'A', 999);

@@ -2,7 +2,7 @@
 #include "../../std/net/aether_http.h"
 #include "../../std/string/aether_string.h"
 
-TEST(http_response_structure) {
+TEST_CATEGORY(http_response_structure, TEST_CATEGORY_NETWORK) {
     HttpResponse* resp = (HttpResponse*)malloc(sizeof(HttpResponse));
     resp->status_code = 200;
     resp->body = aether_string_new("test body");
@@ -17,7 +17,7 @@ TEST(http_response_structure) {
     aether_http_response_free(resp);
 }
 
-TEST(http_url_parsing) {
+TEST_CATEGORY(http_url_parsing, TEST_CATEGORY_NETWORK) {
     char host[256];
     char path[1024];
     int port;
@@ -26,7 +26,7 @@ TEST(http_url_parsing) {
     ASSERT_TRUE(1);
 }
 
-TEST(http_response_cleanup) {
+TEST_CATEGORY(http_response_cleanup, TEST_CATEGORY_NETWORK) {
     HttpResponse* resp = (HttpResponse*)malloc(sizeof(HttpResponse));
     resp->status_code = 404;
     resp->body = aether_string_new("Not Found");

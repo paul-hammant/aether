@@ -1,0 +1,32 @@
+// Benchmark 3: Ring communication pattern
+// Actors send messages in a ring
+
+actor Node {
+    state next_node = 0;
+    state rounds = 0;
+    
+    receive(msg) {
+        rounds = rounds + 1;
+        if (rounds < 100) {
+            send(next_node, msg);
+        }
+    }
+}
+
+main() {
+    print("Creating ring of 100 actors...\n");
+    
+    // Create actors
+    nodes = [];
+    i = 0;
+    while (i < 100) {
+        n = spawn Node();
+        nodes = nodes + [n];
+        i = i + 1;
+    }
+    
+    // Link them in a ring
+    // (This would need actor references to work properly)
+    
+    print("Ring benchmark would send messages around\n");
+}

@@ -2,7 +2,7 @@
 
 ## How Type Inference Works
 
-Aether implements a Hindley-Milner style type inference system that automatically deduces types from context, eliminating the need for explicit type annotations in most cases.
+Aether implements a type inference system that automatically deduces types from context, reducing the need for explicit type annotations in most cases.
 
 ## Basic Inference
 

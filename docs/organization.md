@@ -80,9 +80,12 @@ docker-compose -f docker/docker-compose.yml up -d aether-dev
 ## Documentation
 
 - Quick start: [README.md](../README.md)
-- Windows setup: [docs/setup/WINDOWS_SETUP.md](docs/setup/WINDOWS_SETUP.md)
-- Docker guide: [docs/setup/DOCKER.md](docs/setup/DOCKER.md)
-- Docker quick ref: [docker/README.md](docker/README.md)
+- Architecture: [architecture.md](architecture.md)
+- Actor system: [actor-concurrency.md](actor-concurrency.md)
+- Performance: [../PERFORMANCE.md](../PERFORMANCE.md)
+- NUMA support: [numa-support.md](numa-support.md)
+- Windows setup: [setup/WINDOWS_SETUP.md](setup/WINDOWS_SETUP.md)
+- Docker guide: [setup/DOCKER.md](setup/DOCKER.md)
 
 ## Benefits
 

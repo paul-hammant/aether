@@ -2,20 +2,53 @@
 
 Understanding the actor runtime, concurrency model, and message passing system.
 
-## Performance
+## Performance Optimizations
 
-**Proven through rigorous performance benchmarking:**
+The actor runtime includes several performance optimizations that are applied automatically based on workload characteristics.
 
-- **Partitioned Scheduler:** 291M msg/sec on 8 cores (2.3× linear scaling)
-- **SIMD (AVX2):** 3× speedup for uniform actor types
-- **Message Batching:** 1.78× speedup for bulk operations
-- **Combined:** ~2.3B msg/sec peak throughput
+### Scheduler Design
 
-**Architecture:**
-- Zero-sharing partitioned state machines (no atomics in hot path)
-- Static actor-to-core assignment (actor_id % num_cores)
-- NUMA-aware thread pinning for cache affinity
-- Optional SIMD vectorization (8 actors per instruction)
+**Partitioned Multicore Scheduler:**
+- Static actor-to-core assignment at spawn time
+- Each core processes only its local actors (zero cross-core traffic in fast path)
+- Work stealing activated when cores become idle
+- Non-blocking work stealing: failed attempts don't block progress
+- NUMA-aware CPU pinning when available (Linux, Windows)
+
+**Work Stealing:**
+- Triggered after 5000 idle scheduler cycles
+- Selects busiest core (most pending work)
+- Steals entire actors (not individual messages)
+- Preserves cache locality and minimizes synchronization
+
+**Message Delivery:**
+- Local messages: Direct mailbox writes (no queue overhead)
+- Remote messages: Lock-free queue with adaptive backpressure
+- Adaptive batch processing: 32-256 messages per core cycle
+
+### Implemented Optimizations
+
+**Message Coalescing:**
+- Batches multiple messages to reduce atomic operations
+- Processes up to 256 messages per scheduler cycle
+- Reduces per-message overhead
+
+**Actor Pooling:**
+- Reuses actor instances instead of repeated allocation
+- Lock-free pool with pre-allocated actors
+- Falls back to malloc when exhausted
+
+**Direct Send Optimization:**
+- Bypasses queue for same-core actors
+- Directly writes to actor mailbox
+- Eliminates enqueue/dequeue latency
+
+**Adaptive Batching:**
+- Dynamically adjusts batch size based on queue depth
+- Balances throughput and latency
+- Increases batch size under load, decreases when idle
+
+See [runtime/actors/README.md](../runtime/actors/README.md) for implementation details and usage examples.
 
 ## Actor Model
 
@@ -58,14 +91,14 @@ typedef struct {
 } Mailbox;
 ```
 
-**Performance tip:** Use `MessageBatch` API for bulk sends (1.78× faster):
+**Performance tip:** Use `MessageBatch` API for bulk sends:
 
 ```c
 MessageBatch* batch = batch_create(256);
 batch_add(batch, target_id, msg1);
 batch_add(batch, target_id, msg2);
 // ... add up to 256 messages
-batch_send(batch);  // Bulk send (much faster)
+batch_send(batch);  // Bulk send
 ```
 
 ### Message Structure
@@ -142,11 +175,11 @@ main() {
 
 ### Performance
 
-Single-core performance:
-- **166.7 M msg/sec** throughput
-- **264 bytes** per actor
-- **Zero-copy** message passing
-- **No locking** overhead
+Single-core characteristics:
+- Lock-free message passing
+- Zero-copy transfers
+- Cooperative scheduling
+- Minimal per-actor overhead (264 bytes)
 
 ## Multi-Core Runtime
 
@@ -186,11 +219,7 @@ This ensures deterministic placement and good load balancing.
 - **Local messages** (same core): Direct mailbox enqueue
 - **Remote messages** (different core): Lock-free queue to target core
 
-### Performance
-
-Multi-core performance scales linearly for local messages:
-- 4 cores ≈ 4x single-core throughput
-- Cross-core messages have ~100ns overhead
+Cross-core messages incur additional latency due to cache coherence.
 
 ## Memory Management
 

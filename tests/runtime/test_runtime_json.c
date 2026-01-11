@@ -2,7 +2,7 @@
 #include "../../std/json/aether_json.h"
 #include "../../std/string/aether_string.h"
 
-TEST(json_parse_null) {
+TEST_CATEGORY(json_parse_null, TEST_CATEGORY_STDLIB) {
     AetherString* json_str = aether_string_new("null");
     JsonValue* value = aether_json_parse(json_str);
     
@@ -14,7 +14,7 @@ TEST(json_parse_null) {
     aether_string_release(json_str);
 }
 
-TEST(json_parse_bool) {
+TEST_CATEGORY(json_parse_bool, TEST_CATEGORY_STDLIB) {
     AetherString* json_true = aether_string_new("true");
     JsonValue* val_true = aether_json_parse(json_true);
     ASSERT_EQ(JSON_BOOL, aether_json_type(val_true));
@@ -31,7 +31,7 @@ TEST(json_parse_bool) {
     aether_string_release(json_false);
 }
 
-TEST(json_parse_number) {
+TEST_CATEGORY(json_parse_number, TEST_CATEGORY_STDLIB) {
     AetherString* json_str = aether_string_new("42.5");
     JsonValue* value = aether_json_parse(json_str);
     
@@ -43,7 +43,7 @@ TEST(json_parse_number) {
     aether_string_release(json_str);
 }
 
-TEST(json_parse_string) {
+TEST_CATEGORY(json_parse_string, TEST_CATEGORY_STDLIB) {
     AetherString* json_str = aether_string_new("\"hello world\"");
     JsonValue* value = aether_json_parse(json_str);
     
@@ -58,7 +58,7 @@ TEST(json_parse_string) {
     aether_string_release(json_str);
 }
 
-TEST(json_parse_array) {
+TEST_CATEGORY(json_parse_array, TEST_CATEGORY_STDLIB) {
     AetherString* json_str = aether_string_new("[1, 2, 3]");
     JsonValue* value = aether_json_parse(json_str);
     
@@ -73,7 +73,7 @@ TEST(json_parse_array) {
     aether_string_release(json_str);
 }
 
-TEST(json_parse_object) {
+TEST_CATEGORY(json_parse_object, TEST_CATEGORY_STDLIB) {
     AetherString* json_str = aether_string_new("{\"name\":\"Alice\",\"age\":30}");
     JsonValue* value = aether_json_parse(json_str);
     
@@ -98,7 +98,7 @@ TEST(json_parse_object) {
     aether_string_release(json_str);
 }
 
-TEST(json_create_and_stringify) {
+TEST_CATEGORY(json_create_and_stringify, TEST_CATEGORY_STDLIB) {
     JsonValue* obj = aether_json_create_object();
     
     AetherString* name_key = aether_string_new("name");
@@ -122,7 +122,7 @@ TEST(json_create_and_stringify) {
     aether_json_free(obj);
 }
 
-TEST(json_array_operations) {
+TEST_CATEGORY(json_array_operations, TEST_CATEGORY_STDLIB) {
     JsonValue* arr = aether_json_create_array();
     
     aether_json_array_add(arr, aether_json_create_number(10));

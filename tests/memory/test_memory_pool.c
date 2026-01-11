@@ -1,8 +1,8 @@
 #include "../runtime/test_harness.h"
-#include "../../runtime/aether_pool.h"
+#include "../../runtime/memory/aether_pool.h"
 #include <string.h>
 
-TEST(pool_create_destroy) {
+TEST_CATEGORY(pool_create_destroy, TEST_CATEGORY_MEMORY) {
     MemoryPool* pool = pool_create(32, 10);
     ASSERT_NOT_NULL(pool);
     ASSERT_EQ(10, pool_get_capacity(pool));
@@ -10,7 +10,7 @@ TEST(pool_create_destroy) {
     pool_destroy(pool);
 }
 
-TEST(pool_alloc_single) {
+TEST_CATEGORY(pool_alloc_single, TEST_CATEGORY_MEMORY) {
     MemoryPool* pool = pool_create(32, 10);
     
     void* ptr = pool_alloc(pool);
@@ -20,7 +20,7 @@ TEST(pool_alloc_single) {
     pool_destroy(pool);
 }
 
-TEST(pool_alloc_free) {
+TEST_CATEGORY(pool_alloc_free, TEST_CATEGORY_MEMORY) {
     MemoryPool* pool = pool_create(32, 10);
     
     void* ptr = pool_alloc(pool);
@@ -33,7 +33,7 @@ TEST(pool_alloc_free) {
     pool_destroy(pool);
 }
 
-TEST(pool_reuse_freed) {
+TEST_CATEGORY(pool_reuse_freed, TEST_CATEGORY_MEMORY) {
     MemoryPool* pool = pool_create(32, 10);
     
     void* ptr1 = pool_alloc(pool);
@@ -45,7 +45,7 @@ TEST(pool_reuse_freed) {
     pool_destroy(pool);
 }
 
-TEST(pool_exhaust) {
+TEST_CATEGORY(pool_exhaust, TEST_CATEGORY_MEMORY) {
     MemoryPool* pool = pool_create(16, 3);
     
     void* p1 = pool_alloc(pool);
@@ -63,7 +63,7 @@ TEST(pool_exhaust) {
     pool_destroy(pool);
 }
 
-TEST(pool_multiple_alloc_free) {
+TEST_CATEGORY(pool_multiple_alloc_free, TEST_CATEGORY_MEMORY) {
     MemoryPool* pool = pool_create(64, 5);
     
     void* ptrs[5];
@@ -83,13 +83,13 @@ TEST(pool_multiple_alloc_free) {
     pool_destroy(pool);
 }
 
-TEST(standard_pools_create) {
+TEST_CATEGORY(standard_pools_create, TEST_CATEGORY_MEMORY) {
     StandardPools* pools = standard_pools_create();
     ASSERT_NOT_NULL(pools);
     standard_pools_destroy(pools);
 }
 
-TEST(standard_pools_alloc_8) {
+TEST_CATEGORY(standard_pools_alloc_8, TEST_CATEGORY_MEMORY) {
     StandardPools* pools = standard_pools_create();
     
     void* ptr = standard_pools_alloc(pools, 8);
@@ -99,7 +99,7 @@ TEST(standard_pools_alloc_8) {
     standard_pools_destroy(pools);
 }
 
-TEST(standard_pools_alloc_various_sizes) {
+TEST_CATEGORY(standard_pools_alloc_various_sizes, TEST_CATEGORY_MEMORY) {
     StandardPools* pools = standard_pools_create();
     
     void* p8 = standard_pools_alloc(pools, 8);
@@ -126,7 +126,7 @@ TEST(standard_pools_alloc_various_sizes) {
     standard_pools_destroy(pools);
 }
 
-TEST(standard_pools_size_rounding) {
+TEST_CATEGORY(standard_pools_size_rounding, TEST_CATEGORY_MEMORY) {
     StandardPools* pools = standard_pools_create();
     
     void* p5 = standard_pools_alloc(pools, 5);
@@ -144,7 +144,7 @@ TEST(standard_pools_size_rounding) {
     standard_pools_destroy(pools);
 }
 
-TEST(standard_pools_too_large) {
+TEST_CATEGORY(standard_pools_too_large, TEST_CATEGORY_MEMORY) {
     StandardPools* pools = standard_pools_create();
     
     void* p512 = standard_pools_alloc(pools, 512);
@@ -153,7 +153,7 @@ TEST(standard_pools_too_large) {
     standard_pools_destroy(pools);
 }
 
-TEST(pool_data_integrity) {
+TEST_CATEGORY(pool_data_integrity, TEST_CATEGORY_MEMORY) {
     MemoryPool* pool = pool_create(sizeof(int), 10);
     
     int* nums[5];
@@ -169,3 +169,7 @@ TEST(pool_data_integrity) {
     pool_destroy(pool);
 }
 
+// Note: Tests are auto-registered via TEST_CATEGORY macro
+void register_memory_pool_tests() {
+    // Empty - tests registered by constructor
+}

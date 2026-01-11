@@ -1,46 +1,42 @@
 // Test suite for lock-free mailbox implementation
 // Tests correctness, performance, and thread safety
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <pthread.h>
-#include <assert.h>
-#include <time.h>
+#include "test_harness.h"
 #include "../../runtime/actors/lockfree_mailbox.h"
 #include "../../runtime/actors/actor_state_machine.h"
+#include <pthread.h>
+#include <time.h>
 
 #define TEST_COUNT 10000
 #define THREAD_COUNT 2
 
 // Test 1: Basic send/receive
-int test_basic_operations() {
+TEST_CATEGORY(lockfree_mailbox_basic_operations, TEST_CATEGORY_RUNTIME) {
     LockFreeMailbox mbox;
     lockfree_mailbox_init(&mbox);
     
-    Message msg = {.type = 1, .sender_id = 0, .payload_int = 42, .payload_ptr = NULL};
+    Message msg = message_create_simple(1, 0, 42);
     Message recv_msg;
     
     // Test send
-    assert(lockfree_mailbox_send(&mbox, msg) == 1);
+    ASSERT_TRUE(lockfree_mailbox_send(&mbox, msg) == 1);
     
     // Test receive
-    assert(lockfree_mailbox_receive(&mbox, &recv_msg) == 1);
-    assert(recv_msg.type == 1);
-    assert(recv_msg.payload_int == 42);
+    ASSERT_TRUE(lockfree_mailbox_receive(&mbox, &recv_msg) == 1);
+    ASSERT_EQ(1, recv_msg.type);
+    ASSERT_EQ(42, recv_msg.payload_int);
     
     // Test empty
-    assert(lockfree_mailbox_receive(&mbox, &recv_msg) == 0);
-    
-    printf("✓ Basic operations test passed\n");
-    return 1;
+    ASSERT_TRUE(lockfree_mailbox_receive(&mbox, &recv_msg) == 0);
+
 }
 
 // Test 2: Fill and drain
-int test_capacity() {
+TEST_CATEGORY(lockfree_mailbox_capacity, TEST_CATEGORY_RUNTIME) {
     LockFreeMailbox mbox;
     lockfree_mailbox_init(&mbox);
     
-    Message msg = {.type = 1, .sender_id = 0, .payload_int = 0, .payload_ptr = NULL};
+    Message msg = message_create_simple(1, 0, 0);
     
     // Fill to capacity (63 messages, size is 64)
     int sent = 0;
@@ -53,58 +49,49 @@ int test_capacity() {
         }
     }
     
-    printf("  Capacity: %d messages\n", sent);
-    assert(sent == 63);  // One slot always empty in SPSC
+    ASSERT_EQ(63, sent);  // One slot always empty in SPSC
     
     // Drain all
     Message recv_msg;
     int received = 0;
     for (int i = 0; i < 100; i++) {
         if (lockfree_mailbox_receive(&mbox, &recv_msg)) {
-            assert(recv_msg.payload_int == i);
+            ASSERT_EQ(i, recv_msg.payload_int);
             received++;
         } else {
             break;
         }
     }
     
-    assert(received == sent);
-    assert(lockfree_mailbox_is_empty(&mbox));
-    
-    printf("✓ Capacity test passed\n");
-    return 1;
+    ASSERT_EQ(sent, received);
+    ASSERT_TRUE(lockfree_mailbox_is_empty(&mbox));
 }
 
 // Test 3: Batch operations
-int test_batch_operations() {
+TEST_CATEGORY(lockfree_mailbox_batch_operations, TEST_CATEGORY_RUNTIME) {
     LockFreeMailbox mbox;
     lockfree_mailbox_init(&mbox);
     
     Message msgs[16];
     for (int i = 0; i < 16; i++) {
-        msgs[i].type = 1;
-        msgs[i].payload_int = i;
-        msgs[i].payload_ptr = NULL;
+        msgs[i] = message_create_simple(1, 0, i);
     }
     
     // Batch send
     int sent = lockfree_mailbox_send_batch(&mbox, msgs, 16);
-    assert(sent == 16);
+    ASSERT_EQ(16, sent);
     
     // Batch receive
     Message recv_msgs[16];
     int received = lockfree_mailbox_receive_batch(&mbox, recv_msgs, 16);
-    assert(received == 16);
+    ASSERT_EQ(16, received);
     
     for (int i = 0; i < 16; i++) {
-        assert(recv_msgs[i].payload_int == i);
+        ASSERT_EQ(i, recv_msgs[i].payload_int);
     }
-    
-    printf("✓ Batch operations test passed\n");
-    return 1;
 }
 
-// Test 4: Thread safety (producer/consumer)
+// Thread safety test data
 typedef struct {
     LockFreeMailbox* mbox;
     int id;
@@ -113,7 +100,7 @@ typedef struct {
 
 void* producer_thread(void* arg) {
     ThreadData* data = (ThreadData*)arg;
-    Message msg = {.type = 1, .sender_id = data->id, .payload_int = 0, .payload_ptr = NULL};
+    Message msg = message_create_simple(1, data->id, 0);
     
     for (int i = 0; i < TEST_COUNT / THREAD_COUNT; i++) {
         msg.payload_int = i;
@@ -140,7 +127,7 @@ void* consumer_thread(void* arg) {
     return NULL;
 }
 
-int test_thread_safety() {
+TEST_CATEGORY(lockfree_mailbox_thread_safety, TEST_CATEGORY_RUNTIME) {
     // SPSC = Single Producer Single Consumer
     // Test with ONE producer and ONE consumer thread
     LockFreeMailbox mbox;
@@ -162,53 +149,10 @@ int test_thread_safety() {
     pthread_join(producer, NULL);
     pthread_join(consumer, NULL);
     
-    assert(counter == TEST_COUNT / THREAD_COUNT);
-    printf("✓ Thread safety test passed (%d messages)\n", counter);
-    return 1;
+    ASSERT_EQ(TEST_COUNT / THREAD_COUNT, counter);
 }
 
-// Test 5: Performance benchmark
-int test_performance() {
-    LockFreeMailbox mbox;
-    lockfree_mailbox_init(&mbox);
-    
-    Message msg = {.type = 1, .sender_id = 0, .payload_int = 42, .payload_ptr = NULL};
-    Message recv_msg;
-    
-    clock_t start = clock();
-    
-    for (int i = 0; i < TEST_COUNT; i++) {
-        lockfree_mailbox_send(&mbox, msg);
-        lockfree_mailbox_receive(&mbox, &recv_msg);
-    }
-    
-    clock_t end = clock();
-    double seconds = (double)(end - start) / CLOCKS_PER_SEC;
-    double ops_per_sec = TEST_COUNT / seconds;
-    
-    printf("✓ Performance: %.2f M ops/sec\n", ops_per_sec / 1000000.0);
-    return 1;
-}
-
-int main() {
-    printf("=================================\n");
-    printf("  Lock-Free Mailbox Test Suite\n");
-    printf("=================================\n\n");
-    
-    int passed = 0;
-    int total = 5;
-    
-    printf("Running tests...\n\n");
-    
-    passed += test_basic_operations();
-    passed += test_capacity();
-    passed += test_batch_operations();
-    passed += test_thread_safety();
-    passed += test_performance();
-    
-    printf("\n=================================\n");
-    printf("Results: %d/%d tests passed\n", passed, total);
-    printf("=================================\n");
-    
-    return (passed == total) ? 0 : 1;
+// Note: Tests are auto-registered via TEST_CATEGORY macro
+void register_lockfree_mailbox_tests() {
+    // Empty - tests registered by constructor
 }

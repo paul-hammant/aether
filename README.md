@@ -4,55 +4,68 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)]()
 
-A high-performance, actor-based systems programming language designed for modern multi-core systems. Aether combines the simplicity of high-level languages with the performance of C, featuring lightweight actors, gradual typing, and zero-cost C interoperability.
+An experimental actor-based programming language with gradual typing. Aether explores actor concurrency patterns by compiling to C, making it a research platform for understanding concurrent systems design.
+
+**Project Status:** Early development and experimental. Not recommended for production use.
 
 ## Overview
 
-Aether is a compiled language that brings Erlang-style actor concurrency to systems programming. Built for performance-critical applications requiring high throughput and low latency, Aether compiles directly to C for maximum portability and zero runtime overhead.
+Aether is a compiled language exploring Erlang-style actor concurrency in a systems programming context. The compiler generates C code, providing portability across platforms.
 
-**What makes Aether different:**
-- Lock-free actor mailboxes for high-throughput message passing
-- Type-specific memory pools for efficient allocation
-- Zero-copy ownership transfer for large messages
-- Gradual type system combining type inference with optional annotations
-- Compiles to readable, portable C code
+**Design Goals:**
+- Explore actor-based concurrency patterns
+- Gradual type system for prototyping
+- Learn from existing C libraries through direct interop
+- Generate readable C code for understanding compilation
 
-## Performance
+## Runtime Implementation
 
-Aether's runtime system is designed for high-throughput, low-latency actor communication on modern multi-core hardware. The implementation uses lock-free data structures, zero-copy message passing, and cache-conscious memory layouts.
+The runtime implements concurrent programming techniques for actor-based message passing:
 
-Key architectural features:
-- Lock-free SPSC mailboxes eliminate synchronization overhead
-- Type-specific memory pools reduce allocation latency
-- Zero-copy ownership transfer avoids memcpy for large messages
-- Computed goto dispatch minimizes message handling overhead
+**Scheduler:**
+- Partitioned multi-core scheduler (actors bound to cores)
+- Lock-free SPSC queues for cross-core messaging
+- Message coalescing for 15x throughput improvement
+- Progressive backoff (spin, pause, yield) for power efficiency
 
-For detailed performance analysis and benchmarks, see [experiments/concurrency/](experiments/concurrency/).
+**Synchronization:**
+- Optimized spinlocks with PAUSE instruction (3x faster)
+- Cache line alignment to prevent false sharing
+- Atomic operations with explicit memory ordering
 
-## Key Features
+**Message Passing:**
+- Lock-free mailbox implementation (1.8x improvement)
+- Zero atomic contention in actor processing hot path
+- Backpressure handling for queue overflow
 
-### Concurrency & Performance
-- **Lock-Free Mailboxes**: SPSC atomic queues eliminate synchronization overhead
-- **Zero-Copy Messaging**: Ownership transfer avoids memcpy for large messages
-- **Type-Specific Pools**: Compile-time pool generation with zero-branch allocation
-- **Computed Goto Dispatch**: Direct label jumps minimize dispatch overhead
-- **Auto-Tuning Runtime**: CPU feature detection (AVX2, MWAIT, SSE4.2)
-- **Adaptive Idle**: Multi-phase idle strategy (spin → pause → MWAIT → sleep)
+**Performance:**
+- 625,000 cross-core messages/sec
+- 6.45M messages/sec on 4 cores
+- Sub-millisecond message latency
+
+See [docs/runtime-optimizations.md](docs/runtime-optimizations.md) for implementation details and benchmarking methodology.
+
+## Features
+
+### Concurrency
+- Actor-based message passing
+- Multi-core scheduler implementation
+- Lock-free mailbox experiments
 
 ### Type System
-- **Gradual Typing**: Write untyped code, add types where needed
-- **Hindley-Milner Inference**: Automatic type deduction
-- **Optional Annotations**: Explicit types for documentation and safety
+- Static type checking
+- Type inference for local variables
+- Type checking pass in compiler
 
-### Memory & Safety
-- **Arena Allocation**: Automatic lifetime management
-- **Bounds Checking**: Optional runtime verification
-- **Thread-Local Pools**: Zero-mutex message allocation
+### Memory Management
+- Arena allocation for actor lifetimes
+- Memory pool experiments
+- Manual memory management (no GC)
 
-### Interoperability
-- **C Compilation**: Outputs readable, portable C99 code
-- **Zero-Cost FFI**: Direct C function calls with no overhead
-- **C Header Import**: Use existing C libraries seamlessly
+### C Interoperability
+- Compiles to C99 code
+- Can call C functions
+- Uses C compiler toolchain
 
 ## Quick Start
 
@@ -244,7 +257,31 @@ make test                       # Run tests
 - `ae` command: Simple, fast for daily development
 - Make: Full control, parallel builds, CI/CD integration
 
-## Project Structure
+## Project Status
+
+**Aether is experimental software.** It's a research project exploring actor-based concurrency and compiler design. Not recommended for production use.
+
+**Current capabilities:**
+- Basic compiler (lexer, parser, type checker, code generator)
+- Actor runtime with message passing
+- Multi-core scheduler
+- Standard library (collections, I/O basics)
+
+**Limitations:**
+- No distribution (single-node only)
+- No hot code reloading
+- Limited error messages
+- Manual memory management
+- Small ecosystem
+- Breaking changes expected
+
+**Better alternatives for production:**
+- Erlang/Elixir (distributed actors, proven at scale)
+- Go (goroutines, mature ecosystem)
+- Rust (memory safety, systems programming)
+- Pony (actor-based with reference capabilities)
+
+See [docs/competitive-analysis.md](docs/competitive-analysis.md) for detailed comparison.
 
 ```
 aether/
@@ -269,11 +306,17 @@ aether/
 │   ├── runtime/      # Runtime tests
 │   └── integration/  # End-to-end tests
 ├── examples/         # Example programs
-│   ├── basic/        # Hello world, simple actors
-│   ├── language-features/ # Type system, syntax
-│   └── real-world/   # Web servers, chat apps
-├── experiments/      # Performance experiments
-│   └── concurrency/  # Lock-free optimizations, benchmarks
+│   ├── basic/        # Hello world, simple actors (.ae files)
+│   ├── language-features/ # Type system, syntax (.ae files)
+│   ├── benchmarks/   # Aether benchmark examples (.ae files)
+│   └── real-world/   # Web servers, chat apps (.ae files)
+├── benchmarks/       # C performance benchmarks
+├── runtime/
+│   ├── actors/       # Actor runtime implementations
+│   ├── memory/       # Memory management  
+│   └── examples/     # C API usage examples
+├── experiments/      # Performance optimization research
+│   └── concurrency/  # Historical explorations (01-07)
 ├── docs/            # Documentation
 │   ├── getting-started.md
 │   ├── language-reference.md
@@ -419,19 +462,6 @@ actor MathService {
         }
     }
 }
-```## Benchmarking
-
-Run the multi-core benchmark to verify optimizations:
-
-```bash
-# Build and run
-gcc -O2 -I. -o build/bench_multicore experiments/concurrency/bench_multicore.c -lpthread
-./build/bench_multicore
-
-# Expected output (Intel i7-13700K):
-# Simple:    1,536 M msg/sec
-# Lock-free: 2,764 M msg/sec
-# Speedup:   1.80x
 ```
 
 ## Documentation
@@ -474,25 +504,28 @@ This project follows the [Code of Conduct](CODE_OF_CONDUCT.md). By participating
 
 ## Roadmap
 
-### Current Release (v0.1-alpha)
-- Core compiler and runtime
-- Actor-based concurrency
-- Gradual type system
-- C code generation
-- Standard library basics
+### Current Status (v0.1-alpha)
+- Basic compiler pipeline functional
+- Actor runtime with local message passing
+- Type checker with gradual typing
+- Standard library (collections, I/O basics)
 
-### Next Release (v0.2)
-- [ ] Package manager
-- [ ] Language Server Protocol (LSP)
-- [ ] VS Code extension
-- [ ] Improved error messages
-- [ ] More stdlib modules
+### Development Priorities
+- Stabilize core language features
+- Improve error messages
+- Expand test coverage
+- Documentation completeness
 
-### Future
-- [ ] JIT compilation
-- [ ] GPU actor support
-- [ ] Distributed actors
-- [ ] Hot code reloading
+### Exploratory Features
+- Package management concepts
+- Editor integration experiments
+- Runtime optimization research
+
+### Not Planned (Requires Significant Resources)
+- Production hardening
+- Enterprise support
+- Distributed actors
+- Hot code reloading
 
 ## License
 
@@ -500,16 +533,17 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Acknowledgments
 
-- Erlang/OTP for actor model inspiration
-- Go for gradual typing concepts
-- Rust for modern systems programming practices
-- C for providing the compilation target
+This project explores ideas from:
+- Erlang/OTP (actor model)
+- Go (pragmatic concurrency)
+- Rust (systems programming practices)
+- Pony (actor-based type safety)
+
+Aether is a learning project and research platform, not a competitor to these established languages.
 
 ## Contact
 
-- GitHub: [@nicolasmd87](https://github.com/nicolasmd87)
-- Project: [github.com/nicolasmd87/aether](https://github.com/nicolasmd87/aether)
-
+**Note:** This is an experimental project for learning and research. For production actor systems, consider Erlang, Elixir, or Pony.
 ---
 
 **Built with performance and simplicity in mind.**

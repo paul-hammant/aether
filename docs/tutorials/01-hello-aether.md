@@ -12,7 +12,7 @@ Welcome to Aether! In this tutorial, you'll learn the basics of the Aether progr
 
 Aether is a programming language that combines:
 - **Erlang's concurrency model** - Lightweight actors with message passing
-- **ML-family type inference** - Hindley-Milner automatic type deduction  
+- **Type inference** - Automatic type deduction for local variables  
 - **C's performance** - Compiles to optimized C code with zero runtime overhead
 
 ## Installation

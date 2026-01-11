@@ -1,7 +1,7 @@
 #ifndef AETHER_TRACING_H
 #define AETHER_TRACING_H
 
-#include "actor_state_machine.h"
+#include "../actors/actor_state_machine.h"
 #include <stdio.h>
 
 // Message trace entry

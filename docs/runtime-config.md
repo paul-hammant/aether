@@ -62,12 +62,12 @@ int main() {
 }
 ```
 
-**Result on your Intel i7-13700K:**
+**Example result on modern CPU:**
 - Lock-free mailboxes: ✓ ENABLED
 - Lock-free pools: ✓ ENABLED  
 - MWAIT idle: ✓ ENABLED
 - AVX2 SIMD: ✓ ENABLED
-- **Performance: 2.3B msg/sec**
+- **Optimal performance configuration**
 
 ---
 
@@ -102,7 +102,7 @@ aether_runtime_init(0,
 // ========================================
 //   Aether Runtime Configuration
 // ========================================
-// CPU: 13th Gen Intel(R) Core(TM) i7-13700K
+// CPU: <detected processor>
 // Active Optimizations:
 //   Lock-free mailbox: ENABLED
 //   Lock-free pools:   ENABLED
@@ -288,6 +288,6 @@ aether_runtime_init(0, AETHER_FLAG_AUTO_DETECT | AETHER_FLAG_VERBOSE);
 2. Flags are set correctly
 3. Actors created after `aether_runtime_init()`
 
-### Issue: "Works on my machine, not on server"
+### Issue: "Works on development machine, not on server"
 **Reason:** Different CPU capabilities
 **Solution:** Use `AETHER_FLAG_AUTO_DETECT` - it adapts automatically

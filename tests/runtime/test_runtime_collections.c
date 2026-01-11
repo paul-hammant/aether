@@ -2,14 +2,14 @@
 #include "../../std/collections/aether_collections.h"
 #include "../../std/string/aether_string.h"
 
-TEST(list_create_and_free) {
+TEST_CATEGORY(list_create_and_free, TEST_CATEGORY_COLLECTIONS) {
     ArrayList* list = aether_list_new();
     ASSERT_NOT_NULL(list);
     ASSERT_EQ(0, aether_list_size(list));
     aether_list_free(list);
 }
 
-TEST(list_add_and_get) {
+TEST_CATEGORY(list_add_and_get, TEST_CATEGORY_COLLECTIONS) {
     ArrayList* list = aether_list_new();
     
     int val1 = 42;
@@ -24,7 +24,7 @@ TEST(list_add_and_get) {
     aether_list_free(list);
 }
 
-TEST(list_set_and_remove) {
+TEST_CATEGORY(list_set_and_remove, TEST_CATEGORY_COLLECTIONS) {
     ArrayList* list = aether_list_new();
     
     int val1 = 1, val2 = 2, val3 = 3;
@@ -43,14 +43,14 @@ TEST(list_set_and_remove) {
     aether_list_free(list);
 }
 
-TEST(map_create_and_free) {
+TEST_CATEGORY(map_create_and_free, TEST_CATEGORY_COLLECTIONS) {
     HashMap* map = aether_map_new();
     ASSERT_NOT_NULL(map);
     ASSERT_EQ(0, aether_map_size(map));
     aether_map_free(map);
 }
 
-TEST(map_put_and_get) {
+TEST_CATEGORY(map_put_and_get, TEST_CATEGORY_COLLECTIONS) {
     HashMap* map = aether_map_new();
     
     AetherString* key1 = aether_string_new("name");
@@ -71,7 +71,7 @@ TEST(map_put_and_get) {
     aether_map_free(map);
 }
 
-TEST(map_has_and_remove) {
+TEST_CATEGORY(map_has_and_remove, TEST_CATEGORY_COLLECTIONS) {
     HashMap* map = aether_map_new();
     
     AetherString* key = aether_string_new("test");
@@ -88,7 +88,7 @@ TEST(map_has_and_remove) {
     aether_map_free(map);
 }
 
-TEST(map_keys) {
+TEST_CATEGORY(map_keys, TEST_CATEGORY_COLLECTIONS) {
     HashMap* map = aether_map_new();
     
     AetherString* key1 = aether_string_new("a");

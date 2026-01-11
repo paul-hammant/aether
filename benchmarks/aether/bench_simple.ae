@@ -1,0 +1,15 @@
+// Minimal benchmark - just test function calls and arithmetic
+
+add(x, y) {
+    return x + y;
+}
+
+main() {
+    sum = 0;
+    i = 0;
+    while (i < 1000000) {
+        sum = add(sum, i);
+        i = i + 1;
+    }
+    print(sum);
+}
