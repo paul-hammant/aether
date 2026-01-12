@@ -4,68 +4,56 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)]()
 
-An experimental actor-based programming language with gradual typing. Aether explores actor concurrency patterns by compiling to C, making it a research platform for understanding concurrent systems design.
+An experimental actor-based programming language with gradual typing. Aether compiles to C and explores concurrent systems design through a native actor runtime.
 
-**Project Status:** Early development and experimental. Not recommended for production use.
+**Project Status:** Early development. Not recommended for production use.
 
 ## Overview
 
-Aether is a compiled language exploring Erlang-style actor concurrency in a systems programming context. The compiler generates C code, providing portability across platforms.
+Aether is a compiled language that brings actor-based concurrency to systems programming. The compiler generates readable C code, providing portability and interoperability with existing C libraries.
 
 **Design Goals:**
-- Explore actor-based concurrency patterns
-- Gradual type system for prototyping
-- Learn from existing C libraries through direct interop
-- Generate readable C code for understanding compilation
+- Actor-based concurrency with multi-core scheduling
+- Gradual type system for flexible development
+- Native code generation through C compilation
+- Zero-cost abstractions for performance-critical code
 
-## Runtime Implementation
+## Runtime Features
 
-The runtime implements concurrent programming techniques for actor-based message passing:
+The Aether runtime implements a native actor system with optimized message passing:
 
-**Scheduler:**
-- Partitioned multi-core scheduler (actors bound to cores)
-- Lock-free SPSC queues for cross-core messaging
-- Message coalescing and sender-side batching (2.1x measured improvement)
-- Progressive backoff (spin, pause, yield) for power efficiency
-
-**Synchronization:**
-- Optimized spinlocks with PAUSE instruction (3x faster)
-- Cache line alignment to prevent false sharing
-- Atomic operations with explicit memory ordering
-
-**Message Passing:**
-- Lock-free mailbox implementation (1.8x improvement)
-- Zero atomic contention in actor processing hot path
-- Backpressure handling for queue overflow
-
-**Performance:**
-- 173M messages/sec on 4 cores (with sender-side batching)
-- 83M messages/sec baseline (without batching)
-- Sub-millisecond message latency
-
-See [docs/runtime-optimizations.md](docs/runtime-optimizations.md) for implementation details and benchmarking methodology.
-
-## Features
-
-### Concurrency
-- Actor-based message passing
-- Multi-core scheduler implementation
-- Lock-free mailbox experiments
-
-### Type System
-- Static type checking
-- Type inference for local variables
-- Type checking pass in compiler
+### Concurrency Model
+- **Multi-core scheduler** with per-core actor queues
+- **Work-stealing** for dynamic load balancing
+- **Lock-free SPSC queues** for same-core messaging (2-3x improvement)
+- **Cross-core messaging** with lock-free mailboxes (1.8x improvement under contention)
 
 ### Memory Management
-- Arena allocation for actor lifetimes
-- Memory pool experiments
-- Manual memory management (no GC)
+- **Arena allocators** for actor lifetimes
+- **Memory pools** with thread-local allocation
+- **Actor pooling** reducing allocation overhead (1.81x speedup)
+- **Zero-copy message passing** for large messages (4.8x improvement for >256 bytes)
 
-### C Interoperability
-- Compiles to C99 code
-- Can call C functions
-- Uses C compiler toolchain
+### Message Optimization
+- **Sender-side batching** (256 messages per batch, 1.78x speedup)
+- **Message coalescing** (15x throughput improvement)
+- **Adaptive batching** (dynamically adjusts from 4-512 messages)
+- **Direct send** for same-core actors (bypasses queue)
+
+### Advanced Features
+- **SIMD batch processing** with AVX2 support (1.5x improvement)
+- **NUMA-aware allocation** for multi-socket systems
+- **CPU feature detection** for runtime optimization selection
+- **Performance profiling** with per-core cycle counting
+- **Message tracing** for debugging
+
+### Performance Characteristics
+- **226M messages/sec** (ping-pong, 2 actors)
+- **418M messages/sec** (ring, 100 actors)
+- **3,125M msg/sec** (skynet, 1111 actors)
+- **Sub-nanosecond latency** (0.96 cycles/msg on skynet)
+
+See [benchmarks/cross-language/methodology.md](benchmarks/cross-language/methodology.md) for detailed methodology and [benchmarks/cross-language/](benchmarks/cross-language/) for comparisons with Go, Rust, C++, Erlang, and other languages.
 
 ## Quick Start
 
@@ -91,7 +79,6 @@ make ae
 
 # Test it works
 ./build/ae version
-# Aether 0.4.0
 ```
 
 **Windows:** Use `mingw32-make` instead of `make`.
@@ -113,9 +100,7 @@ Run it:
 ./build/ae run hello.ae
 ```
 
-That's it! No configuration, no build files needed.
-
-**Docker (Recommended for Windows):**
+**Docker:**
 
 ```bash
 # Build container
@@ -131,54 +116,9 @@ make test
 
 See [docker/README.md](docker/README.md) for detailed setup.
 
-### Running Your First Program
-
-Create `hello.ae`:
-
-```aether
-main() {
-    print("Hello from Aether!\n");
-    print("The answer is: %d\n", 42);
-}
-```
-
-**Go-style commands (recommended):**
-
-```bash
-# Run directly
-./build/ae run hello.ae
-
-# Or build to executable
-./build/ae build hello.ae -o hello
-./build/hello
-```
-
-**Using Make:**
-
-```bash
-# Run
-make run FILE=hello.ae
-
-# Build
-make compile FILE=hello.ae OUTPUT=hello
-```
-
-**Manual (advanced):**
-
-```bash
-# 1. Compile .ae to .c
-./build/aetherc hello.ae hello.c
-
-# 2. Compile C to executable
-gcc hello.c -o hello
-
-# 3. Run
-./hello
-```
-
 ### Common Commands
 
-**Using ae (Go-style):**
+**Using ae (recommended):**
 
 ```bash
 ./build/ae run hello.ae          # Run a program
@@ -200,88 +140,9 @@ make -j8                         # Parallel build
 make help                        # Show all commands
 ```
 
-**Windows:** Use `mingw32-make` instead of `make` and `.\build\ae.exe` instead of `./build/ae`.
+**Windows:** Use `mingw32-make` instead of `make` and `.\\build\\ae.exe` instead of `./build/ae`.
 
-### Adding `ae` to PATH
-
-**Linux/macOS:**
-```bash
-# After building
-sudo cp build/ae /usr/local/bin/
-# Or add to ~/.bashrc:
-export PATH="$PATH:/path/to/aether/build"
-
-# Now use anywhere:
-ae run myapp.ae
-```
-
-**Windows:**
-```powershell
-# Add to PATH via System Properties > Environment Variables
-# Or use full path:
-D:\Git\aether\build\ae.exe run myapp.ae
-```
-
-## Build System Philosophy
-
-Aether provides two interfaces:
-
-**1. `ae` command (Go-style) - Recommended**
-
-```bash
-./build/ae run file.ae           # Like: go run, cargo run, zig run
-./build/ae build file.ae         # Like: go build, cargo build, zig build
-```
-
-Simple, fast, no configuration needed.
-
-**2. Make (traditional) - For advanced use**
-
-```bash
-make compiler                    # Build the compiler
-make run FILE=file.ae           # Run with Make
-make test                       # Run tests
-```
-
-**Comparison with other languages:**
-
-| Language | Tool | Run Command | Build Command |
-|----------|------|-------------|---------------|
-| **Aether** | ae | `ae run app.ae` | `ae build app.ae` |
-| Go | go | `go run app.go` | `go build app.go` |
-| Rust | cargo | `cargo run` | `cargo build` |
-| Zig | zig | `zig run app.zig` | `zig build` |
-| C/C++ | Make | Manual | `make` |
-
-**Why both?**
-- `ae` command: Simple, fast for daily development
-- Make: Full control, parallel builds, CI/CD integration
-
-## Project Status
-
-**Aether is experimental software.** It's a research project exploring actor-based concurrency and compiler design. Not recommended for production use.
-
-**Current capabilities:**
-- Basic compiler (lexer, parser, type checker, code generator)
-- Actor runtime with message passing
-- Multi-core scheduler
-- Standard library (collections, I/O basics)
-
-**Limitations:**
-- No distribution (single-node only)
-- No hot code reloading
-- Limited error messages
-- Manual memory management
-- Small ecosystem
-- Breaking changes expected
-
-**Better alternatives for production:**
-- Erlang/Elixir (distributed actors, proven at scale)
-- Go (goroutines, mature ecosystem)
-- Rust (memory safety, systems programming)
-- Pony (actor-based with reference capabilities)
-
-See [docs/competitive-analysis.md](docs/competitive-analysis.md) for detailed comparison.
+## Project Structure
 
 ```
 aether/
@@ -292,36 +153,21 @@ aether/
 │   ├── codegen.c/h    # C code generation
 │   └── aetherc.c      # Compiler entry point
 ├── runtime/           # Runtime system
-│   ├── actors/        # Actor implementation and scheduling
-│   ├── memory/        # Arena allocators and memory pools
+│   ├── actors/        # Actor implementation and lock-free mailboxes
+│   ├── memory/        # Arena allocators, memory pools, batch allocation
 │   ├── scheduler/     # Multi-core work-stealing scheduler
-│   └── utils/         # CPU detection, SIMD, tracing
+│   └── utils/         # CPU detection, SIMD, tracing, profiling
 ├── std/               # Standard library
 │   ├── collections/   # HashMap, Vector, List
 │   ├── io/           # File I/O, streams
 │   ├── net/          # TCP/UDP networking
 │   └── json/         # JSON parser
 ├── tests/            # Test suite
-│   ├── compiler/     # Compiler unit tests
-│   ├── runtime/      # Runtime tests
-│   └── integration/  # End-to-end tests
-├── examples/         # Example programs
-│   ├── basic/        # Hello world, simple actors (.ae files)
-│   ├── language-features/ # Type system, syntax (.ae files)
-│   ├── benchmarks/   # Aether benchmark examples (.ae files)
-│   └── real-world/   # Web servers, chat apps (.ae files)
-├── benchmarks/       # C performance benchmarks
-├── runtime/
-│   ├── actors/       # Actor runtime implementations
-│   ├── memory/       # Memory management  
-│   └── examples/     # C API usage examples
-├── experiments/      # Performance optimization research
-│   └── concurrency/  # Historical explorations (01-07)
+├── examples/         # Example programs (.ae files)
+├── benchmarks/       # Performance benchmarks
+│   ├── aether/       # Aether runtime benchmarks
+│   └── cross-language/ # Comparisons with other languages
 ├── docs/            # Documentation
-│   ├── getting-started.md
-│   ├── language-reference.md
-│   ├── tutorial.md
-│   └── architecture.md
 └── docker/          # Docker configuration
 ```
 
@@ -331,37 +177,37 @@ aether/
 // Distributed counter with actor supervision
 actor Counter {
     var count = 0
-    
+
     receive {
         Increment => count += 1
-        
+
         Decrement => count -= 1
-        
+
         GetCount(reply) => {
             reply.send(count)
         }
-        
+
         Reset => count = 0
     }
 }
 
 actor Supervisor {
     var counters: [ActorRef<Counter>] = []
-    
+
     init() {
         // Spawn 4 counter actors
         for i in 0..4 {
             counters.push(spawn Counter)
         }
     }
-    
+
     receive {
         IncrementAll => {
             for counter in counters {
                 counter ! Increment
             }
         }
-        
+
         GetTotal(reply) => {
             var total = 0
             for counter in counters {
@@ -380,9 +226,7 @@ let total = supervisor !? GetTotal
 println("Total count: {total}")
 ```
 
-## Advanced Features
-
-### Runtime Configuration
+## Runtime Configuration
 
 Configure runtime optimizations at startup:
 
@@ -392,17 +236,16 @@ Configure runtime optimizations at startup:
 int main() {
     // Auto-detect CPU features and enable optimizations
     aether_runtime_init(4, AETHER_FLAG_AUTO_DETECT);
-    
+
     // Or manually configure
-    aether_runtime_init(4, 
+    aether_runtime_init(4,
         AETHER_FLAG_LOCKFREE_MAILBOX |
-        AETHER_FLAG_LOCKFREE_POOLS |
-        AETHER_FLAG_ENABLE_MWAIT |
-        AETHER_FLAG_VERBOSE
+        AETHER_FLAG_ENABLE_SIMD |
+        AETHER_FLAG_ENABLE_MWAIT
     );
-    
+
     // Your actor system runs here
-    
+
     return 0;
 }
 ```
@@ -410,59 +253,29 @@ int main() {
 Available flags:
 - `AETHER_FLAG_AUTO_DETECT` - Detect CPU features and enable optimizations
 - `AETHER_FLAG_LOCKFREE_MAILBOX` - Use lock-free SPSC mailboxes
-- `AETHER_FLAG_LOCKFREE_POOLS` - Thread-local message pools
-- `AETHER_FLAG_ENABLE_SIMD` - AVX2 vectorization
+- `AETHER_FLAG_ENABLE_SIMD` - AVX2 vectorization for batch operations
 - `AETHER_FLAG_ENABLE_MWAIT` - MWAIT-based idle (x86 only)
 - `AETHER_FLAG_VERBOSE` - Print runtime configuration
 
-### Gradual Typing
+## Optimization Tiers
 
-Start with dynamic typing, add types incrementally:
+The runtime employs a tiered optimization strategy:
 
-```aether
-// Fully dynamic
-actor Database {
-    var data = {}
-    
-    receive {
-        Store(key, value) => data[key] = value
-        Get(key, reply) => reply.send(data[key])
-    }
-}
+**TIER 1 - Always Enabled:**
+- Actor pooling (1.81x speedup)
+- Direct send for same-core actors
+- Adaptive batching (4-64 messages)
+- Message coalescing (15x throughput)
+- Thread-local message pools
 
-// Add types for safety
-actor Database {
-    var data: HashMap<String, Int> = {}
-    
-    receive {
-        Store(key: String, value: Int) => {
-            data[key] = value
-        }
-        
-        Get(key: String, reply: ActorRef<Int>) => {
-            reply.send(data[key])
-        }
-    }
-}
-```
+**TIER 2 - Auto-Detected:**
+- SIMD batch processing (requires AVX2/NEON)
+- MWAIT idle (requires x86 MONITOR/MWAIT)
+- CPU core pinning (OS-dependent)
 
-### C Interoperability
-
-Call C functions directly:
-
-```aether
-// Import C function
-extern fn sqrt(x: f64) -> f64
-
-actor MathService {
-    receive {
-        CalculateSqrt(x, reply) => {
-            let result = sqrt(x as f64)
-            reply.send(result)
-        }
-    }
-}
-```
+**TIER 3 - Opt-In:**
+- Lock-free mailbox (trade-off: faster under contention, slower single-threaded)
+- Message deduplication (semantic change, adds overhead)
 
 ## Documentation
 
@@ -470,8 +283,9 @@ actor MathService {
 - [Language Tutorial](docs/tutorial.md) - Learn Aether syntax and concepts
 - [Language Reference](docs/language-reference.md) - Complete language specification
 - [Architecture Overview](docs/architecture.md) - Runtime and compiler design
-- [Type System Guide](docs/gradual-typing.md) - Gradual typing and inference
-- [Standard Library](docs/stdlib-reference.md) - Collections, I/O, networking
+- [Memory Management](docs/memory-management.md) - Arena GC and pooling strategies
+- [Runtime Optimizations](docs/runtime-optimizations.md) - Performance techniques
+- [Benchmark Methodology](benchmarks/cross-language/methodology.md) - Fair comparison principles
 - [Docker Setup](docker/README.md) - Container development environment
 
 ## Development
@@ -488,27 +302,54 @@ make test
 ./build/test_harness integration # Integration tests
 ```
 
-### Contributing
+### Running Benchmarks
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit changes (`git commit -m 'Add amazing feature'`)
-4. Push to branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+```bash
+# Quick benchmark (1 run per language)
+cd benchmarks/cross-language
+./quick_bench.sh
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+# Start web UI
+make benchmark-ui
+# Open http://localhost:8080
 
-### Code of Conduct
+# Statistical analysis (5 runs + warmup)
+bash run_statistical_bench.sh
+```
 
-This project follows the [Code of Conduct](CODE_OF_CONDUCT.md). By participating, you agree to uphold this code.
+## Project Status
+
+**Aether is experimental software.** It is a research project exploring actor-based concurrency and compiler design.
+
+**Current capabilities:**
+- Functional compiler (lexer, parser, type checker, code generator)
+- Native actor runtime with multi-core scheduling
+- Lock-free message passing optimizations
+- Standard library (collections, I/O, networking)
+- Cross-language benchmarks showing competitive performance
+
+**Limitations:**
+- No distribution (single-node only)
+- No hot code reloading
+- Manual memory management
+- Limited error messages
+- Small ecosystem
+- Breaking changes expected
+
+**Better alternatives for production:**
+- Erlang/Elixir (distributed actors, proven at scale)
+- Go (goroutines, mature ecosystem)
+- Rust (memory safety, systems programming)
+- Pony (actor-based with reference capabilities)
 
 ## Roadmap
 
-### Current Status (v0.1-alpha)
-- Basic compiler pipeline functional
-- Actor runtime with local message passing
+### Current Status
+- Core compiler pipeline functional
+- Native actor runtime with multi-core scheduling
 - Type checker with gradual typing
-- Standard library (collections, I/O basics)
+- Standard library (collections, I/O, networking)
+- Cross-language benchmarks
 
 ### Development Priorities
 - Stabilize core language features
@@ -521,8 +362,8 @@ This project follows the [Code of Conduct](CODE_OF_CONDUCT.md). By participating
 - Editor integration experiments
 - Runtime optimization research
 
-### Not Planned (Requires Significant Resources)
-- Production hardening
+### Not Planned
+- Production hardening (requires significant resources)
 - Enterprise support
 - Distributed actors
 - Hot code reloading
@@ -534,17 +375,17 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Acknowledgments
 
 This project explores ideas from:
-- Erlang/OTP (actor model)
-- Go (pragmatic concurrency)
-- Rust (systems programming practices)
-- Pony (actor-based type safety)
+- Erlang/OTP (actor model, supervision trees)
+- Go (pragmatic concurrency, simple tooling)
+- Rust (systems programming practices, zero-cost abstractions)
+- Pony (actor-based type safety, reference capabilities)
 
-Aether is a learning project and research platform, not a competitor to these established languages.
+Aether is a learning project and research platform.
 
 ## Contact
 
-**Note:** This is an experimental project for learning and research. For production actor systems, consider Erlang, Elixir, or Pony.
+**Note:** This is an experimental project for learning and research. For production actor systems, consider established alternatives.
+
 ---
 
-**Built with performance and simplicity in mind.**
-
+**Built for understanding concurrent systems design through hands-on implementation.**
