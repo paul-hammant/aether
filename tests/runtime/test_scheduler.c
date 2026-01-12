@@ -31,6 +31,7 @@ typedef struct {
     int active;
     int assigned_core;
     Mailbox mailbox;
+    SPSCQueue spsc_queue;  // REQUIRED - must match ActorBase layout
     void (*step)(void*);
     atomic_int count;
     atomic_int last_value;
@@ -41,6 +42,7 @@ typedef struct {
     int active;
     int assigned_core;
     Mailbox mailbox;
+    SPSCQueue spsc_queue;  // REQUIRED - must match ActorBase layout
     void (*step)(void*);
     atomic_int received[1000];
     atomic_int count;
@@ -81,7 +83,7 @@ void test_mailbox_basic(void) {
     
     // Send messages
     for (int i = 0; i < 10; i++) {
-        Message msg = {1, 0, i, NULL};
+        Message msg = {1, 0, i, NULL, {NULL, 0, 0}};
         ASSERT_TRUE(mailbox_send(&mbox, msg) == 1);
     }
     
@@ -129,7 +131,7 @@ void test_scheduler_init_cleanup(void) {
             free(schedulers[i].actor_pool);
             schedulers[i].actor_pool = NULL;
         }
-        free(schedulers[i].actors);
+        // Freed by scheduler_cleanup()
         schedulers[i].actors = NULL;
     }
 }
@@ -150,7 +152,7 @@ void test_scheduler_basic_messaging(void) {
     
     // Send messages via remote queue (thread-safe)
     for (int i = 0; i < 100; i++) {
-        Message msg = {1, 0, i, NULL};
+        Message msg = {1, 0, i, NULL, {NULL, 0, 0}};
         scheduler_send_remote((ActorBase*)actor, msg, -1);
     }
     
@@ -164,13 +166,14 @@ void test_scheduler_basic_messaging(void) {
     
     scheduler_stop();
     scheduler_wait();
+    scheduler_cleanup();
     
     ASSERT_EQ(100, final_count);
     ASSERT_EQ(99, final_last);
     
     free(actor);
-    free(schedulers[0].actors);
-    free(schedulers[1].actors);
+    // Freed by scheduler_cleanup()
+    // Freed by scheduler_cleanup()
 }
 
 void test_scheduler_high_throughput(void) {
@@ -192,7 +195,7 @@ void test_scheduler_high_throughput(void) {
     long start = get_time_ms();
     
     for (int i = 0; i < TOTAL; i++) {
-        Message msg = {1, 0, i, NULL};
+        Message msg = {1, 0, i, NULL, {NULL, 0, 0}};
         scheduler_send_remote((ActorBase*)actor, msg, -1);
     }
     
@@ -208,6 +211,7 @@ void test_scheduler_high_throughput(void) {
     
     scheduler_stop();
     scheduler_wait();
+    scheduler_cleanup();
     
     ASSERT_EQ(TOTAL, final_count);
     
@@ -218,8 +222,8 @@ void test_scheduler_high_throughput(void) {
     }
     
     free(actor);
-    free(schedulers[0].actors);
-    free(schedulers[1].actors);
+    // Freed by scheduler_cleanup()
+    // Freed by scheduler_cleanup()
 }
 
 void test_scheduler_message_ordering(void) {
@@ -241,7 +245,7 @@ void test_scheduler_message_ordering(void) {
     
     // Send ordered messages
     for (int i = 0; i < 100; i++) {
-        Message msg = {1, 0, i, NULL};
+        Message msg = {1, 0, i, NULL, {NULL, 0, 0}};
         scheduler_send_remote((ActorBase*)actor, msg, -1);
     }
     
@@ -264,12 +268,13 @@ void test_scheduler_message_ordering(void) {
     
     scheduler_stop();
     scheduler_wait();
+    scheduler_cleanup();
     
     ASSERT_TRUE(ordered);
     
     free(actor);
-    free(schedulers[0].actors);
-    free(schedulers[1].actors);
+    // Freed by scheduler_cleanup()
+    // Freed by scheduler_cleanup()
 }
 
 void test_scheduler_cross_core(void) {
@@ -310,6 +315,7 @@ void test_scheduler_cross_core(void) {
     
     scheduler_stop();
     scheduler_wait();
+    scheduler_cleanup();
     
     ASSERT_EQ(0, count0);
     ASSERT_EQ(100, count1);
@@ -317,7 +323,7 @@ void test_scheduler_cross_core(void) {
     free(actor0);
     free(actor1);
     for (int i = 0; i < 4; i++) {
-        free(schedulers[i].actors);
+        // Freed by scheduler_cleanup()
     }
 }
 
@@ -333,6 +339,7 @@ void test_scheduler_exit_clean(void) {
     
     scheduler_stop();
     scheduler_wait();
+    scheduler_cleanup();
     
     long end = get_time_ms();
     long elapsed = end - start;
@@ -340,8 +347,8 @@ void test_scheduler_exit_clean(void) {
     // Should exit within 100ms
     ASSERT_TRUE(elapsed < 100);
     
-    free(schedulers[0].actors);
-    free(schedulers[1].actors);
+    // Freed by scheduler_cleanup()
+    // Freed by scheduler_cleanup()
 }
 
 void test_scheduler_backpressure(void) {
@@ -372,14 +379,15 @@ void test_scheduler_backpressure(void) {
     
     scheduler_stop();
     scheduler_wait();
+    scheduler_cleanup();
     
     // With backpressure, should process all or nearly all messages
     // Allow some loss (< 5%) in extreme scenarios
     ASSERT_TRUE(final_count >= 190);
     
     free(actor);
-    free(schedulers[0].actors);
-    free(schedulers[1].actors);
+    // Freed by scheduler_cleanup()
+    // Freed by scheduler_cleanup()
 }
 
 // ============================================================================

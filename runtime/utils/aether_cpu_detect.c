@@ -7,7 +7,7 @@
 
 #ifdef _WIN32
 #include <intrin.h>
-#else
+#elif defined(__x86_64__) || defined(__i386__) || defined(_M_X64) || defined(_M_IX86)
 #include <cpuid.h>
 #endif
 
@@ -36,8 +36,14 @@ static void cpuid(uint32_t leaf, uint32_t subleaf, uint32_t* eax, uint32_t* ebx,
     *ebx = regs[1];
     *ecx = regs[2];
     *edx = regs[3];
-#else
+#elif defined(__x86_64__) || defined(__i386__) || defined(_M_X64) || defined(_M_IX86)
     __cpuid_count(leaf, subleaf, *eax, *ebx, *ecx, *edx);
+#else
+    // ARM or other architecture - return zeros
+    *eax = 0;
+    *ebx = 0;
+    *ecx = 0;
+    *edx = 0;
 #endif
 }
 

@@ -9,6 +9,13 @@
 #include <stdlib.h>
 #include <string.h>
 
+// Helper reset function for test_pool_reset_function
+static int g_reset_called = 0;
+void test_reset_helper(PooledActor* a) {
+    (void)a;
+    g_reset_called = 1;
+}
+
 void test_pool_init() {
     ActorPool* pool = malloc(sizeof(ActorPool));
     ASSERT_NOT_NULL(pool);
@@ -96,26 +103,22 @@ void test_pool_reset_function() {
     ActorPool* pool = malloc(sizeof(ActorPool));
     ASSERT_NOT_NULL(pool);
     actor_pool_init(pool);
-    
+
     // Set up reset function on an actor
     PooledActor* actor = actor_pool_acquire(pool);
     ASSERT_TRUE(actor != NULL);
-    
-    int reset_called = 0;
-    void test_reset(PooledActor* a) {
-        reset_called = 1;
-    }
-    
-    actor->reset_fn = test_reset;
-    
+
+    g_reset_called = 0;
+    actor->reset_fn = test_reset_helper;
+
     // Release and reacquire
     actor_pool_release(pool, actor);
-    
+
     PooledActor* reacquired = actor_pool_acquire(pool);
-    
+
     // Reset function should have been called if we got same actor
     if (reacquired == actor) {
-        ASSERT_EQ(reset_called, 1);
+        ASSERT_EQ(g_reset_called, 1);
     }
     
     actor_pool_release(pool, reacquired);
@@ -165,13 +168,11 @@ void test_pool_concurrent_simulation() {
     
     // Simulate concurrent acquire/release pattern
     PooledActor* active[10];
-    int active_count = 0;
-    
+
     // Acquire 10 actors
     for (int i = 0; i < 10; i++) {
         active[i] = actor_pool_acquire(pool);
         ASSERT_TRUE(active[i] != NULL);
-        active_count++;
     }
     
     // Release 5, acquire 5 more

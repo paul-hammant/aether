@@ -3,8 +3,8 @@
 #include <stdlib.h>
 #include <time.h>
 #include "profiler_server.h"
-#include "../../runtime/aether_memory_stats.h"
-#include "../../runtime/aether_arena.h"
+#include "../../runtime/memory/aether_memory_stats.h"
+#include "../../runtime/memory/aether_arena.h"
 
 #ifdef _WIN32
     #include <windows.h>

@@ -6,14 +6,25 @@
 #define AETHER_SIMD_BATCH_H
 
 #include <stdint.h>
+
+// Only include SIMD headers on x86/x64 platforms
+#if defined(__x86_64__) || defined(__i386__) || defined(_M_X64) || defined(_M_IX86)
 #include <immintrin.h>
+#define AETHER_HAS_SIMD 1
+#else
+#define AETHER_HAS_SIMD 0
+#endif
 
 #define SIMD_BATCH_SIZE 8  // AVX2 processes 8 int32 at once
 
 // Check if AVX2 is available at runtime
 static inline int simd_batch_available(void) {
-    #ifdef __AVX2__
+    #if defined(__AVX2__) && AETHER_HAS_SIMD
+    #if defined(__GNUC__) || defined(__clang__)
     return __builtin_cpu_supports("avx2");
+    #else
+    return 1;  // Assume available if compiled with AVX2
+    #endif
     #else
     return 0;
     #endif

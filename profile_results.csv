@@ -1,3 +1,0 @@
-core,operation,count,total_cycles,avg_cycles
-0,mailbox_send,1000000,19280263,19.28
-0,mailbox_receive,1000000,20029282,20.03

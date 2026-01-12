@@ -18,11 +18,7 @@ TEST_CATEGORY(http_response_structure, TEST_CATEGORY_NETWORK) {
 }
 
 TEST_CATEGORY(http_url_parsing, TEST_CATEGORY_NETWORK) {
-    char host[256];
-    char path[1024];
-    int port;
-    
-    const char* url = "http://example.com/path";
+    // URL parsing test placeholder
     ASSERT_TRUE(1);
 }
 

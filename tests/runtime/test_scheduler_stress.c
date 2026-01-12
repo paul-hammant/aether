@@ -31,6 +31,7 @@ typedef struct {
     int active;
     int assigned_core;
     Mailbox mailbox;
+    SPSCQueue spsc_queue;  // REQUIRED - must match ActorBase layout
     void (*step)(void*);
     atomic_int count;
     atomic_int errors;
@@ -41,6 +42,59 @@ void stress_actor_step(StressActor* self) {
     int batch = 0;
     while (mailbox_receive(&self->mailbox, &msg) && batch++ < 100) {
         atomic_fetch_add(&self->count, 1);
+    }
+    self->active = (self->mailbox.count > 0);
+}
+
+// OrderActor type and step function for test_message_ordering_under_load
+typedef struct {
+    int id;
+    int active;
+    int assigned_core;
+    Mailbox mailbox;
+    SPSCQueue spsc_queue;  // REQUIRED - must match ActorBase layout
+    void (*step)(void*);
+    atomic_int count;
+    int last_seq;
+    atomic_int out_of_order;
+} OrderActor;
+
+static void order_step(OrderActor* self) {
+    Message msg;
+    while (mailbox_receive(&self->mailbox, &msg)) {
+        if (msg.payload_int && self->last_seq >= 0 && msg.payload_int != self->last_seq + 1) {
+            atomic_fetch_add(&self->out_of_order, 1);
+        }
+        self->last_seq = msg.payload_int;
+        atomic_fetch_add(&self->count, 1);
+    }
+    self->active = (self->mailbox.count > 0);
+}
+
+// CascadeActor type and step function for test_cascading_messages
+typedef struct {
+    int id;
+    int active;
+    int assigned_core;
+    Mailbox mailbox;
+    SPSCQueue spsc_queue;  // REQUIRED - must match ActorBase layout
+    void (*step)(void*);
+    atomic_int count;
+    void* next_actor;
+} CascadeActor;
+
+static void cascade_step(CascadeActor* self) {
+    Message msg;
+    while (mailbox_receive(&self->mailbox, &msg)) {
+        atomic_fetch_add(&self->count, 1);
+
+        // Forward to next actor
+        if (self->next_actor && msg.payload_int > 0) {
+            int next_id = ((CascadeActor*)self->next_actor)->id;
+            Message fwd = message_create_simple(next_id, 0, msg.payload_int - 1);
+            mailbox_send(&((CascadeActor*)self->next_actor)->mailbox, fwd);
+            ((CascadeActor*)self->next_actor)->active = 1;
+        }
     }
     self->active = (self->mailbox.count > 0);
 }
@@ -397,41 +451,15 @@ void test_priority_inversion() {
 
 void test_message_ordering_under_load() {
     scheduler_init(1);
-    
-    typedef struct {
-        int id;
-        int active;
-        int assigned_core;
-        Mailbox mailbox;
-        void (*step)(void*);
-        atomic_int count;
-        int last_seq;
-        atomic_int out_of_order;
-    } OrderActor;
-    
+
     OrderActor* actor = malloc(sizeof(OrderActor));
     actor->id = 1;
     actor->active = 0;
-    actor->step = NULL;  // Will define inline
+    actor->step = (void (*)(void*))order_step;
     atomic_store(&actor->count, 0);
     actor->last_seq = -1;
     atomic_store(&actor->out_of_order, 0);
     mailbox_init(&actor->mailbox);
-    
-    // Custom step function that checks ordering
-    void order_step(OrderActor* self) {
-        Message msg;
-        while (mailbox_receive(&self->mailbox, &msg)) {
-            if (msg.payload_int && self->last_seq >= 0 && msg.payload_int != self->last_seq + 1) {
-                atomic_fetch_add(&self->out_of_order, 1);
-            }
-            self->last_seq = msg.payload_int;
-            atomic_fetch_add(&self->count, 1);
-        }
-        self->active = (self->mailbox.count > 0);
-    }
-    
-    actor->step = (void (*)(void*))order_step;
     
     scheduler_register_actor((ActorBase*)actor, 0);
     scheduler_start();
@@ -460,17 +488,7 @@ void test_message_ordering_under_load() {
 
 void test_cascading_messages() {
     scheduler_init(2);
-    
-    typedef struct {
-        int id;
-        int active;
-        int assigned_core;
-        Mailbox mailbox;
-        void (*step)(void*);
-        atomic_int count;
-        void* next_actor;
-    } CascadeActor;
-    
+
     CascadeActor* actors[3];
     for (int i = 0; i < 3; i++) {
         actors[i] = malloc(sizeof(CascadeActor));
@@ -480,24 +498,7 @@ void test_cascading_messages() {
         mailbox_init(&actors[i]->mailbox);
         actors[i]->next_actor = (i < 2) ? actors[i + 1] : NULL;
     }
-    
-    // Custom step that cascades messages
-    void cascade_step(CascadeActor* self) {
-        Message msg;
-        while (mailbox_receive(&self->mailbox, &msg)) {
-            atomic_fetch_add(&self->count, 1);
-            
-            // Forward to next actor
-            if (self->next_actor && msg.payload_int > 0) {
-                int next_id = ((CascadeActor*)self->next_actor)->id;
-                Message fwd = message_create_simple(next_id, 0, msg.payload_int - 1);
-                mailbox_send(&((CascadeActor*)self->next_actor)->mailbox, fwd);
-                ((CascadeActor*)self->next_actor)->active = 1;
-            }
-        }
-        self->active = (self->mailbox.count > 0);
-    }
-    
+
     for (int i = 0; i < 3; i++) {
         actors[i]->step = (void (*)(void*))cascade_step;
         scheduler_register_actor((ActorBase*)actors[i], i % 2);

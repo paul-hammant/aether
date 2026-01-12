@@ -91,6 +91,7 @@ void scheduler_init_with_opts(int cores, AetherOptFlags opts);
 void scheduler_start();
 void scheduler_stop();
 void scheduler_wait();
+void scheduler_cleanup();
 
 int scheduler_register_actor(ActorBase* actor, int preferred_core);
 void scheduler_send_local(ActorBase* actor, Message msg);

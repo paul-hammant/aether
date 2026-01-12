@@ -15,7 +15,7 @@
 #ifdef _WIN32
 #include <intrin.h>
 #pragma intrinsic(__rdtsc)
-#else
+#elif defined(__x86_64__) || defined(__i386__) || defined(_M_X64) || defined(_M_IX86)
 #include <x86intrin.h>
 #endif
 
@@ -68,7 +68,17 @@ extern ProfileStats g_profile_stats[16];  // MAX_CORES
 #ifdef AETHER_PROFILE
 
 static inline uint64_t profile_rdtsc(void) {
+#if defined(__x86_64__) || defined(__i386__) || defined(_M_X64) || defined(_M_IX86) || defined(_WIN32)
     return __rdtsc();
+#elif defined(__aarch64__) || defined(__arm64__)
+    // ARM64: Use system timer counter
+    uint64_t val;
+    asm volatile("mrs %0, cntvct_el0" : "=r" (val));
+    return val;
+#else
+    // Fallback: use a simple counter (not cycle-accurate)
+    return 0;
+#endif
 }
 
 #define PROFILE_START() uint64_t _prof_start = profile_rdtsc()

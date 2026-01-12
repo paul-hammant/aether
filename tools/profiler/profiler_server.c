@@ -1,5 +1,5 @@
 #include "profiler_server.h"
-#include "../../runtime/aether_memory_stats.h"
+#include "../../runtime/memory/aether_memory_stats.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

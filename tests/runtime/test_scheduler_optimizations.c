@@ -42,8 +42,8 @@ TEST_CATEGORY(direct_send_different_cores, TEST_CATEGORY_RUNTIME) {
     optimized_actor_init(&receiver, 1, NULL);  // Different core
     
     Message msg = message_create_simple(1, 0, 42);
-    
-    int before_misses = atomic_load(&g_opt_stats.direct_send_misses);
+
+    (void)atomic_load(&g_opt_stats.direct_send_misses);  // Unused but kept for potential debugging
     optimized_send_message(&sender, &receiver, msg);
     
     // Should go through normal send path

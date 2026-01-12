@@ -61,17 +61,17 @@ static void pin_to_core(int core_id) {
 void* __attribute__((hot)) scheduler_thread(void* arg) {
     Scheduler* sched = (Scheduler*)arg;
     current_core_id = sched->core_id;
-    
+
     // Initialize thread-local send buffer for this core
     send_buffer_init(sched->core_id);
-    
+
     // TIER 2 AUTO-DETECT: Pin thread if OS supports it
     if (aether_has_cpu_pinning()) {
         pin_to_core(sched->core_id);
     }
-    
+
     int idle_count = 0;
-    
+
     while (atomic_load_explicit(&sched->running, memory_order_acquire)) {
         int work_done = 0;
         
@@ -140,7 +140,7 @@ void* __attribute__((hot)) scheduler_thread(void* arg) {
                         // Batch send to mailbox for processing
                         mailbox_send_batch(&actor->mailbox, spsc_msgs, spsc_count);
                     }
-                    
+
                     // THEN: Process ALL messages in mailbox to prevent buildup
                     int processed = 0;
                     while (actor->mailbox.count > 0 && processed < 64) {
@@ -234,9 +234,9 @@ void* __attribute__((hot)) scheduler_thread(void* arg) {
 void scheduler_init(int cores) {
     // TIER 2: Auto-detect hardware capabilities first
     aether_detect_hardware();
-    
+
     // Initialize NUMA topology detection
-    aether_numa_topology_t numa_topo = aether_numa_init();
+    (void)aether_numa_init();  // NUMA topology initialized for future use
     
     if (cores <= 0 || cores > MAX_CORES) {
         // Use auto-detected core count if not specified
@@ -310,9 +310,20 @@ void scheduler_wait() {
     for (int i = 0; i < num_cores; i++) {
         pthread_join(schedulers[i].thread, NULL);
     }
-    
+
     // Cleanup NUMA resources
     aether_numa_cleanup();
+}
+
+void scheduler_cleanup() {
+    // Free allocated scheduler resources
+    for (int i = 0; i < num_cores; i++) {
+        if (schedulers[i].actors != NULL) {
+            free(schedulers[i].actors);
+            schedulers[i].actors = NULL;
+        }
+    }
+    num_cores = 0;
 }
 
 int scheduler_register_actor(ActorBase* actor, int preferred_core) {
