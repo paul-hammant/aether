@@ -256,6 +256,11 @@ bool compile_and_run(REPLState* state, const char* code, bool is_expression, Inp
             else if (strstr(code, "print(") != NULL) {
                 // Don't wrap in result, just call it directly
                 fprintf(temp_file, "    %s\n", code);
+            }
+            // Check if it's a return statement (void)
+            else if (strstr(code, "return") == code) {
+                // return statements can't be wrapped
+                fprintf(temp_file, "    %s\n", code);
             } else {
                 // It's an expression, wrap in result and print
                 fprintf(temp_file, "    result = %s\n", code);
@@ -465,7 +470,26 @@ int main(int argc, char** argv) {
         
         // Trim whitespace
         trim_whitespace(line);
-        
+
+        // Skip empty lines (not in multiline mode)
+        if (!state.multiline_mode && strlen(line) == 0) {
+            free(line);
+            continue;
+        }
+
+        // Skip lines that are just semicolons or whitespace
+        bool only_semicolons = true;
+        for (size_t i = 0; i < strlen(line); i++) {
+            if (line[i] != ';' && line[i] != ' ' && line[i] != '\t') {
+                only_semicolons = false;
+                break;
+            }
+        }
+        if (!state.multiline_mode && only_semicolons && strlen(line) > 0) {
+            free(line);
+            continue;
+        }
+
         // Handle empty line in multiline mode
         if (state.multiline_mode && strlen(line) == 0) {
             if (multiline_buffer.count > 0) {
