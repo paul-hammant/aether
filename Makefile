@@ -413,11 +413,72 @@ pgo-clean:
 # Interactive REPL (requires readline library)
 repl: compiler
 	@echo "Starting Aether REPL..."
+	@echo "Checking dependencies..."
 ifeq ($(DETECTED_OS),Darwin)
-	@$(CC) $(CFLAGS) -I/opt/homebrew/include tools/aether_repl.c -o build/aether_repl$(EXE_EXT) -L/opt/homebrew/lib -lreadline
-else
+	@if [ ! -d /opt/homebrew/include/readline ] && [ ! -d /usr/local/include/readline ]; then \
+		echo ""; \
+		echo "readline library not found"; \
+		echo ""; \
+		if command -v brew >/dev/null 2>&1; then \
+			read -p "Install readline via Homebrew? [y/N] " answer; \
+			if [ "$$answer" = "y" ] || [ "$$answer" = "Y" ]; then \
+				echo "Installing readline..."; \
+				brew install readline; \
+			else \
+				echo "Installation cancelled. Please install manually: brew install readline"; \
+				exit 1; \
+			fi; \
+		else \
+			echo "Homebrew not found. Install Homebrew first: https://brew.sh"; \
+			echo "Then run: brew install readline"; \
+			exit 1; \
+		fi; \
+	fi
+	@$(CC) $(CFLAGS) -I/opt/homebrew/include tools/aether_repl.c -o build/aether_repl$(EXE_EXT) -L/opt/homebrew/lib -lreadline 2>/dev/null || \
+	$(CC) $(CFLAGS) -I/usr/local/include tools/aether_repl.c -o build/aether_repl$(EXE_EXT) -L/usr/local/lib -lreadline
+else ifeq ($(DETECTED_OS),Linux)
+	@if ! ldconfig -p | grep -q libreadline 2>/dev/null; then \
+		echo ""; \
+		echo "readline library not found"; \
+		echo ""; \
+		if command -v apt-get >/dev/null 2>&1; then \
+			read -p "Install readline via apt-get? [y/N] " answer; \
+			if [ "$$answer" = "y" ] || [ "$$answer" = "Y" ]; then \
+				echo "Installing readline..."; \
+				sudo apt-get update && sudo apt-get install -y libreadline-dev; \
+			else \
+				echo "Installation cancelled. Please install manually: sudo apt-get install libreadline-dev"; \
+				exit 1; \
+			fi; \
+		elif command -v yum >/dev/null 2>&1; then \
+			read -p "Install readline via yum? [y/N] " answer; \
+			if [ "$$answer" = "y" ] || [ "$$answer" = "Y" ]; then \
+				echo "Installing readline..."; \
+				sudo yum install -y readline-devel; \
+			else \
+				echo "Installation cancelled. Please install manually: sudo yum install readline-devel"; \
+				exit 1; \
+			fi; \
+		elif command -v pacman >/dev/null 2>&1; then \
+			read -p "Install readline via pacman? [y/N] " answer; \
+			if [ "$$answer" = "y" ] || [ "$$answer" = "Y" ]; then \
+				echo "Installing readline..."; \
+				sudo pacman -S --noconfirm readline; \
+			else \
+				echo "Installation cancelled. Please install manually: sudo pacman -S readline"; \
+				exit 1; \
+			fi; \
+		else \
+			echo "Could not detect package manager. Please install readline development library manually."; \
+			exit 1; \
+		fi; \
+	fi
 	@$(CC) $(CFLAGS) tools/aether_repl.c -o build/aether_repl$(EXE_EXT) -lreadline
+else
+	@echo "Error: REPL not supported on $(DETECTED_OS)"
+	@exit 1
 endif
+	@echo "✓ Dependencies OK"
 	@./build/aether_repl$(EXE_EXT)
 
 # Build statistics
