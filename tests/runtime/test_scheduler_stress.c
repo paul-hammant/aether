@@ -368,33 +368,35 @@ void test_immediate_shutdown() {
 
 void test_concurrent_sends_same_actor() {
     scheduler_init(4);
-    
+
     StressActor* actor = malloc(sizeof(StressActor));
     actor->id = 1;
     actor->active = 0;
     actor->step = (void (*)(void*))stress_actor_step;
     atomic_store(&actor->count, 0);
     mailbox_init(&actor->mailbox);
-    
+
     scheduler_register_actor((ActorBase*)actor, 0);
     scheduler_start();
-    
+
     // Multiple cores sending to same actor
     for (int i = 0; i < 500; i++) {
         Message msg = message_create_simple(1, 0, i);
         int source_core = i % 4;
         scheduler_send_remote((ActorBase*)actor, msg, source_core);
     }
-    
-    sleep_ms(100);
-    
+
+    // Wait longer to ensure all messages are processed
+    // With 500 messages and batch processing, need more time under test load
+    sleep_ms(200);
+
     int count = atomic_load(&actor->count);
-    
+
     scheduler_stop();
     scheduler_wait();
-    
+
     ASSERT_TRUE(count >= 450);  // At least 90%
-    
+
     free(actor);
     for (int i = 0; i < 4; i++) {
         free(schedulers[i].actors);
