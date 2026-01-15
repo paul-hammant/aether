@@ -38,14 +38,14 @@ jobs:
     - name: Check for leaks
       run: |
         if grep -q "definitely lost" valgrind-output.txt; then
-          echo "❌ Memory leaks detected!"
+          echo "ERROR: Memory leaks detected!"
           exit 1
         fi
         if grep -q "ERROR SUMMARY: [1-9]" valgrind-output.txt; then
-          echo "❌ Memory errors detected!"
+          echo "ERROR: Memory errors detected!"
           exit 1
         fi
-        echo "✓ No memory leaks detected"
+        echo "SUCCESS: No memory leaks detected"
         
     - name: Upload Valgrind report
       if: always()
@@ -133,13 +133,13 @@ jobs:
       run: |
         peak=$(grep "peak" massif.out | head -1 | awk '{print $2}')
         echo "Peak memory usage: $peak bytes"
-        
+
         # Fail if peak memory > 100MB
         if [ "$peak" -gt 104857600 ]; then
-          echo "❌ Peak memory usage too high: $peak bytes"
+          echo "ERROR: Peak memory usage too high: $peak bytes"
           exit 1
         fi
-        echo "✓ Peak memory usage acceptable"
+        echo "SUCCESS: Peak memory usage acceptable"
         
     - name: Upload profiling report
       uses: actions/upload-artifact@v3
