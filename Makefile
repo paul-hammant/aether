@@ -106,34 +106,7 @@ all: compiler
 
 # Create object directories
 $(OBJ_DIR)/compiler $(OBJ_DIR)/compiler/frontend $(OBJ_DIR)/compiler/backend $(OBJ_DIR)/compiler/analysis $(OBJ_DIR)/runtime $(OBJ_DIR)/runtime/actors $(OBJ_DIR)/runtime/scheduler $(OBJ_DIR)/runtime/memory $(OBJ_DIR)/runtime/config $(OBJ_DIR)/runtime/simd $(OBJ_DIR)/runtime/utils $(OBJ_DIR)/std $(OBJ_DIR)/std/string $(OBJ_DIR)/std/io $(OBJ_DIR)/std/math $(OBJ_DIR)/std/net $(OBJ_DIR)/std/fs $(OBJ_DIR)/std/log $(OBJ_DIR)/std/collections $(OBJ_DIR)/std/json $(OBJ_DIR)/tests $(OBJ_DIR)/tests/compiler $(OBJ_DIR)/tests/memory $(OBJ_DIR)/tests/runtime:
-ifeq ($(OS),Windows_NT)
-	@if not exist "$(OBJ_DIR)" mkdir "$(OBJ_DIR)"
-	@if not exist "$(OBJ_DIR)\compiler" mkdir "$(OBJ_DIR)\compiler"
-	@if not exist "$(OBJ_DIR)\compiler\frontend" mkdir "$(OBJ_DIR)\compiler\frontend"
-	@if not exist "$(OBJ_DIR)\compiler\backend" mkdir "$(OBJ_DIR)\compiler\backend"
-	@if not exist "$(OBJ_DIR)\compiler\analysis" mkdir "$(OBJ_DIR)\compiler\analysis"
-	@if not exist "$(OBJ_DIR)\runtime" mkdir "$(OBJ_DIR)\runtime"
-	@if not exist "$(OBJ_DIR)\runtime\actors" mkdir "$(OBJ_DIR)\runtime\actors"
-	@if not exist "$(OBJ_DIR)\runtime\scheduler" mkdir "$(OBJ_DIR)\runtime\scheduler"
-	@if not exist "$(OBJ_DIR)\runtime\memory" mkdir "$(OBJ_DIR)\runtime\memory"
-	@if not exist "$(OBJ_DIR)\runtime\simd" mkdir "$(OBJ_DIR)\runtime\simd"
-	@if not exist "$(OBJ_DIR)\runtime\utils" mkdir "$(OBJ_DIR)\runtime\utils"
-	@if not exist "$(OBJ_DIR)\std" mkdir "$(OBJ_DIR)\std"
-	@if not exist "$(OBJ_DIR)\std\string" mkdir "$(OBJ_DIR)\std\string"
-	@if not exist "$(OBJ_DIR)\std\io" mkdir "$(OBJ_DIR)\std\io"
-	@if not exist "$(OBJ_DIR)\std\math" mkdir "$(OBJ_DIR)\std\math"
-	@if not exist "$(OBJ_DIR)\std\net" mkdir "$(OBJ_DIR)\std\net"
-	@if not exist "$(OBJ_DIR)\std\fs" mkdir "$(OBJ_DIR)\std\fs"
-	@if not exist "$(OBJ_DIR)\std\log" mkdir "$(OBJ_DIR)\std\log"
-	@if not exist "$(OBJ_DIR)\std\collections" mkdir "$(OBJ_DIR)\std\collections"
-	@if not exist "$(OBJ_DIR)\std\json" mkdir "$(OBJ_DIR)\std\json"
-	@if not exist "$(OBJ_DIR)\tests" mkdir "$(OBJ_DIR)\tests"
-	@if not exist "$(OBJ_DIR)\tests\compiler" mkdir "$(OBJ_DIR)\tests\compiler"
-	@if not exist "$(OBJ_DIR)\tests\memory" mkdir "$(OBJ_DIR)\tests\memory"
-	@if not exist "$(OBJ_DIR)\tests\runtime" mkdir "$(OBJ_DIR)\tests\runtime"
-else
-	@$(MKDIR) $@
-endif
+	@mkdir -p $@
 
 # Pattern rule for object files
 $(OBJ_DIR)/%.o: %.c | $(OBJ_DIR)/compiler $(OBJ_DIR)/compiler/frontend $(OBJ_DIR)/compiler/backend $(OBJ_DIR)/compiler/analysis $(OBJ_DIR)/runtime $(OBJ_DIR)/runtime/actors $(OBJ_DIR)/runtime/scheduler $(OBJ_DIR)/runtime/memory $(OBJ_DIR)/runtime/config $(OBJ_DIR)/runtime/simd $(OBJ_DIR)/runtime/utils $(OBJ_DIR)/std $(OBJ_DIR)/std/string $(OBJ_DIR)/std/io $(OBJ_DIR)/std/math $(OBJ_DIR)/std/net $(OBJ_DIR)/std/fs $(OBJ_DIR)/std/log $(OBJ_DIR)/std/collections $(OBJ_DIR)/std/json $(OBJ_DIR)/tests $(OBJ_DIR)/tests/compiler $(OBJ_DIR)/tests/memory $(OBJ_DIR)/tests/runtime
