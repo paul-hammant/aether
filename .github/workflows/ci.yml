@@ -64,7 +64,7 @@ jobs:
       with:
         msystem: MINGW64
         update: true
-        install: mingw-w64-x86_64-gcc mingw-w64-x86_64-make
+        install: mingw-w64-x86_64-gcc make
     
     - name: Setup Clang (macOS)
       if: runner.os == 'macOS' && matrix.compiler == 'clang'
@@ -319,7 +319,7 @@ jobs:
       with:
         msystem: MINGW64
         update: true
-        install: mingw-w64-x86_64-gcc mingw-w64-x86_64-make
+        install: mingw-w64-x86_64-gcc make
     
     - name: Build All (Linux/macOS)
       if: runner.os != 'Windows'
