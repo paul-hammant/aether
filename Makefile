@@ -20,7 +20,7 @@ endif
 # Compiler configuration with ccache support
 CC := $(shell command -v ccache 2>/dev/null && echo "ccache gcc" || echo "gcc")
 CFLAGS = -O2 -Icompiler -Iruntime -Iruntime/config -Istd -Istd/string -Istd/io -Istd/math -Istd/net -Istd/collections -Istd/json -Wall -Wextra -Wno-unused-parameter -Wno-unused-function -MMD -MP
-LDFLAGS = -pthread
+LDFLAGS = -pthread -lm
 
 # Zero warnings achieved - ready for -Werror
 BUILD_DIR = build
@@ -183,21 +183,21 @@ test-valgrind: compiler
 	@echo "==================================="
 	@echo "Running Tests with Valgrind"
 	@echo "==================================="
-	$(CC) $(CFLAGS) -O0 -g $(TEST_SRC) $(COMPILER_SRC) $(RUNTIME_SRC) $(STD_SRC) -Icompiler -Istd -o build/test_runner$(EXE_EXT)
+	$(CC) $(CFLAGS) -O0 -g $(TEST_SRC) $(COMPILER_SRC) $(RUNTIME_SRC) $(STD_SRC) -Icompiler -Istd -o build/test_runner$(EXE_EXT) $(LDFLAGS)
 	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes --error-exitcode=1 ./build/test_runner$(EXE_EXT)
 
 test-asan: compiler
 	@echo "==================================="
 	@echo "Running Tests with AddressSanitizer"
 	@echo "==================================="
-	$(CC) -fsanitize=address -fsanitize=leak -fno-omit-frame-pointer -O1 -g $(TEST_SRC) $(COMPILER_SRC) $(RUNTIME_SRC) $(STD_SRC) -Icompiler -Istd -o build/test_runner_asan$(EXE_EXT) -lpthread
+	$(CC) -fsanitize=address -fsanitize=leak -fno-omit-frame-pointer -O1 -g $(TEST_SRC) $(COMPILER_SRC) $(RUNTIME_SRC) $(STD_SRC) -Icompiler -Istd -o build/test_runner_asan$(EXE_EXT) -lpthread -lm
 	ASAN_OPTIONS=detect_leaks=1:halt_on_error=1 ./build/test_runner_asan$(EXE_EXT)
 
 test-memory: compiler
 	@echo "==================================="
 	@echo "Running Memory Tracking Tests"
 	@echo "==================================="
-	$(CC) $(CFLAGS) -DAETHER_MEMORY_TRACKING $(TEST_SRC) $(COMPILER_SRC) $(RUNTIME_SRC) $(STD_SRC) -Icompiler -Istd -o build/test_runner_mem$(EXE_EXT)
+	$(CC) $(CFLAGS) -DAETHER_MEMORY_TRACKING $(TEST_SRC) $(COMPILER_SRC) $(RUNTIME_SRC) $(STD_SRC) -Icompiler -Istd -o build/test_runner_mem$(EXE_EXT) $(LDFLAGS)
 	./build/test_runner_mem$(EXE_EXT)
 
 test-manual-runtime: compiler
@@ -208,7 +208,7 @@ test-manual-runtime: compiler
 
 benchmark: compiler
 	@echo "Single-core benchmark..."
-	$(CC) runtime/examples/ring_benchmark_manual.c -Iruntime -Iruntime/actors -O2 -o build/ring_bench$(EXE_EXT)
+	$(CC) runtime/examples/ring_benchmark_manual.c -Iruntime -Iruntime/actors -O2 -o build/ring_bench$(EXE_EXT) $(LDFLAGS)
 	./build/ring_bench$(EXE_EXT)
 	@echo ""
 	@echo "Multi-core benchmark..."
@@ -356,16 +356,16 @@ endif
 	@echo "✓ Built: build/$(OUTPUT)$(EXE_EXT)"
 
 # Benchmark computed goto dispatch
-bench-dispatch: 
+bench-dispatch:
 	@echo "Building computed goto benchmark..."
-	@$(CC) -O3 experiments/concurrency/bench_computed_goto.c -o build/bench_computed_goto$(EXE_EXT)
+	@$(CC) -O3 experiments/concurrency/bench_computed_goto.c -o build/bench_computed_goto$(EXE_EXT) $(LDFLAGS)
 	@echo "Running benchmark..."
 	@./build/bench_computed_goto$(EXE_EXT)
 
 # Benchmark manual prefetch hints
 bench-prefetch:
 	@echo "Building prefetch benchmark..."
-	@$(CC) -O3 experiments/concurrency/bench_prefetch.c -o build/bench_prefetch$(EXE_EXT)
+	@$(CC) -O3 experiments/concurrency/bench_prefetch.c -o build/bench_prefetch$(EXE_EXT) $(LDFLAGS)
 	@echo "Running benchmark..."
 	@./build/bench_prefetch$(EXE_EXT)
 
@@ -374,22 +374,22 @@ pgo-generate:
 	@echo "==================================="
 	@echo "PGO Step 1: Building with instrumentation..."
 	@echo "==================================="
-	@$(CC) -O3 -fprofile-generate experiments/concurrency/pgo_workload.c -o build/pgo_workload$(EXE_EXT)
+	@$(CC) -O3 -fprofile-generate experiments/concurrency/pgo_workload.c -o build/pgo_workload$(EXE_EXT) $(LDFLAGS)
 	@echo "Running workload to collect profile data..."
 	@./build/pgo_workload$(EXE_EXT)
-	@echo "✓ Profile data collected in *.gcda files"
+	@echo "Profile data collected in *.gcda files"
 
 pgo-build:
 	@echo "==================================="
 	@echo "PGO Step 2: Building with profile data..."
 	@echo "==================================="
-	@$(CC) -O3 -fprofile-use -D__PGO__ experiments/concurrency/bench_pgo.c -o build/bench_pgo_optimized$(EXE_EXT)
-	@echo "✓ PGO-optimized benchmark built"
+	@$(CC) -O3 -fprofile-use -D__PGO__ experiments/concurrency/bench_pgo.c -o build/bench_pgo_optimized$(EXE_EXT) $(LDFLAGS)
+	@echo "PGO-optimized benchmark built"
 
 pgo-baseline:
 	@echo "Building baseline (no PGO)..."
-	@$(CC) -O3 experiments/concurrency/bench_pgo.c -o build/bench_pgo_baseline$(EXE_EXT)
-	@echo "✓ Baseline benchmark built"
+	@$(CC) -O3 experiments/concurrency/bench_pgo.c -o build/bench_pgo_baseline$(EXE_EXT) $(LDFLAGS)
+	@echo "Baseline benchmark built"
 
 pgo-benchmark: pgo-baseline pgo-generate pgo-build
 	@echo "==================================="
@@ -414,9 +414,9 @@ pgo-clean:
 repl: compiler
 	@echo "Starting Aether REPL..."
 ifeq ($(DETECTED_OS),Darwin)
-	@$(CC) $(CFLAGS) -I/opt/homebrew/include tools/aether_repl.c -o build/aether_repl$(EXE_EXT) -L/opt/homebrew/lib -lreadline
+	@$(CC) $(CFLAGS) -I/opt/homebrew/include tools/aether_repl.c -o build/aether_repl$(EXE_EXT) -L/opt/homebrew/lib -lreadline -lm
 else
-	@$(CC) $(CFLAGS) tools/aether_repl.c -o build/aether_repl$(EXE_EXT) -lreadline
+	@$(CC) $(CFLAGS) tools/aether_repl.c -o build/aether_repl$(EXE_EXT) -lreadline -lm
 endif
 	@./build/aether_repl$(EXE_EXT)
 

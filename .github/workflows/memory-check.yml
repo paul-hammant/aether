@@ -82,7 +82,7 @@ jobs:
       run: |
         make clean
         make CFLAGS="-fsanitize=address -fsanitize=leak -fno-omit-frame-pointer -O1 -g" \
-             LDFLAGS="-fsanitize=address -fsanitize=leak"
+             LDFLAGS="-fsanitize=address -fsanitize=leak -pthread -lm"
         
     - name: Run tests with ASAN
       env:
@@ -95,7 +95,7 @@ jobs:
       run: |
         make clean
         make CFLAGS="-fsanitize=undefined -fno-omit-frame-pointer -O1 -g" \
-             LDFLAGS="-fsanitize=undefined"
+             LDFLAGS="-fsanitize=undefined -pthread -lm"
         
     - name: Run tests with UBSAN
       run: |
