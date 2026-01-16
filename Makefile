@@ -476,24 +476,6 @@ stats:
 	fi
 	@echo "==================================="
 
-# Code quality checks
-check: test
-	@echo "==================================="
-	@echo "Running Code Quality Checks"
-	@echo "==================================="
-	@echo "Checking for TODO/FIXME comments..."
-	@grep -rn "TODO\|FIXME" compiler runtime std --color=auto || echo "  ✓ No TODOs found"
-	@echo ""
-	@echo "Checking for debug prints..."
-	@grep -rn "printf.*DEBUG\|fprintf.*DEBUG" compiler runtime std --color=auto || echo "  ✓ No debug prints found"
-	@echo ""
-	@echo "Checking test coverage..."
-	@echo "  Test files: $$(find tests -name '*.c' | wc -l)"
-	@echo "  Source files: $$(find compiler runtime std -name '*.c' | wc -l)"
-	@echo "  Test ratio: $$(echo "scale=2; $$(find tests -name '*.c' | wc -l) / $$(find compiler runtime std -name '*.c' | wc -l)" | bc)x"
-	@echo ""
-	@echo "All checks passed!"
-
 # Parallel test execution
 test-parallel:
 	@echo "==================================="
@@ -510,19 +492,6 @@ test-parallel:
 
 clean:
 	$(RM_DIR) build
-
-# Pre-commit validation checks
-check: quick-check
-
-quick-check:
-	@echo "Running quick pre-commit checks..."
-	@chmod +x scripts/quick-check.sh
-	@./scripts/quick-check.sh
-
-check-full:
-	@echo "Running comprehensive CI/CD checks..."
-	@chmod +x scripts/pre-commit-check.sh
-	@./scripts/pre-commit-check.sh
 
 help:
 	@echo "Aether Build System ($(DETECTED_OS))"
@@ -617,7 +586,22 @@ ci: clean
 	@echo "Running tests..."
 	@./build/test_runner$(EXE_EXT)
 	@echo ""
-	@echo "✓ CI passed"
+	@echo "Building Docker CI image..."
+	@$(MAKE) docker-build-ci
+	@echo ""
+	@echo "Running Valgrind in Docker..."
+	@docker run --rm -v $(PWD):/aether -w /aether aether-ci bash -c "\
+		make clean && \
+		make compiler CFLAGS='-O0 -g' && \
+		make test-build CFLAGS='-O0 -g' && \
+		valgrind --leak-check=full \
+			--show-leak-kinds=all \
+			--track-origins=yes \
+			--error-exitcode=1 \
+			--suppressions=.valgrind-suppressions \
+			./build/test_runner || (echo 'Memory leaks detected!' && exit 1)"
+	@echo ""
+	@echo "✓ CI passed with no memory leaks"
 
 valgrind-check: clean
 	@echo "==================================="
@@ -633,7 +617,7 @@ valgrind-check: clean
 		./build/test_runner$(EXE_EXT) || (echo "Memory leaks detected!" && exit 1)
 	@echo "✓ No memory leaks detected"
 
-.PHONY: all compiler lsp apkg ae profiler test test-build test-valgrind test-asan test-memory test-manual-runtime benchmark benchmark-ui examples run compile repl clean help self-test release install stats stdlib check quick-check check-full ci docker-ci docker-build-ci valgrind-check
+.PHONY: all compiler lsp apkg ae profiler test test-build test-valgrind test-asan test-memory test-manual-runtime benchmark benchmark-ui examples run compile repl clean help self-test release install stats stdlib ci docker-ci docker-build-ci valgrind-check
 
 # Cross-language benchmark UI
 benchmark-ui:

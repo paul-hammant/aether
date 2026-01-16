@@ -94,8 +94,12 @@ jobs:
     - name: Run Test Suite (Windows)
       if: runner.os == 'Windows'
       shell: msys2 {0}
+      timeout-minutes: 10
       run: |
         cd $GITHUB_WORKSPACE
+        # Known issue: Test runner exits with error 127 on Windows after tests complete
+        # Error occurs during cleanup phase - likely scheduler thread cleanup issue
+        # TODO: Investigate and fix Windows cleanup (not a pthread limitation)
         make test
     
     - name: Upload Test Results
