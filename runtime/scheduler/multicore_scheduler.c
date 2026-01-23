@@ -440,10 +440,12 @@ ActorBase* scheduler_spawn_pooled(int preferred_core, void (*step)(void*)) {
     actor->id = atomic_fetch_add(&next_actor_id, 1);
     actor->step = step;
     actor->active = 1;
+    actor->thread = 0;
+    actor->auto_process = 0;
     actor->assigned_core = preferred_core;
-    
+
     scheduler_register_actor(actor, preferred_core);
-    
+
     return actor;
 }
 

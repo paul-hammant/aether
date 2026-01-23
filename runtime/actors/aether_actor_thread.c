@@ -8,15 +8,15 @@
 void* aether_actor_thread(void* arg) {
     void* actor_ptr = arg;
     typedef struct {
-        int id;
         int active;
-        int assigned_core;
+        int id;
         Mailbox mailbox;
         void (*step)(void*);
         pthread_t thread;
         int auto_process;
+        int assigned_core;
     } GenericActor;
-    
+
     GenericActor* actor = (GenericActor*)actor_ptr;
     
     while (actor->active) {

@@ -1,0 +1,63 @@
+// Aether ping-pong benchmark using V2 message-based syntax
+// Tests 10 million message round-trips between two actors
+
+message Ping {
+    count: int
+}
+
+message Pong {
+    count: int
+}
+
+actor PingActor {
+    state pong_ref = 0;
+    state pongs_received = 0;
+    state total_messages = 10000000;
+
+    receive {
+        Pong { count } -> {
+            pongs_received = pongs_received + 1;
+            if (pongs_received < total_messages) {
+                pong_ref ! Ping { count: pongs_received };
+            }
+        }
+    }
+}
+
+actor PongActor {
+    state ping_ref = 0;
+    state pings_received = 0;
+
+    receive {
+        Ping { count } -> {
+            pings_received = pings_received + 1;
+            ping_ref ! Pong { count: count };
+        }
+    }
+}
+
+main() {
+    print("=== Aether Ping-Pong Benchmark ===");
+    print("Step 1: Spawning ping actor");
+
+    ping = spawn PingActor();
+
+    print("Step 2: Spawning pong actor");
+    pong = spawn PongActor();
+
+    print("Step 3: Setting actor references");
+    ping.pong_ref = pong;
+    pong.ping_ref = ping;
+
+    print("Step 4: Sending initial message");
+    pong ! Ping { count: 0 };
+
+    print("Step 5: Waiting for completion");
+    // Give actors time to process all messages
+    i = 0;
+    while (i < 100000000) {
+        i = i + 1;
+    }
+
+    print("Benchmark complete");
+}

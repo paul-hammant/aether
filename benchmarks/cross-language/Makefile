@@ -24,7 +24,7 @@ run-benchmarks:
 	@echo "  Running Cross-Language Benchmarks"
 	@echo "=========================================="
 	@echo ""
-	@./quick_bench.sh
+	@./run_benchmarks.sh
 
 # Build the visualization server
 build-ui:

@@ -13,6 +13,8 @@ typedef struct {
     char** actor_state_vars;
     int state_var_count;
     MessageRegistry* message_registry;
+    char** declared_vars;  // Track variables declared in current function
+    int declared_var_count;
 } CodeGenerator;
 
 // Code generation functions

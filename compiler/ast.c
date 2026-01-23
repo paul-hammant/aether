@@ -205,6 +205,17 @@ const char* ast_node_type_to_string(ASTNodeType type) {
         case AST_SEND_STATEMENT: return "SEND_STATEMENT";
         case AST_SPAWN_ACTOR_STATEMENT: return "SPAWN_ACTOR_STATEMENT";
         case AST_STATE_DECLARATION: return "STATE_DECLARATION";
+        case AST_MESSAGE_DEFINITION: return "MESSAGE_DEFINITION";
+        case AST_MESSAGE_FIELD: return "MESSAGE_FIELD";
+        case AST_RECEIVE_ARM: return "RECEIVE_ARM";
+        case AST_MESSAGE_PATTERN: return "MESSAGE_PATTERN";
+        case AST_PATTERN_FIELD: return "PATTERN_FIELD";
+        case AST_WILDCARD_PATTERN: return "WILDCARD_PATTERN";
+        case AST_REPLY_STATEMENT: return "REPLY_STATEMENT";
+        case AST_MESSAGE_CONSTRUCTOR: return "MESSAGE_CONSTRUCTOR";
+        case AST_FIELD_INIT: return "FIELD_INIT";
+        case AST_SEND_FIRE_FORGET: return "SEND_FIRE_FORGET";
+        case AST_SEND_ASK: return "SEND_ASK";
         case AST_BINARY_EXPRESSION: return "BINARY_EXPRESSION";
         case AST_UNARY_EXPRESSION: return "UNARY_EXPRESSION";
         case AST_FUNCTION_CALL: return "FUNCTION_CALL";

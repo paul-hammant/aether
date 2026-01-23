@@ -263,41 +263,65 @@ ASTNode* parse_primary_expression(Parser* parser) {
             int line = token->line;
             int column = token->column;
             advance_token(parser); // consume 'make'
-            
+
             if (!expect_token(parser, TOKEN_LEFT_PAREN)) return NULL;
-            
+
             // Parse []type syntax
             if (!expect_token(parser, TOKEN_LEFT_BRACKET)) return NULL;
             if (!expect_token(parser, TOKEN_RIGHT_BRACKET)) return NULL;
-            
+
             // Parse element type
             Type* element_type = parse_type(parser);
             if (!element_type) {
                 parser_error(parser, "Expected type after [] in make");
                 return NULL;
             }
-            
+
             // Parse comma
             if (!expect_token(parser, TOKEN_COMMA)) return NULL;
-            
+
             // Parse size expression
             ASTNode* size_expr = parse_expression(parser);
             if (!size_expr) {
                 parser_error(parser, "Expected size expression in make");
                 return NULL;
             }
-            
+
             if (!expect_token(parser, TOKEN_RIGHT_PAREN)) return NULL;
-            
+
             // Create a function call node: malloc(size * sizeof(type))
             // We'll transform this in codegen
             ASTNode* make_node = create_ast_node(AST_FUNCTION_CALL, "make", line, column);
             make_node->node_type = create_array_type(element_type, -1); // Dynamic array
             add_child(make_node, size_expr);
-            
+
             return make_node;
         }
-            
+
+        case TOKEN_SPAWN: {
+            // spawn ActorName() - V2 syntax for spawning actors as expressions
+            int line = token->line;
+            int column = token->column;
+            advance_token(parser); // consume 'spawn'
+
+            Token* actor_name = expect_token(parser, TOKEN_IDENTIFIER);
+            if (!actor_name) {
+                parser_error(parser, "Expected actor name after 'spawn'");
+                return NULL;
+            }
+
+            // Expect () after actor name
+            if (!expect_token(parser, TOKEN_LEFT_PAREN)) return NULL;
+            if (!expect_token(parser, TOKEN_RIGHT_PAREN)) return NULL;
+
+            // Create function call node for spawn_ActorName
+            char func_name[256];
+            snprintf(func_name, sizeof(func_name), "spawn_%s", actor_name->value);
+
+            ASTNode* spawn_call = create_ast_node(AST_FUNCTION_CALL, func_name, line, column);
+            return spawn_call;
+        }
+
         default:
             return NULL;
     }
@@ -1120,18 +1144,22 @@ ASTNode* parse_message_pattern(Parser* parser) {
             
             Token* field_name = expect_token(parser, TOKEN_IDENTIFIER);
             if (!field_name) break;
-            
+
             ASTNode* field_pattern = create_ast_node(AST_PATTERN_FIELD, field_name->value, field_name->line, field_name->column);
-            
-            // Check for optional binding: field: variable
+
+            // Check for explicit binding: field: variable
             if (match_token(parser, TOKEN_COLON)) {
                 Token* var_name = expect_token(parser, TOKEN_IDENTIFIER);
                 if (var_name) {
                     ASTNode* var_node = create_ast_node(AST_PATTERN_VARIABLE, var_name->value, var_name->line, var_name->column);
                     add_child(field_pattern, var_node);
                 }
+            } else {
+                // Implicit binding: use field name as variable name
+                ASTNode* var_node = create_ast_node(AST_PATTERN_VARIABLE, field_name->value, field_name->line, field_name->column);
+                add_child(field_pattern, var_node);
             }
-            
+
             add_child(pattern, field_pattern);
             
             if (peek_token(parser) && peek_token(parser)->type == TOKEN_COMMA) {
@@ -1352,6 +1380,8 @@ ASTNode* parse_actor_definition(Parser* parser) {
             if (state_decl) {
                 state_decl->type = AST_STATE_DECLARATION;
                 add_child(actor, state_decl);
+                // Consume optional semicolon after state declaration
+                match_token(parser, TOKEN_SEMICOLON);
             }
         } else if (match_token(parser, TOKEN_RECEIVE)) {
             ASTNode* receive_stmt = parse_receive_statement(parser);
@@ -1364,7 +1394,9 @@ ASTNode* parse_actor_definition(Parser* parser) {
                 add_child(actor, stmt);
             } else {
                 // If we can't parse a statement, advance to avoid infinite loop
-                fprintf(stderr, "Warning: Skipping unexpected token in actor body");
+                Token* tok = peek_token(parser);
+                fprintf(stderr, "Warning: Skipping unexpected token in actor body: %s (type=%d)\n",
+                        tok ? tok->value : "NULL", tok ? tok->type : -1);
                 advance_token(parser);
             }
         }
@@ -1444,8 +1476,8 @@ ASTNode* parse_receive_statement(Parser* parser) {
             }
         }
         
-        if (!arm_body) break;
-        
+        if (!arm_body || !pattern || !pattern_token) break;
+
         // Create receive arm node
         ASTNode* arm = create_ast_node(AST_RECEIVE_ARM, NULL, pattern_token->line, pattern_token->column);
         add_child(arm, pattern);
