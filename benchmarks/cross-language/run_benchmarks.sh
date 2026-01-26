@@ -2,7 +2,8 @@
 # Main benchmark runner - ONLY REAL RESULTS, NO SYNTHETIC DATA
 # If a benchmark can't run, it's simply skipped
 
-set -e
+# Don't exit on errors - we want to skip failures gracefully
+set +e
 cd "$(dirname "$0")"
 
 # Source cargo environment if it exists
@@ -212,22 +213,28 @@ fi
 # 6. Zig (if available)
 if command -v zig &> /dev/null; then
     echo "Building Zig ping-pong..."
-    if [ -f "zig/build.zig" ] && (cd zig && zig build -Doptimize=ReleaseFast &>/dev/null); then
-        ZIG_OUTPUT=$(cd zig && /usr/bin/time -l ./zig-out/bin/ping_pong 2>&1 || time -v ./zig-out/bin/ping_pong 2>&1)
+    if [ -f "zig/Makefile" ] && (cd zig && make ping_pong &>/dev/null); then
+        ZIG_OUTPUT=$(cd zig && /usr/bin/time -l ./ping_pong 2>&1 || time -v ./ping_pong 2>&1 || true)
         ZIG_CYCLES=$(echo "$ZIG_OUTPUT" | grep "Cycles/msg" | awk '{print $2}')
         ZIG_THROUGHPUT=$(echo "$ZIG_OUTPUT" | grep "Throughput" | awk '{print $2}')
-        ZIG_MSG_PER_SEC=$(echo "$ZIG_THROUGHPUT * 1000000" | bc 2>/dev/null | awk '{printf "%.0f", $0}')
-
-        add_result
-        cat >> "$RESULTS_FILE" <<EOF
+        
+        # Only add result if we got valid output
+        if [ -n "$ZIG_THROUGHPUT" ] && [ "$ZIG_THROUGHPUT" != "0" ]; then
+            ZIG_MSG_PER_SEC=$(echo "$ZIG_THROUGHPUT * 1000000" | bc 2>/dev/null | awk '{printf "%.0f", $0}')
+            
+            add_result
+            cat >> "$RESULTS_FILE" <<EOF
     "Zig": {
       "runtime": "Native",
       "msg_per_sec": $ZIG_MSG_PER_SEC,
-      "cycles_per_msg": $ZIG_CYCLES,
+      "cycles_per_msg": ${ZIG_CYCLES:-0},
       "notes": "std::Thread with Mutex"
     }
 EOF
-        echo "✓ Zig: ${ZIG_THROUGHPUT}M msg/sec"
+            echo "✓ Zig: ${ZIG_THROUGHPUT}M msg/sec"
+        else
+            echo "✗ Zig: Benchmark failed (no valid output)"
+        fi
     else
         echo "✗ Zig: Build failed (skipped)"
     fi
@@ -239,21 +246,27 @@ fi
 if command -v elixir &> /dev/null; then
     echo "Running Elixir ping-pong..."
     if [ -f "elixir/ping_pong.exs" ]; then
-        ELIXIR_OUTPUT=$(cd elixir && elixir ping_pong.exs 2>&1)
+        ELIXIR_OUTPUT=$(cd elixir && elixir ping_pong.exs 2>&1 || true)
         ELIXIR_CYCLES=$(echo "$ELIXIR_OUTPUT" | grep "Cycles/msg" | awk '{print $2}')
         ELIXIR_THROUGHPUT=$(echo "$ELIXIR_OUTPUT" | grep "Throughput" | awk '{print $2}')
-        ELIXIR_MSG_PER_SEC=$(echo "$ELIXIR_THROUGHPUT * 1000000" | bc 2>/dev/null | awk '{printf "%.0f", $0}')
-
-        add_result
-        cat >> "$RESULTS_FILE" <<EOF
+        
+        # Only add result if we got valid output
+        if [ -n "$ELIXIR_THROUGHPUT" ] && [ "$ELIXIR_THROUGHPUT" != "0" ]; then
+            ELIXIR_MSG_PER_SEC=$(echo "$ELIXIR_THROUGHPUT * 1000000" | bc 2>/dev/null | awk '{printf "%.0f", $0}')
+            
+            add_result
+            cat >> "$RESULTS_FILE" <<EOF
     "Elixir": {
       "runtime": "BEAM VM",
       "msg_per_sec": $ELIXIR_MSG_PER_SEC,
-      "cycles_per_msg": $ELIXIR_CYCLES,
+      "cycles_per_msg": ${ELIXIR_CYCLES:-0},
       "notes": "Native process messaging"
     }
 EOF
-        echo "✓ Elixir: ${ELIXIR_THROUGHPUT}M msg/sec"
+            echo "✓ Elixir: ${ELIXIR_THROUGHPUT}M msg/sec"
+        else
+            echo "✗ Elixir: Benchmark failed (no valid output)"
+        fi
     else
         echo "✗ Elixir: Benchmark not found (skipped)"
     fi
@@ -264,22 +277,28 @@ fi
 # 8. Erlang (if available)
 if command -v erlc &> /dev/null; then
     echo "Building Erlang ping-pong..."
-    if [ -f "erlang/ping_pong.erl" ] && (cd erlang && erlc ping_pong.erl &>/dev/null); then
-        ERLANG_OUTPUT=$(cd erlang && erl -noshell -s ping_pong main -s init stop 2>&1)
+    if [ -f "erlang/ping_pong.erl" ] && (cd erlang && erlc ping_pong.erl 2>&1); then
+        ERLANG_OUTPUT=$(cd erlang && erl -noshell -s ping_pong start 2>&1 || true)
         ERLANG_CYCLES=$(echo "$ERLANG_OUTPUT" | grep "Cycles/msg" | awk '{print $2}')
         ERLANG_THROUGHPUT=$(echo "$ERLANG_OUTPUT" | grep "Throughput" | awk '{print $2}')
-        ERLANG_MSG_PER_SEC=$(echo "$ERLANG_THROUGHPUT * 1000000" | bc 2>/dev/null | awk '{printf "%.0f", $0}')
-
-        add_result
-        cat >> "$RESULTS_FILE" <<EOF
+        
+        # Only add result if we got valid output
+        if [ -n "$ERLANG_THROUGHPUT" ] && [ "$ERLANG_THROUGHPUT" != "0" ]; then
+            ERLANG_MSG_PER_SEC=$(echo "$ERLANG_THROUGHPUT * 1000000" | bc 2>/dev/null | awk '{printf "%.0f", $0}')
+            
+            add_result
+            cat >> "$RESULTS_FILE" <<EOF
     "Erlang": {
       "runtime": "BEAM VM",
       "msg_per_sec": $ERLANG_MSG_PER_SEC,
-      "cycles_per_msg": $ERLANG_CYCLES,
+      "cycles_per_msg": ${ERLANG_CYCLES:-0},
       "notes": "Native process messaging"
     }
 EOF
-        echo "✓ Erlang: ${ERLANG_THROUGHPUT}M msg/sec"
+            echo "✓ Erlang: ${ERLANG_THROUGHPUT}M msg/sec"
+        else
+            echo "✗ Erlang: Benchmark failed (no valid output)"
+        fi
     else
         echo "✗ Erlang: Build failed (skipped)"
     fi
@@ -290,22 +309,28 @@ fi
 # 9. Pony (if available)
 if command -v ponyc &> /dev/null; then
     echo "Building Pony ping-pong..."
-    if [ -f "pony/ping_pong.pony" ] && (cd pony && ponyc ping_pong.pony &>/dev/null); then
-        PONY_OUTPUT=$(cd pony && ./ping_pong 2>&1)
+    if [ -f "pony/ping_pong.pony" ] && (cd pony && ponyc ping_pong.pony 2>&1); then
+        PONY_OUTPUT=$(cd pony && ./ping_pong 2>&1 || true)
         PONY_CYCLES=$(echo "$PONY_OUTPUT" | grep "Cycles/msg" | awk '{print $2}')
         PONY_THROUGHPUT=$(echo "$PONY_OUTPUT" | grep "Throughput" | awk '{print $2}')
-        PONY_MSG_PER_SEC=$(echo "$PONY_THROUGHPUT * 1000000" | bc 2>/dev/null | awk '{printf "%.0f", $0}')
-
-        add_result
-        cat >> "$RESULTS_FILE" <<EOF
+        
+        # Only add result if we got valid output
+        if [ -n "$PONY_THROUGHPUT" ] && [ "$PONY_THROUGHPUT" != "0" ]; then
+            PONY_MSG_PER_SEC=$(echo "$PONY_THROUGHPUT * 1000000" | bc 2>/dev/null | awk '{printf "%.0f", $0}')
+            
+            add_result
+            cat >> "$RESULTS_FILE" <<EOF
     "Pony": {
       "runtime": "Native (Pony runtime)",
       "msg_per_sec": $PONY_MSG_PER_SEC,
-      "cycles_per_msg": $PONY_CYCLES,
+      "cycles_per_msg": ${PONY_CYCLES:-0},
       "notes": "Actor model language"
     }
 EOF
-        echo "✓ Pony: ${PONY_THROUGHPUT}M msg/sec"
+            echo "✓ Pony: ${PONY_THROUGHPUT}M msg/sec"
+        else
+            echo "✗ Pony: Benchmark failed (no valid output)"
+        fi
     else
         echo "✗ Pony: Build failed (skipped)"
     fi
@@ -316,22 +341,28 @@ fi
 # 10. Scala (if available)
 if command -v scala &> /dev/null && command -v scalac &> /dev/null; then
     echo "Building Scala ping-pong..."
-    if [ -f "scala/ping_pong.scala" ] && (cd scala && scalac ping_pong.scala &>/dev/null); then
-        SCALA_OUTPUT=$(cd scala && scala PingPong 2>&1)
+    if [ -f "scala/ping_pong.scala" ] && (cd scala && scalac ping_pong.scala 2>&1); then
+        SCALA_OUTPUT=$(cd scala && scala PingPong 2>&1 || true)
         SCALA_CYCLES=$(echo "$SCALA_OUTPUT" | grep "Cycles/msg" | awk '{print $2}')
         SCALA_THROUGHPUT=$(echo "$SCALA_OUTPUT" | grep "Throughput" | awk '{print $2}')
-        SCALA_MSG_PER_SEC=$(echo "$SCALA_THROUGHPUT * 1000000" | bc 2>/dev/null | awk '{printf "%.0f", $0}')
-
-        add_result
-        cat >> "$RESULTS_FILE" <<EOF
+        
+        # Only add result if we got valid output
+        if [ -n "$SCALA_THROUGHPUT" ] && [ "$SCALA_THROUGHPUT" != "0" ]; then
+            SCALA_MSG_PER_SEC=$(echo "$SCALA_THROUGHPUT * 1000000" | bc 2>/dev/null | awk '{printf "%.0f", $0}')
+            
+            add_result
+            cat >> "$RESULTS_FILE" <<EOF
     "Scala": {
       "runtime": "JVM (Scala)",
       "msg_per_sec": $SCALA_MSG_PER_SEC,
-      "cycles_per_msg": $SCALA_CYCLES,
+      "cycles_per_msg": ${SCALA_CYCLES:-0},
       "notes": "Scala futures"
     }
 EOF
-        echo "✓ Scala: ${SCALA_THROUGHPUT}M msg/sec"
+            echo "✓ Scala: ${SCALA_THROUGHPUT}M msg/sec"
+        else
+            echo "✗ Scala: Benchmark failed (no valid output)"
+        fi
     else
         echo "✗ Scala: Build failed (skipped)"
     fi

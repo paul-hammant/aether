@@ -1,5 +1,5 @@
 -module(ping_pong).
--export([start/0, ping/2, pong/2]).
+-export([start/0, ping/2, pong/1]).
 
 -define(MESSAGES, 10000000).
 
@@ -28,13 +28,17 @@ start() ->
     io:format("Messages: ~p~n~n", [?MESSAGES]),
 
     % Spawn processes
+    Parent = self(),
     Pong = spawn(?MODULE, pong, [?MESSAGES]),
 
     % Start timer
     Start = erlang:system_time(nanosecond),
 
-    % Run ping-pong
-    spawn(?MODULE, ping, [Pong, ?MESSAGES]),
+    % Run ping-pong - spawn returns the PID, we need to link it to receive done
+    spawn_link(fun() ->
+        ping(Pong, ?MESSAGES),
+        Parent ! done
+    end),
 
     % Wait for completion
     receive
@@ -55,6 +59,6 @@ start() ->
     MsgPerSec = ?MESSAGES / ElapsedSec,
 
     io:format("Cycles/msg:     ~.2f~n", [CyclesPerMsg]),
-    io:format("Throughput:     ~.0f M msg/sec~n", [MsgPerSec / 1000000]),
+    io:format("Throughput:     ~.2f M msg/sec~n", [MsgPerSec / 1000000]),
 
     halt(0).

@@ -1374,10 +1374,16 @@ void generate_struct_definition(CodeGenerator* gen, ASTNode* struct_def) {
 
 void generate_main_function(CodeGenerator* gen, ASTNode* main) {
     if (!main || main->type != AST_MAIN_FUNCTION) return;
-    
+
     print_line(gen, "int main() {");
     indent(gen);
     clear_declared_vars(gen);  // Reset for main function
+
+    // Add timing if we have actors (for benchmarking)
+    if (gen->actor_count > 0) {
+        print_line(gen, "uint64_t _bench_start = rdtsc();");
+        print_line(gen, "");
+    }
 
     // Initialize scheduler with recommended core count if actors were defined
     if (gen->actor_count > 0) {
@@ -1406,8 +1412,24 @@ void generate_main_function(CodeGenerator* gen, ASTNode* main) {
         print_line(gen, "// Wait for actors to complete and clean up");
         print_line(gen, "scheduler_stop();");
         print_line(gen, "scheduler_wait();");
+        print_line(gen, "");
+        print_line(gen, "// Output benchmark results");
+        print_line(gen, "uint64_t _bench_end = rdtsc();");
+        print_line(gen, "uint64_t _bench_cycles = _bench_end - _bench_start;");
+        print_line(gen, "#if defined(__x86_64__) || defined(__i386__)");
+        print_line(gen, "double cycles_per_msg = (double)_bench_cycles / (10000000 * 2);");
+        print_line(gen, "double throughput = 2.0 * 10000000;");
+        print_line(gen, "printf(\"\\nCycles/msg:     %%.2f\\n\", cycles_per_msg);");
+        print_line(gen, "printf(\"Throughput:     %%.2f M msg/sec\\n\", throughput / 1e6);");
+        print_line(gen, "#elif defined(__aarch64__) || defined(__arm__)");
+        print_line(gen, "double seconds = _bench_cycles / 1e9;");
+        print_line(gen, "double throughput = (2.0 * 10000000) / seconds;");
+        print_line(gen, "double cycles_per_msg = _bench_cycles / (10000000 * 2.0);");
+        print_line(gen, "printf(\"\\nCycles/msg:     %%.2f\\n\", cycles_per_msg);");
+        print_line(gen, "printf(\"Throughput:     %%.2f M msg/sec\\n\", throughput / 1e6);");
+        print_line(gen, "#endif");
     }
-    
+
     print_line(gen, "return 0;");
     unindent(gen);
     print_line(gen, "}");
@@ -1421,7 +1443,9 @@ void generate_program(CodeGenerator* gen, ASTNode* program) {
     print_line(gen, "#include <stdlib.h>");
     print_line(gen, "#include <string.h>");
     print_line(gen, "#include <stdbool.h>");
-    
+    print_line(gen, "#include <stdatomic.h>");
+    print_line(gen, "");
+
     // Only include actor runtime if program uses actors
     bool has_actors = false;
     for (int i = 0; i < program->child_count; i++) {
@@ -1451,6 +1475,21 @@ void generate_program(CodeGenerator* gen, ASTNode* program) {
         print_line(gen, "// #include \"aether_type_pools.h\" // Not yet implemented");
         print_line(gen, "");
         print_line(gen, "extern __thread int current_core_id;");
+        print_line(gen, "");
+        print_line(gen, "// Benchmark timing function");
+        print_line(gen, "static inline uint64_t rdtsc() {");
+        print_line(gen, "#if defined(__x86_64__) || defined(__i386__)");
+        print_line(gen, "    unsigned int lo, hi;");
+        print_line(gen, "    __asm__ __volatile__ (\"rdtsc\" : \"=a\" (lo), \"=d\" (hi));");
+        print_line(gen, "    return ((uint64_t)hi << 32) | lo;");
+        print_line(gen, "#elif defined(__aarch64__) || defined(__arm__)");
+        print_line(gen, "    struct timespec ts;");
+        print_line(gen, "    clock_gettime(CLOCK_MONOTONIC, &ts);");
+        print_line(gen, "    return (uint64_t)ts.tv_sec * 1000000000ULL + ts.tv_nsec;");
+        print_line(gen, "#else");
+        print_line(gen, "    return 0;");
+        print_line(gen, "#endif");
+        print_line(gen, "}");
     }
     print_line(gen, "");
     

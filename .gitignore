@@ -9,14 +9,27 @@
 *.so
 *.dll
 *.dylib
-*.json
 
 # Generated C code (from .ae compilation)
 output.c
 generated_*.c
+/tmp/ping_pong_aether.c*
 
 # Package lock files
 aether.lock
+package-lock.json
+
+# Benchmark build artifacts
+benchmarks/cross-language/*/ping_pong
+benchmarks/cross-language/*/ping_pong.exe
+benchmarks/cross-language/*/*.beam
+benchmarks/cross-language/*/erl_crash.dump
+benchmarks/cross-language/zig/.zig-cache/
+benchmarks/cross-language/zig/zig-out/
+benchmarks/cross-language/visualize/server
+benchmarks/cross-language/visualize/server.exe
+benchmarks/cross-language/visualize/results_*.json
+zig_minimal
 
 # Editor
 .vscode/

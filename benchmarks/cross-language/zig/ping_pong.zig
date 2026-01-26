@@ -61,9 +61,8 @@ fn pongThread(_: *anyopaque) u8 {
 fn rdtsc() u64 {
     // For ARM (Apple Silicon), we'll use timer
     if (@import("builtin").cpu.arch == .aarch64) {
-        var ts: std.os.timespec = undefined;
-        _ = std.os.clock_gettime(std.os.CLOCK.MONOTONIC, &ts) catch return 0;
-        return @as(u64, @intCast(ts.tv_sec)) * 1_000_000_000 + @as(u64, @intCast(ts.tv_nsec));
+        const ts = std.posix.clock_gettime(std.posix.CLOCK.MONOTONIC) catch return 0;
+        return @as(u64, @intCast(ts.sec)) * 1_000_000_000 + @as(u64, @intCast(ts.nsec));
     }
     // For x86_64, use RDTSC
     return asm volatile ("rdtsc"
@@ -72,11 +71,14 @@ fn rdtsc() u64 {
 }
 
 pub fn main() !void {
-    const stdout = std.io.getStdOut().writer();
+    var stdout_buffer: [4096]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    const stdout = &stdout_writer.interface;
 
     try stdout.print("=== Zig Ping-Pong Benchmark ===\n", .{});
     try stdout.print("Messages: {}\n", .{MESSAGES});
     try stdout.print("Using std.Thread with Mutex and Condition\n\n", .{});
+    try stdout.flush();
 
     const start = rdtsc();
 
@@ -97,6 +99,7 @@ pub fn main() !void {
 
         try stdout.print("Cycles/msg:     {d:.2}\n", .{cycles_per_msg});
         try stdout.print("Throughput:     {d:.2} M msg/sec\n", .{throughput / 1e6});
+        try stdout.flush();
     } else {
         // x86_64: actual cycles
         const cycles_per_msg = @as(f64, @floatFromInt(total_cycles)) / @as(f64, MESSAGES);
@@ -105,5 +108,6 @@ pub fn main() !void {
 
         try stdout.print("Cycles/msg:     {d:.2}\n", .{cycles_per_msg});
         try stdout.print("Throughput:     {d:.2} M msg/sec\n", .{throughput / 1e6});
+        try stdout.flush();
     }
 }
