@@ -27,12 +27,16 @@ static long get_time_ms(void) {
 // ============================================================================
 
 typedef struct {
-    int id;
+    // MUST match ActorBase layout exactly - fields in exact same order!
     int active;
-    int assigned_core;
+    int id;
     Mailbox mailbox;
-    SPSCQueue spsc_queue;  // REQUIRED - must match ActorBase layout
     void (*step)(void*);
+    pthread_t thread;
+    int auto_process;
+    int assigned_core;
+    SPSCQueue spsc_queue;
+    // Test-specific fields below
     atomic_int count;
     atomic_int errors;
 } StressActor;
@@ -48,12 +52,16 @@ void stress_actor_step(StressActor* self) {
 
 // OrderActor type and step function for test_message_ordering_under_load
 typedef struct {
-    int id;
+    // MUST match ActorBase layout exactly - fields in exact same order!
     int active;
-    int assigned_core;
+    int id;
     Mailbox mailbox;
-    SPSCQueue spsc_queue;  // REQUIRED - must match ActorBase layout
     void (*step)(void*);
+    pthread_t thread;
+    int auto_process;
+    int assigned_core;
+    SPSCQueue spsc_queue;
+    // Test-specific fields below
     atomic_int count;
     int last_seq;
     atomic_int out_of_order;
@@ -73,12 +81,16 @@ static void order_step(OrderActor* self) {
 
 // CascadeActor type and step function for test_cascading_messages
 typedef struct {
-    int id;
+    // MUST match ActorBase layout exactly - fields in exact same order!
     int active;
-    int assigned_core;
+    int id;
     Mailbox mailbox;
-    SPSCQueue spsc_queue;  // REQUIRED - must match ActorBase layout
     void (*step)(void*);
+    pthread_t thread;
+    int auto_process;
+    int assigned_core;
+    SPSCQueue spsc_queue;
+    // Test-specific fields below
     atomic_int count;
     void* next_actor;
 } CascadeActor;
@@ -131,9 +143,11 @@ void test_single_message() {
     scheduler_init(1);
     
     StressActor* actor = malloc(sizeof(StressActor));
+    memset(actor, 0, sizeof(StressActor));  // Zero all fields including pthread_t
     actor->id = 1;
     actor->active = 0;
     actor->step = (void (*)(void*))stress_actor_step;
+    actor->auto_process = 0;
     atomic_store(&actor->count, 0);
     mailbox_init(&actor->mailbox);
     
@@ -164,9 +178,11 @@ void test_many_actors_single_core() {
     
     for (int i = 0; i < NUM_ACTORS; i++) {
         actors[i] = malloc(sizeof(StressActor));
+        memset(actors[i], 0, sizeof(StressActor));  // Zero all fields including pthread_t
         actors[i]->id = i + 1;
         actors[i]->active = 0;
         actors[i]->step = (void (*)(void*))stress_actor_step;
+        actors[i]->auto_process = 0;
         atomic_store(&actors[i]->count, 0);
         mailbox_init(&actors[i]->mailbox);
         scheduler_register_actor((ActorBase*)actors[i], 0);
@@ -203,9 +219,11 @@ void test_burst_then_idle() {
     scheduler_init(2);
     
     StressActor* actor = malloc(sizeof(StressActor));
+    memset(actor, 0, sizeof(StressActor));  // Zero all fields including pthread_t
     actor->id = 1;
     actor->active = 0;
     actor->step = (void (*)(void*))stress_actor_step;
+    actor->auto_process = 0;
     atomic_store(&actor->count, 0);
     mailbox_init(&actor->mailbox);
     
@@ -217,20 +235,26 @@ void test_burst_then_idle() {
         Message msg = message_create_simple(1, 0, i);
         scheduler_send_remote((ActorBase*)actor, msg, -1);
     }
-    
-    sleep_ms(50);
+
+    // Wait for first burst to be processed (with generous timeout for Valgrind)
+    for (int i = 0; i < 10000 && atomic_load(&actor->count) < 95; i++) {
+        sleep_ms(1);
+    }
     int count1 = atomic_load(&actor->count);
-    
+
     // Long idle period
     sleep_ms(200);
-    
+
     // Another burst
     for (int i = 0; i < 100; i++) {
         Message msg = message_create_simple(1, 0, i + 100);
         scheduler_send_remote((ActorBase*)actor, msg, -1);
     }
-    
-    sleep_ms(50);
+
+    // Wait for second burst to be processed (with generous timeout for Valgrind)
+    for (int i = 0; i < 10000 && atomic_load(&actor->count) < 190; i++) {
+        sleep_ms(1);
+    }
     int count2 = atomic_load(&actor->count);
     
     scheduler_stop();
@@ -252,9 +276,11 @@ void test_max_cores() {
     StressActor** actors = malloc(max * sizeof(StressActor*));
     for (int i = 0; i < max; i++) {
         actors[i] = malloc(sizeof(StressActor));
+        memset(actors[i], 0, sizeof(StressActor));  // Zero all fields including pthread_t
         actors[i]->id = i + 1;
         actors[i]->active = 0;
         actors[i]->step = (void (*)(void*))stress_actor_step;
+        actors[i]->auto_process = 0;
         atomic_store(&actors[i]->count, 0);
         mailbox_init(&actors[i]->mailbox);
         scheduler_register_actor((ActorBase*)actors[i], i);
@@ -267,12 +293,16 @@ void test_max_cores() {
         Message msg = message_create_simple(actors[target]->id, 0, i);
         scheduler_send_remote((ActorBase*)actors[target], msg, -1);
     }
-    
-    sleep_ms(300);
 
+    // Wait for messages to be processed (with generous timeout for Valgrind)
     int total = 0;
-    for (int i = 0; i < max; i++) {
-        total += atomic_load(&actors[i]->count);
+    for (int wait = 0; wait < 10000; wait++) {
+        total = 0;
+        for (int i = 0; i < max; i++) {
+            total += atomic_load(&actors[i]->count);
+        }
+        if (total >= max * 7) break;  // Target reached
+        sleep_ms(1);
     }
 
     scheduler_stop();
@@ -293,9 +323,11 @@ void test_alternating_load() {
     StressActor** actors = malloc(4 * sizeof(StressActor*));
     for (int i = 0; i < 4; i++) {
         actors[i] = malloc(sizeof(StressActor));
+        memset(actors[i], 0, sizeof(StressActor));  // Zero all fields including pthread_t
         actors[i]->id = i + 1;
         actors[i]->active = 0;
         actors[i]->step = (void (*)(void*))stress_actor_step;
+        actors[i]->auto_process = 0;
         atomic_store(&actors[i]->count, 0);
         mailbox_init(&actors[i]->mailbox);
         scheduler_register_actor((ActorBase*)actors[i], i);
@@ -312,12 +344,16 @@ void test_alternating_load() {
         }
         sleep_ms(10);
     }
-    
-    sleep_ms(50);
-    
+
+    // Wait for messages to be processed (with generous timeout for Valgrind)
     int total = 0;
-    for (int i = 0; i < 4; i++) {
-        total += atomic_load(&actors[i]->count);
+    for (int wait = 0; wait < 10000; wait++) {
+        total = 0;
+        for (int i = 0; i < 4; i++) {
+            total += atomic_load(&actors[i]->count);
+        }
+        if (total >= 180) break;  // Target reached
+        sleep_ms(1);
     }
     
     scheduler_stop();
@@ -336,9 +372,11 @@ void test_immediate_shutdown() {
     scheduler_init(2);
     
     StressActor* actor = malloc(sizeof(StressActor));
+    memset(actor, 0, sizeof(StressActor));  // Zero all fields including pthread_t
     actor->id = 1;
     actor->active = 0;
     actor->step = (void (*)(void*))stress_actor_step;
+    actor->auto_process = 0;
     atomic_store(&actor->count, 0);
     mailbox_init(&actor->mailbox);
     
@@ -364,9 +402,11 @@ void test_concurrent_sends_same_actor() {
     scheduler_init(4);
 
     StressActor* actor = malloc(sizeof(StressActor));
+    memset(actor, 0, sizeof(StressActor));  // Zero all fields including pthread_t
     actor->id = 1;
     actor->active = 0;
     actor->step = (void (*)(void*))stress_actor_step;
+    actor->auto_process = 0;
     atomic_store(&actor->count, 0);
     mailbox_init(&actor->mailbox);
 
@@ -380,9 +420,10 @@ void test_concurrent_sends_same_actor() {
         scheduler_send_remote((ActorBase*)actor, msg, source_core);
     }
 
-    // Wait longer to ensure all messages are processed
-    // With 500 messages and batch processing, need more time under test load
-    sleep_ms(400);
+    // Wait for messages to be processed (with generous timeout for Valgrind)
+    for (int i = 0; i < 10000 && atomic_load(&actor->count) < 350; i++) {
+        sleep_ms(1);
+    }
 
     int count = atomic_load(&actor->count);
 
@@ -401,16 +442,20 @@ void test_priority_inversion() {
     scheduler_init(2);
     
     StressActor* slow = malloc(sizeof(StressActor));
+    memset(slow, 0, sizeof(StressActor));  // Zero all fields including pthread_t
     slow->id = 1;
     slow->active = 0;
     slow->step = (void (*)(void*))stress_actor_step;
+    slow->auto_process = 0;
     atomic_store(&slow->count, 0);
     mailbox_init(&slow->mailbox);
-    
+
     StressActor* fast = malloc(sizeof(StressActor));
+    memset(fast, 0, sizeof(StressActor));  // Zero all fields including pthread_t
     fast->id = 2;
     fast->active = 0;
     fast->step = (void (*)(void*))stress_actor_step;
+    fast->auto_process = 0;
     atomic_store(&fast->count, 0);
     mailbox_init(&fast->mailbox);
     
@@ -429,9 +474,12 @@ void test_priority_inversion() {
         Message msg = message_create_simple(2, 0, i);
         scheduler_send_remote((ActorBase*)fast, msg, -1);
     }
-    
-    sleep_ms(100);
-    
+
+    // Wait for fast actor to process messages (with generous timeout for Valgrind)
+    for (int i = 0; i < 10000 && atomic_load(&fast->count) < 8; i++) {
+        sleep_ms(1);
+    }
+
     int fast_count = atomic_load(&fast->count);
     
     scheduler_stop();
@@ -448,9 +496,11 @@ void test_message_ordering_under_load() {
     scheduler_init(1);
 
     OrderActor* actor = malloc(sizeof(OrderActor));
+    memset(actor, 0, sizeof(OrderActor));  // Zero all fields including pthread_t
     actor->id = 1;
     actor->active = 0;
     actor->step = (void (*)(void*))order_step;
+    actor->auto_process = 0;
     atomic_store(&actor->count, 0);
     actor->last_seq = -1;
     atomic_store(&actor->out_of_order, 0);
@@ -464,9 +514,12 @@ void test_message_ordering_under_load() {
         Message msg = message_create_simple(1, 0, i);
         scheduler_send_remote((ActorBase*)actor, msg, -1);
     }
-    
-    sleep_ms(150);
-    
+
+    // Wait for messages to be processed (with generous timeout for Valgrind)
+    for (int i = 0; i < 10000 && atomic_load(&actor->count) < 450; i++) {
+        sleep_ms(1);
+    }
+
     int count = atomic_load(&actor->count);
     int oo = atomic_load(&actor->out_of_order);
 
@@ -487,8 +540,10 @@ void test_cascading_messages() {
     CascadeActor* actors[3];
     for (int i = 0; i < 3; i++) {
         actors[i] = malloc(sizeof(CascadeActor));
+        memset(actors[i], 0, sizeof(CascadeActor));  // Zero all fields including pthread_t
         actors[i]->id = i + 1;
         actors[i]->active = 0;
+        actors[i]->auto_process = 0;
         atomic_store(&actors[i]->count, 0);
         mailbox_init(&actors[i]->mailbox);
         actors[i]->next_actor = (i < 2) ? actors[i + 1] : NULL;
@@ -506,11 +561,18 @@ void test_cascading_messages() {
         Message msg = message_create_simple(1, 0, 3);  // payload_int=3 will cascade through 3 actors
         scheduler_send_remote((ActorBase*)actors[0], msg, -1);
     }
-    
-    sleep_ms(100);
-    
-    int total = atomic_load(&actors[0]->count) + 
-                atomic_load(&actors[1]->count) + 
+
+    // Wait for cascade to complete (with generous timeout for Valgrind)
+    for (int i = 0; i < 10000; i++) {
+        int total = atomic_load(&actors[0]->count) +
+                    atomic_load(&actors[1]->count) +
+                    atomic_load(&actors[2]->count);
+        if (total >= 10) break;
+        sleep_ms(1);
+    }
+
+    int total = atomic_load(&actors[0]->count) +
+                atomic_load(&actors[1]->count) +
                 atomic_load(&actors[2]->count);
     
     scheduler_stop();
@@ -537,9 +599,11 @@ void test_memory_pressure() {
     
     for (int i = 0; i < MANY; i++) {
         actors[i] = malloc(sizeof(StressActor));
+        memset(actors[i], 0, sizeof(StressActor));  // Zero all fields including pthread_t
         actors[i]->id = i + 1;
         actors[i]->active = 0;
         actors[i]->step = (void (*)(void*))stress_actor_step;
+        actors[i]->auto_process = 0;
         atomic_store(&actors[i]->count, 0);
         mailbox_init(&actors[i]->mailbox);
         scheduler_register_actor((ActorBase*)actors[i], i % 2);
@@ -554,12 +618,16 @@ void test_memory_pressure() {
             scheduler_send_remote((ActorBase*)actors[i], msg, -1);
         }
     }
-    
-    sleep_ms(200);
-    
+
+    // Wait for messages to be processed (with generous timeout for Valgrind)
     int total = 0;
-    for (int i = 0; i < MANY; i++) {
-        total += atomic_load(&actors[i]->count);
+    for (int wait = 0; wait < 10000; wait++) {
+        total = 0;
+        for (int i = 0; i < MANY; i++) {
+            total += atomic_load(&actors[i]->count);
+        }
+        if (total >= 900) break;
+        sleep_ms(1);
     }
     
     scheduler_stop();

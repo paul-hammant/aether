@@ -45,12 +45,14 @@ static inline void spinlock_unlock(OptimizedSpinlock* lock) {
 }
 
 typedef struct {
-    int id;
     int active;
-    int assigned_core;
+    int id;
     Mailbox mailbox;
-    SPSCQueue spsc_queue;  // Lock-free same-core messaging
     void (*step)(void*);
+    pthread_t thread;
+    int auto_process;
+    int assigned_core;
+    SPSCQueue spsc_queue;  // Lock-free same-core messaging
 } ActorBase;
 
 typedef struct {

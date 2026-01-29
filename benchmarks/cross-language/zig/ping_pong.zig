@@ -31,26 +31,38 @@ fn pingThread(_: *anyopaque) u8 {
         while (!chan_b.ready) {
             chan_b.cond.wait(&chan_b.mutex);
         }
+        const received = chan_b.value;
         chan_b.ready = false;
         chan_b.mutex.unlock();
+
+        // Validate received value matches what was sent
+        if (received != i) {
+            std.debug.print("Ping validation error: expected {}, got {}\n", .{i, received});
+        }
     }
     return 0;
 }
 
 fn pongThread(_: *anyopaque) u8 {
-    var i: i32 = 0;
-    while (i < MESSAGES) : (i += 1) {
+    var expected: i32 = 0;
+    while (expected < MESSAGES) : (expected += 1) {
         // Wait for A
         chan_a.mutex.lock();
         while (!chan_a.ready) {
             chan_a.cond.wait(&chan_a.mutex);
         }
+        const received = chan_a.value;
         chan_a.ready = false;
         chan_a.mutex.unlock();
 
-        // Send to B
+        // Validate received value matches expected sequence
+        if (received != expected) {
+            std.debug.print("Pong validation error: expected {}, got {}\n", .{expected, received});
+        }
+
+        // Send back the EXACT value received to B
         chan_b.mutex.lock();
-        chan_b.value = i;
+        chan_b.value = received;
         chan_b.ready = true;
         chan_b.cond.signal();
         chan_b.mutex.unlock();
@@ -61,9 +73,8 @@ fn pongThread(_: *anyopaque) u8 {
 fn rdtsc() u64 {
     // For ARM (Apple Silicon), we'll use timer
     if (@import("builtin").cpu.arch == .aarch64) {
-        var ts: std.os.timespec = undefined;
-        _ = std.os.clock_gettime(std.os.CLOCK.MONOTONIC, &ts) catch return 0;
-        return @as(u64, @intCast(ts.tv_sec)) * 1_000_000_000 + @as(u64, @intCast(ts.tv_nsec));
+        const ts = std.posix.clock_gettime(std.posix.CLOCK.MONOTONIC) catch return 0;
+        return @as(u64, @intCast(ts.sec)) * 1_000_000_000 + @as(u64, @intCast(ts.nsec));
     }
     // For x86_64, use RDTSC
     return asm volatile ("rdtsc"
@@ -72,11 +83,14 @@ fn rdtsc() u64 {
 }
 
 pub fn main() !void {
-    const stdout = std.io.getStdOut().writer();
+    var stdout_buffer: [4096]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    const stdout = &stdout_writer.interface;
 
     try stdout.print("=== Zig Ping-Pong Benchmark ===\n", .{});
     try stdout.print("Messages: {}\n", .{MESSAGES});
     try stdout.print("Using std.Thread with Mutex and Condition\n\n", .{});
+    try stdout.flush();
 
     const start = rdtsc();
 
@@ -97,6 +111,7 @@ pub fn main() !void {
 
         try stdout.print("Cycles/msg:     {d:.2}\n", .{cycles_per_msg});
         try stdout.print("Throughput:     {d:.2} M msg/sec\n", .{throughput / 1e6});
+        try stdout.flush();
     } else {
         // x86_64: actual cycles
         const cycles_per_msg = @as(f64, @floatFromInt(total_cycles)) / @as(f64, MESSAGES);
@@ -105,5 +120,6 @@ pub fn main() !void {
 
         try stdout.print("Cycles/msg:     {d:.2}\n", .{cycles_per_msg});
         try stdout.print("Throughput:     {d:.2} M msg/sec\n", .{throughput / 1e6});
+        try stdout.flush();
     }
 }

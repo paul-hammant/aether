@@ -337,7 +337,7 @@ void aether_http_response_json(HttpServerResponse* res, const char* json) {
 }
 
 const char* aether_http_response_serialize(HttpServerResponse* res) {
-    static char buffer[8192];
+    static char buffer[65536];  // Increased from 8KB to 64KB for larger responses
     
     int offset = snprintf(buffer, sizeof(buffer), 
                          "HTTP/1.1 %d %s\r\n",
@@ -559,47 +559,28 @@ static void handle_client_connection(HttpServer* server, int client_fd) {
 
 // Server main loop with proper connection handling
 int aether_http_server_start(HttpServer* server) {
-    printf("Starting HTTP server on %s:%d\n", server->host, server->port);
-    fflush(stdout);
-    
     if (aether_http_server_bind(server, server->host, server->port) < 0) {
-        fprintf(stderr, "Failed to bind server\n");
-        fflush(stderr);
         return -1;
     }
-    
-    printf("Bind successful, socket_fd = %d\n", server->socket_fd);
-    fflush(stdout);
-    
+
     server->is_running = 1;
-    printf("Server listening on http://%s:%d\n", server->host, server->port);
-    printf("Press Ctrl+C to stop\n");
+
+    // Print success message now that bind succeeded
+    printf("Server running at http://%s:%d\n", server->host, server->port);
+    printf("Press Ctrl+C to stop\n\n");
     fflush(stdout);
-    
+
     // Main accept loop
-    printf("Entering accept loop...\n");
-    fflush(stdout);
-    
     while (server->is_running) {
         struct sockaddr_in client_addr;
         socklen_t client_len = sizeof(client_addr);
-        
-        printf("Calling accept...\n");
-        fflush(stdout);
-        
+
         int client_fd = accept(server->socket_fd, (struct sockaddr*)&client_addr, &client_len);
-        
-        printf("Accept returned: %d\n", client_fd);
-        fflush(stdout);
-        
+
         if (client_fd < 0) {
             if (!server->is_running) break;
-            fprintf(stderr, "Accept failed, continuing...\n");
             continue;
         }
-        
-        printf("Accepted connection from client\n");
-        fflush(stdout);
         
         // Handle connection
         handle_client_connection(server, client_fd);

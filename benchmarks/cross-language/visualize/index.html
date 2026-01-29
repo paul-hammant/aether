@@ -1,179 +1,594 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Aether Cross-Language Benchmarks</title>
-<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aether Language Benchmarks - Ping-Pong Actor Performance</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0a0a0a;color:#e0e0e0;min-height:100vh;padding:0}
-.nav{background:#1a1a1a;border-bottom:1px solid #333;padding:15px 0}
-.nav-container{max-width:1600px;margin:0 auto;padding:0 40px;display:flex;align-items:center;gap:30px}
-.nav-title{font-size:1.3em;font-weight:600;color:#fff}
-.nav-links{display:flex;gap:20px}
-.nav-link{color:#999;text-decoration:none;padding:8px 16px;border-radius:4px;transition:all 0.2s}
-.nav-link:hover{color:#fff;background:#2a2a2a}
-.nav-link.active{color:#fff;background:#333}
-.container{max-width:1600px;margin:0 auto;padding:40px}
-h1{color:#fff;font-size:2em;margin-bottom:10px}
-.subtitle{color:#999;margin-bottom:30px}
-.info-box{background:#1a1a1a;border-left:4px solid #4a9eff;padding:15px;margin:20px 0;border-radius:4px;color:#ccc}
-.metrics-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:20px;margin:30px 0}
-.metric-card{background:#1a1a1a;padding:20px;border-radius:6px;border-left:4px solid#4a9eff}
-.metric-label{font-size:0.9em;color:#999;margin-bottom:5px}
-.metric-value{font-size:1.8em;font-weight:bold;color:#fff}
-.chart{margin:30px 0;padding:20px;background:#1a1a1a;border-radius:6px}
-.chart-title{font-size:1.2em;font-weight:600;color:#fff;margin-bottom:15px}
-.tabs{display:flex;gap:10px;margin:20px 0;border-bottom:1px solid #333}
-.tab{padding:10px 20px;cursor:pointer;border:none;background:none;font-size:1em;color:#999;transition:all 0.2s}
-.tab.active{color:#4a9eff;border-bottom:2px solid#4a9eff;font-weight:600}
-.tab:hover{color:#fff}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Roboto, sans-serif;
+  background: #0f0f0f;
+  color: #e8e8e8;
+  line-height: 1.6;
+}
+
+.header {
+  background: linear-gradient(135deg, #1a1a1a 0%, #0a0a0a 100%);
+  border-bottom: 1px solid #2a2a2a;
+  padding: 24px 0;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  backdrop-filter: blur(10px);
+}
+
+.header-content {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 32px;
+}
+
+.header h1 {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 4px;
+  letter-spacing: -0.02em;
+}
+
+.header-subtitle {
+  color: #888;
+  font-size: 0.95rem;
+}
+
+.container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 40px 32px;
+}
+
+.system-info {
+  background: linear-gradient(135deg, #1a1f2e 0%, #161b26 100%);
+  border: 1px solid #2a3f5f;
+  border-left: 4px solid #4a9eff;
+  padding: 20px 24px;
+  margin-bottom: 32px;
+  border-radius: 8px;
+  display: flex;
+  gap: 32px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.system-info-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.system-info-label {
+  font-size: 0.8rem;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+}
+
+.system-info-value {
+  font-size: 0.95rem;
+  color: #e8e8e8;
+  font-weight: 500;
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 20px;
+  margin-bottom: 40px;
+}
+
+.metric-card {
+  background: linear-gradient(135deg, #1a1a1a 0%, #151515 100%);
+  border: 1px solid #2a2a2a;
+  padding: 24px;
+  border-radius: 10px;
+  transition: all 0.3s ease;
+}
+
+.metric-card:hover {
+  border-color: #3a3a3a;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 16px rgba(0,0,0,0.4);
+}
+
+.metric-label {
+  font-size: 0.85rem;
+  color: #888;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.metric-value {
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 4px;
+}
+
+.metric-detail {
+  font-size: 0.9rem;
+  color: #666;
+}
+
+.section {
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 12px;
+  padding: 32px;
+  margin-bottom: 32px;
+}
+
+.section-title {
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: #fff;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.section-title::before {
+  content: '';
+  width: 4px;
+  height: 24px;
+  background: linear-gradient(180deg, #4a9eff 0%, #2d7acc 100%);
+  border-radius: 2px;
+}
+
+.chart-container {
+  position: relative;
+  height: 400px;
+  margin: 24px 0;
+}
+
+.comparison-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  margin-top: 24px;
+  font-size: 0.9rem;
+}
+
+.comparison-table thead {
+  background: linear-gradient(180deg, #252525 0%, #1f1f1f 100%);
+}
+
+.comparison-table th {
+  padding: 16px;
+  text-align: left;
+  color: #fff;
+  font-weight: 600;
+  border-bottom: 2px solid #4a9eff;
+  position: sticky;
+  top: 80px;
+  background: #252525;
+  z-index: 10;
+}
+
+.comparison-table td {
+  padding: 14px 16px;
+  border-bottom: 1px solid #2a2a2a;
+  color: #ccc;
+}
+
+.comparison-table tbody tr {
+  transition: background 0.2s ease;
+}
+
+.comparison-table tbody tr:hover {
+  background: #1f1f1f;
+}
+
+.rank-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.rank-1 { background: linear-gradient(135deg, #ffd700 0%, #ffed4e 100%); color: #000; }
+.rank-2 { background: linear-gradient(135deg, #c0c0c0 0%, #e8e8e8 100%); color: #000; }
+.rank-3 { background: linear-gradient(135deg, #cd7f32 0%, #e9a661 100%); color: #000; }
+.rank-other { background: #2a2a2a; color: #888; }
+
+.lang-name {
+  font-weight: 600;
+  color: #fff;
+  font-size: 1rem;
+}
+
+.runtime-tag {
+  display: inline-block;
+  padding: 4px 10px;
+  background: #2a2a2a;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  color: #999;
+}
+
+.perf-value {
+  font-weight: 600;
+  font-family: 'Monaco', 'Menlo', monospace;
+  font-size: 0.95rem;
+}
+
+.notes-text {
+  font-size: 0.85rem;
+  color: #888;
+  line-height: 1.4;
+}
+
+.winner-highlight {
+  color: #4a9eff !important;
+  font-weight: 700;
+}
+
+.methodology {
+  background: linear-gradient(135deg, #1a2a1a 0%, #151e15 100%);
+  border: 1px solid #2a3a2a;
+  border-left: 4px solid #4caf50;
+  padding: 24px;
+  border-radius: 8px;
+  margin-bottom: 32px;
+}
+
+.methodology h3 {
+  color: #4caf50;
+  font-size: 1.1rem;
+  margin-bottom: 12px;
+}
+
+.methodology p {
+  color: #aaa;
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.methodology ul {
+  margin: 12px 0;
+  padding-left: 20px;
+}
+
+.methodology li {
+  color: #999;
+  font-size: 0.9rem;
+  margin: 6px 0;
+}
+
+.footer {
+  text-align: center;
+  padding: 32px;
+  color: #666;
+  font-size: 0.85rem;
+  border-top: 1px solid #2a2a2a;
+  margin-top: 40px;
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 60px;
+  font-size: 1.1rem;
+  color: #888;
+}
+
+@media (max-width: 768px) {
+  .metrics-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .chart-container {
+    height: 300px;
+  }
+
+  .system-info {
+    flex-direction: column;
+    gap: 16px;
+  }
+}
 </style>
 </head>
 <body>
-<div class="nav">
-<div class="nav-container">
-<div class="nav-title">Aether Benchmarks</div>
-<div class="nav-links">
-<a href="/" class="nav-link active">Overview</a>
-<a href="/stats.html" class="nav-link">Statistical Analysis</a>
-</div>
-</div>
+
+<div class="header">
+  <div class="header-content">
+    <h1>Aether Cross-Language Benchmarks</h1>
+    <div class="header-subtitle">Ping-Pong Actor Performance Comparison</div>
+  </div>
 </div>
 
 <div class="container">
-<h1>Cross-Language Actor Benchmarks</h1>
-<p class="subtitle">Performance comparison: Throughput, Latency, Memory</p>
-<div id="status" class="info-box">Loading benchmark data...</div>
+  <div id="loading" class="loading">Loading benchmark data...</div>
+  <div id="content" style="display: none;">
 
-<div class="tabs">
-<button class="tab active" onclick="switchPattern('ping_pong')">Ping-Pong (Latency)</button>
-<button class="tab" onclick="switchPattern('ring')">Ring (Throughput)</button>
-<button class="tab" onclick="switchPattern('skynet')">Skynet (Scaling)</button>
+    <div class="system-info" id="system-info"></div>
+
+    <div class="methodology">
+      <h3>Methodology</h3>
+      <p>All languages implement the same ping-pong benchmark: two actors exchange 10 million messages (20M total round-trips). Each language uses its native, idiomatic concurrency primitives with no artificial handicaps.</p>
+      <ul>
+        <li><strong>Throughput:</strong> Messages processed per second (higher is better)</li>
+        <li><strong>Latency:</strong> CPU cycles per message at ~3GHz (lower is better)</li>
+        <li><strong>Memory:</strong> Resident Set Size during execution (lower is better)</li>
+      </ul>
+    </div>
+
+    <div class="metrics-grid" id="metrics"></div>
+
+    <div class="section">
+      <div class="section-title">Performance Comparison</div>
+      <div class="chart-container">
+        <canvas id="throughputChart"></canvas>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title">Detailed Results</div>
+      <table class="comparison-table" id="resultsTable">
+        <thead>
+          <tr>
+            <th>Rank</th>
+            <th>Language</th>
+            <th>Runtime</th>
+            <th>Throughput</th>
+            <th>Latency (cyc/msg)</th>
+            <th>Memory</th>
+            <th>Implementation Notes</th>
+          </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </div>
+
+  </div>
 </div>
 
-<div class="metrics-grid" id="metrics"></div>
-
-<div class="chart">
-<div class="chart-title">Throughput Comparison</div>
-<div id="throughput"></div>
-</div>
-
-<div class="chart">
-<div class="chart-title">Latency Comparison</div>
-<div id="latency"></div>
-</div>
-
-<div class="chart">
-<div class="chart-title">Memory Usage</div>
-<div id="memory"></div>
-</div>
-
-<div class="chart">
-<div class="chart-title">Performance Distribution</div>
-<div id="distribution"></div>
-</div>
+<div class="footer">
+  Aether Programming Language | Fair, reproducible benchmarks | Data auto-refreshes every 60s
 </div>
 
 <script>
-let currentPattern='ping_pong';
+let refreshInterval;
 
-async function loadData(){
-try{
-const res=await fetch(`/results_${currentPattern}.json`);
-const data=await res.json();
-if(!data.benchmarks||Object.keys(data.benchmarks).length===0){
-document.getElementById('status').innerHTML='No results. Run: make benchmark-ui';
-return;
-}
-document.getElementById('status').innerHTML=`${Object.keys(data.benchmarks).length} languages | ${data.hardware.cpu} | ${data.timestamp}`;
-renderCharts(data);
-}catch(e){
-document.getElementById('status').innerHTML='Error: '+e.message;
-}
-}
+async function loadBenchmarks() {
+  try {
+    console.log('Fetching benchmark data...');
+    const response = await fetch('/results_ping_pong.json');
+    console.log('Response status:', response.status);
 
-function renderCharts(data){
-const isSkynet=currentPattern==='skynet';
-const langs=Object.keys(data.benchmarks).sort((a,b)=>{
-if(isSkynet)return(data.benchmarks[b].actors_per_sec||0)-(data.benchmarks[a].actors_per_sec||0);
-return(data.benchmarks[b].msg_per_sec||0)-(data.benchmarks[a].msg_per_sec||0);
-});
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
 
-const throughput=isSkynet?langs.map(l=>(data.benchmarks[l].actors_per_sec||0)/1000):langs.map(l=>(data.benchmarks[l].msg_per_sec||0)/1e6);
-const latency=isSkynet?langs.map(l=>data.benchmarks[l].total_time_ms||0):langs.map(l=>data.benchmarks[l].cycles_per_msg||0);
-const memory=langs.map(l=>data.benchmarks[l].memory_mb||(Math.random()*5+2));
+    const data = await response.json();
+    console.log('Data loaded:', data);
 
-const aetherIdx=langs.indexOf('Aether');
-const colors=langs.map((_,i)=>i===aetherIdx?'#4a9eff':'#555');
+    if (!data.benchmarks || Object.keys(data.benchmarks).length === 0) {
+      document.getElementById('loading').innerHTML = 'No results available. Run: <code>make benchmark-ui</code>';
+      return;
+    }
 
-const layout={
-paper_bgcolor:'#1a1a1a',
-plot_bgcolor:'#1a1a1a',
-font:{color:'#e0e0e0'},
-margin:{t:20,b:80,l:60,r:20},
-xaxis:{gridcolor:'#2a2a2a'},
-yaxis:{gridcolor:'#2a2a2a'}
-};
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('content').style.display = 'block';
 
-Plotly.newPlot('throughput',[{
-x:langs,y:throughput,type:'bar',
-marker:{color:colors},
-text:isSkynet?throughput.map(v=>v.toFixed(0)+'K'):throughput.map(v=>v.toFixed(1)+'M'),
-textposition:'outside',
-textfont:{color:'#e0e0e0'}
-}],{...layout,yaxis:{...layout.yaxis,title:isSkynet?'Actors spawned per second (K)':'Million messages/second'}},{responsive:true});
-
-Plotly.newPlot('latency',[{
-x:langs,y:latency,type:'bar',
-marker:{color:colors},
-text:latency.map(v=>v.toFixed(1)),
-textposition:'outside',
-textfont:{color:'#e0e0e0'}
-}],{...layout,yaxis:{...layout.yaxis,title:isSkynet?'Total time (ms, lower is better)':'CPU cycles per message (lower is better)'}},{responsive:true});
-
-Plotly.newPlot('memory',[{
-x:langs,y:memory,type:'bar',
-marker:{color:colors},
-text:memory.map(v=>v.toFixed(1)+'MB'),
-textposition:'outside',
-textfont:{color:'#e0e0e0'}
-}],{...layout,yaxis:{...layout.yaxis,title:'Memory usage (MB)'}},{responsive:true});
-
-Plotly.newPlot('distribution',[{
-x:langs,y:throughput,type:'box',
-marker:{color:'#4a9eff'}
-}],{...layout,yaxis:{...layout.yaxis,title:isSkynet?'Actors/sec distribution':'Throughput distribution'}},{responsive:true});
-
-const metrics=document.getElementById('metrics');
-const aether=data.benchmarks.Aether||{};
-if(isSkynet){
-metrics.innerHTML=`
-<div class="metric-card"><div class="metric-label">Actors/Second</div><div class="metric-value">${((aether.actors_per_sec||0)/1000).toFixed(0)}K/s</div></div>
-<div class="metric-card"><div class="metric-label">Total Time</div><div class="metric-value">${(aether.total_time_ms||0).toFixed(2)} ms</div></div>
-<div class="metric-card"><div class="metric-label">Languages</div><div class="metric-value">${langs.length}</div></div>
-<div class="metric-card"><div class="metric-label">Pattern</div><div class="metric-value">skynet</div></div>
-`;
-}else{
-metrics.innerHTML=`
-<div class="metric-card"><div class="metric-label">Peak Throughput</div><div class="metric-value">${((aether.msg_per_sec||0)/1e6).toFixed(0)}M/s</div></div>
-<div class="metric-card"><div class="metric-label">Latency</div><div class="metric-value">${(aether.cycles_per_msg||0).toFixed(1)} cyc</div></div>
-<div class="metric-card"><div class="metric-label">Languages</div><div class="metric-value">${langs.length}</div></div>
-<div class="metric-card"><div class="metric-label">Pattern</div><div class="metric-value">${currentPattern}</div></div>
-`;
-}
+    renderDashboard(data);
+  } catch (error) {
+    console.error('Load error:', error);
+    document.getElementById('loading').innerHTML = `Error loading benchmarks: ${error.message}<br><br>Check browser console for details.`;
+  }
 }
 
-function switchPattern(pattern){
-currentPattern=pattern;
-document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
-event.target.classList.add('active');
-loadData();
+function renderDashboard(data) {
+  // Sort languages by throughput
+  const languages = Object.keys(data.benchmarks).sort((a, b) =>
+    (data.benchmarks[b].msg_per_sec || 0) - (data.benchmarks[a].msg_per_sec || 0)
+  );
+
+  const benchmarks = languages.map(lang => data.benchmarks[lang]);
+
+  // System info
+  const systemInfoHTML = `
+    <div class="system-info-item">
+      <div class="system-info-label">CPU</div>
+      <div class="system-info-value">${data.hardware.cpu || 'Unknown'}</div>
+    </div>
+    <div class="system-info-item">
+      <div class="system-info-label">Cores</div>
+      <div class="system-info-value">${data.hardware.cores || 'N/A'}</div>
+    </div>
+    <div class="system-info-item">
+      <div class="system-info-label">OS</div>
+      <div class="system-info-value">${data.hardware.os || 'Unknown'}</div>
+    </div>
+    <div class="system-info-item">
+      <div class="system-info-label">Timestamp</div>
+      <div class="system-info-value">${new Date(data.timestamp).toLocaleString()}</div>
+    </div>
+    <div class="system-info-item">
+      <div class="system-info-label">Languages Tested</div>
+      <div class="system-info-value">${languages.length}</div>
+    </div>
+  `;
+  document.getElementById('system-info').innerHTML = systemInfoHTML;
+
+  // Top metrics cards
+  const topLang = benchmarks[0];
+  const aetherData = data.benchmarks['Aether'] || topLang;
+  const throughputMsgs = (aetherData.msg_per_sec || 0) / 1e6;
+
+  const metricsHTML = `
+    <div class="metric-card">
+      <div class="metric-label">Peak Throughput</div>
+      <div class="metric-value">${throughputMsgs.toFixed(1)}M</div>
+      <div class="metric-detail">messages/second (Aether)</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Best Latency</div>
+      <div class="metric-value">${(aetherData.cycles_per_msg || 0).toFixed(1)}</div>
+      <div class="metric-detail">CPU cycles/message (Aether)</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Lowest Memory</div>
+      <div class="metric-value">${Math.min(...benchmarks.map(b => b.memory_mb || 999)).toFixed(1)}MB</div>
+      <div class="metric-detail">Resident set size</div>
+    </div>
+    <div class="metric-card">
+      <div class="metric-label">Performance Range</div>
+      <div class="metric-value">${(throughputMsgs / ((benchmarks[benchmarks.length-1].msg_per_sec || 1) / 1e6)).toFixed(0)}x</div>
+      <div class="metric-detail">Fastest vs. slowest</div>
+    </div>
+  `;
+  document.getElementById('metrics').innerHTML = metricsHTML;
+
+  // Chart
+  renderChart(languages, benchmarks);
+
+  // Table
+  renderTable(languages, benchmarks);
 }
 
-loadData();
-setInterval(loadData,30000);
+function renderChart(languages, benchmarks) {
+  console.log('Rendering chart with', languages.length, 'languages');
+
+  if (typeof Chart === 'undefined') {
+    console.error('Chart.js not loaded!');
+    document.getElementById('throughputChart').parentElement.innerHTML =
+      '<p style="color: red;">Chart.js library failed to load. Check your internet connection.</p>';
+    return;
+  }
+
+  const ctx = document.getElementById('throughputChart').getContext('2d');
+
+  const throughputData = benchmarks.map(b => (b.msg_per_sec || 0) / 1e6);
+  const colors = languages.map(lang => lang === 'Aether' ? '#4a9eff' : '#666');
+
+  if (window.performanceChart) {
+    window.performanceChart.destroy();
+  }
+
+  window.performanceChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: languages,
+      datasets: [{
+        label: 'Throughput (M msg/sec)',
+        data: throughputData,
+        backgroundColor: colors,
+        borderColor: colors,
+        borderWidth: 1
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#1a1a1a',
+          titleColor: '#fff',
+          bodyColor: '#ccc',
+          borderColor: '#4a9eff',
+          borderWidth: 1,
+          padding: 12,
+          displayColors: false,
+          callbacks: {
+            label: function(context) {
+              return `${context.parsed.y.toFixed(2)} M msg/sec`;
+            }
+          }
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          grid: { color: '#2a2a2a' },
+          ticks: {
+            color: '#888',
+            callback: function(value) {
+              return value.toFixed(1) + 'M';
+            }
+          },
+          title: {
+            display: true,
+            text: 'Throughput (Million messages/second)',
+            color: '#ccc'
+          }
+        },
+        x: {
+          grid: { display: false },
+          ticks: { color: '#888' }
+        }
+      }
+    }
+  });
+}
+
+function renderTable(languages, benchmarks) {
+  const tableBody = document.getElementById('tableBody');
+  let html = '';
+
+  languages.forEach((lang, index) => {
+    const bench = benchmarks[index];
+    const rank = index + 1;
+    const rankClass = rank === 1 ? 'rank-1' : rank === 2 ? 'rank-2' : rank === 3 ? 'rank-3' : 'rank-other';
+    const throughput = ((bench.msg_per_sec || 0) / 1e6).toFixed(2);
+    const latency = (bench.cycles_per_msg || 0).toFixed(1);
+    const memory = (bench.memory_mb || 0).toFixed(2);
+    const isWinner = rank === 1;
+
+    html += `
+      <tr>
+        <td><span class="rank-badge ${rankClass}">${rank}</span></td>
+        <td><span class="lang-name ${isWinner ? 'winner-highlight' : ''}">${lang}</span></td>
+        <td><span class="runtime-tag">${bench.runtime || 'N/A'}</span></td>
+        <td class="perf-value ${isWinner ? 'winner-highlight' : ''}">${throughput} M/s</td>
+        <td class="perf-value">${latency}</td>
+        <td class="perf-value">${memory} MB</td>
+        <td class="notes-text">${bench.notes || ''}</td>
+      </tr>
+    `;
+  });
+
+  tableBody.innerHTML = html;
+}
+
+// Wait for Chart.js to load before starting
+if (typeof Chart !== 'undefined') {
+  console.log('Chart.js loaded, starting benchmark load');
+  loadBenchmarks();
+  refreshInterval = setInterval(loadBenchmarks, 60000);
+} else {
+  console.log('Waiting for Chart.js...');
+  window.addEventListener('load', function() {
+    if (typeof Chart !== 'undefined') {
+      console.log('Chart.js loaded after window load');
+      loadBenchmarks();
+      refreshInterval = setInterval(loadBenchmarks, 60000);
+    } else {
+      document.getElementById('loading').innerHTML =
+        'Error: Chart.js failed to load from CDN.<br>Check your internet connection or try refreshing.';
+    }
+  });
+}
 </script>
+
 </body>
 </html>

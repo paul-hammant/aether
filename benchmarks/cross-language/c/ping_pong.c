@@ -32,8 +32,14 @@ void* ping_thread(void* arg) {
         while (!chan_b->ready) {
             pthread_cond_wait(&chan_b->cond, &chan_b->mutex);
         }
+        int received_value = chan_b->value;
         chan_b->ready = 0;
         pthread_mutex_unlock(&chan_b->mutex);
+
+        // VALIDATE: Must receive echo of what we sent
+        if (received_value != i) {
+            fprintf(stderr, "ERROR: Ping sent %d but got back %d\n", i, received_value);
+        }
     }
     return NULL;
 }
@@ -45,12 +51,18 @@ void* pong_thread(void* arg) {
         while (!chan_a->ready) {
             pthread_cond_wait(&chan_a->cond, &chan_a->mutex);
         }
+        int received_value = chan_a->value;
         chan_a->ready = 0;
         pthread_mutex_unlock(&chan_a->mutex);
 
-        // Send to B
+        // VALIDATE: Must receive expected sequence
+        if (received_value != i) {
+            fprintf(stderr, "ERROR: Pong expected %d but got %d\n", i, received_value);
+        }
+
+        // Send to B - echo back what we received
         pthread_mutex_lock(&chan_b->mutex);
-        chan_b->value = i;
+        chan_b->value = received_value;
         chan_b->ready = 1;
         pthread_cond_signal(&chan_b->cond);
         pthread_mutex_unlock(&chan_b->mutex);

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"sync"
 	"time"
 )
@@ -22,19 +23,30 @@ func main() {
 
 	start := time.Now()
 
+	// Ping goroutine
 	go func() {
 		defer wg.Done()
 		for i := 0; i < MESSAGES; i++ {
 			chanA <- i
-			<-chanB
+			received := <-chanB
+			// VALIDATE: Must receive echo of what we sent
+			if received != i {
+				fmt.Fprintf(os.Stderr, "ERROR: Ping sent %d but got back %d\n", i, received)
+			}
 		}
 	}()
 
+	// Pong goroutine
 	go func() {
 		defer wg.Done()
 		for i := 0; i < MESSAGES; i++ {
-			<-chanA
-			chanB <- i
+			received := <-chanA
+			// VALIDATE: Must receive expected sequence
+			if received != i {
+				fmt.Fprintf(os.Stderr, "ERROR: Pong expected %d but got %d\n", i, received)
+			}
+			// Echo back what we received
+			chanB <- received
 		}
 	}()
 

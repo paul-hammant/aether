@@ -42,15 +42,10 @@ char* get_exe_dir() {
     return dir;
 }
 
-// Serve index.html or stats.html
+// Serve index.html
 void serve_index(HttpRequest* req, HttpServerResponse* res, void* user_data) {
     char path[1024];
-    const char* req_path = req->path ? req->path : "/";
     const char* filename = "index.html";
-
-    if (strstr(req_path, "stats.html")) {
-        filename = "stats.html";
-    }
 
     snprintf(path, sizeof(path), "%s/%s", get_exe_dir(), filename);
 
@@ -135,46 +130,32 @@ int main(int argc, char* argv[]) {
     if (argc > 1) {
         port = atoi(argv[1]);
     }
-    
+
     printf("=======================================================\n");
-    printf("  Aether Cross-Language Benchmark Visualization Server\n");
+    printf("  Aether Benchmark Visualization\n");
     printf("=======================================================\n\n");
-    
+
     HttpServer* server = aether_http_server_create(port);
     if (!server) {
         fprintf(stderr, "Failed to create HTTP server\n");
         return 1;
     }
-    
+
     // Register routes
     aether_http_server_get(server, "/", serve_index, NULL);
     aether_http_server_get(server, "/index.html", serve_index, NULL);
-    aether_http_server_get(server, "/stats.html", serve_index, NULL);
-    aether_http_server_get(server, "/results.json", serve_results, NULL);
     aether_http_server_get(server, "/results_ping_pong.json", serve_results, NULL);
-    aether_http_server_get(server, "/results_ring.json", serve_results, NULL);
-    aether_http_server_get(server, "/results_skynet.json", serve_results, NULL);
-    aether_http_server_get(server, "/results_statistical.json", serve_results, NULL);
     aether_http_server_get(server, "/api/sysinfo", serve_sysinfo, NULL);
 
-    printf("Server starting on http://localhost:%d\n", port);
-    printf("\nAvailable endpoints:\n");
-    printf("  GET  /                         - Benchmark dashboard\n");
-    printf("  GET  /results.json             - All benchmark results (JSON)\n");
-    printf("  GET  /results_ping_pong.json   - Ping-pong pattern results\n");
-    printf("  GET  /results_ring.json        - Ring pattern results\n");
-    printf("  GET  /results_skynet.json      - Skynet pattern results\n");
-    printf("  GET  /api/sysinfo              - Server information\n");
-    printf("\nPress Ctrl+C to stop\n\n");
-    
-    // Start server (blocking)
+    // Start server (blocking) - this binds, prints success, and enters accept loop
     int result = aether_http_server_start(server);
-    
+
     if (result != 0) {
-        fprintf(stderr, "Failed to start server on port %d\n", port);
+        fprintf(stderr, "\nFailed to start server on port %d\n", port);
+        fprintf(stderr, "Port may already be in use. Try: pkill -f 'visualize/server'\n");
         return 1;
     }
-    
+
     aether_http_server_free(server);
     return 0;
 }

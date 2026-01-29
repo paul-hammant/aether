@@ -27,23 +27,31 @@ static long get_time_ms(void) {
 // ============================================================================
 
 typedef struct {
-    int id;
+    // MUST match ActorBase layout exactly - fields in exact same order!
     int active;
-    int assigned_core;
+    int id;
     Mailbox mailbox;
-    SPSCQueue spsc_queue;  // REQUIRED - must match ActorBase layout
     void (*step)(void*);
+    pthread_t thread;
+    int auto_process;
+    int assigned_core;
+    SPSCQueue spsc_queue;
+    // Test-specific fields below
     atomic_int count;
     atomic_int last_value;
 } CounterActor;
 
 typedef struct {
-    int id;
+    // MUST match ActorBase layout exactly - fields in exact same order!
     int active;
-    int assigned_core;
+    int id;
     Mailbox mailbox;
-    SPSCQueue spsc_queue;  // REQUIRED - must match ActorBase layout
     void (*step)(void*);
+    pthread_t thread;
+    int auto_process;
+    int assigned_core;
+    SPSCQueue spsc_queue;
+    // Test-specific fields below
     atomic_int received[1000];
     atomic_int count;
 } OrderActor;
@@ -133,9 +141,11 @@ void test_scheduler_basic_messaging(void) {
     scheduler_init(2);
     
     CounterActor* actor = malloc(sizeof(CounterActor));
+    memset(actor, 0, sizeof(CounterActor));  // Zero all fields including pthread_t
     actor->id = 1;
     actor->active = 0;
     actor->step = (void (*)(void*))counter_step;
+    actor->auto_process = 0;
     atomic_store(&actor->count, 0);
     atomic_store(&actor->last_value, -1);
     mailbox_init(&actor->mailbox);
@@ -160,7 +170,6 @@ void test_scheduler_basic_messaging(void) {
     scheduler_stop();
     scheduler_wait();
     scheduler_cleanup();
-    scheduler_cleanup();
     
     ASSERT_EQ(100, final_count);
     ASSERT_EQ(99, final_last);
@@ -174,9 +183,11 @@ void test_scheduler_high_throughput(void) {
     scheduler_init(2);
     
     CounterActor* actor = malloc(sizeof(CounterActor));
+    memset(actor, 0, sizeof(CounterActor));  // Zero all fields including pthread_t
     actor->id = 1;
     actor->active = 0;
     actor->step = (void (*)(void*))counter_step;
+    actor->auto_process = 0;
     atomic_store(&actor->count, 0);
     atomic_store(&actor->last_value, -1);
     mailbox_init(&actor->mailbox);
@@ -206,7 +217,6 @@ void test_scheduler_high_throughput(void) {
     scheduler_stop();
     scheduler_wait();
     scheduler_cleanup();
-    scheduler_cleanup();
     
     ASSERT_EQ(TOTAL, final_count);
     
@@ -225,12 +235,14 @@ void test_scheduler_message_ordering(void) {
     scheduler_init(2);
     
     OrderActor* actor = malloc(sizeof(OrderActor));
+    memset(actor, 0, sizeof(OrderActor));  // Zero all fields including pthread_t
     actor->id = 1;
     actor->active = 0;
     actor->step = (void (*)(void*))order_step;
+    actor->auto_process = 0;
     atomic_store(&actor->count, 0);
     mailbox_init(&actor->mailbox);
-    
+
     for (int i = 0; i < 1000; i++) {
         atomic_store(&actor->received[i], -1);
     }
@@ -264,7 +276,6 @@ void test_scheduler_message_ordering(void) {
     scheduler_stop();
     scheduler_wait();
     scheduler_cleanup();
-    scheduler_cleanup();
     
     ASSERT_TRUE(ordered);
     
@@ -277,17 +288,21 @@ void test_scheduler_cross_core(void) {
     scheduler_init(4);
     
     CounterActor* actor0 = malloc(sizeof(CounterActor));
+    memset(actor0, 0, sizeof(CounterActor));  // Zero all fields including pthread_t
     CounterActor* actor1 = malloc(sizeof(CounterActor));
-    
+    memset(actor1, 0, sizeof(CounterActor));  // Zero all fields including pthread_t
+
     actor0->id = 1;
     actor0->active = 0;
     actor0->step = (void (*)(void*))counter_step;
+    actor0->auto_process = 0;
     atomic_store(&actor0->count, 0);
     mailbox_init(&actor0->mailbox);
-    
+
     actor1->id = 2;
     actor1->active = 0;
     actor1->step = (void (*)(void*))counter_step;
+    actor1->auto_process = 0;
     atomic_store(&actor1->count, 0);
     mailbox_init(&actor1->mailbox);
     
@@ -300,10 +315,10 @@ void test_scheduler_cross_core(void) {
         Message msg = message_create_simple(1, 0, i);
         scheduler_send_remote((ActorBase*)actor1, msg, 0);
     }
-    
-    // Wait for processing
-    for (int i = 0; i < 100 && atomic_load(&actor1->count) < 100; i++) {
-        sleep_ms(10);
+
+    // Wait for processing (with generous timeout for Valgrind)
+    for (int i = 0; i < 10000 && atomic_load(&actor1->count) < 100; i++) {
+        sleep_ms(1);
     }
     
     int count0 = atomic_load(&actor0->count);
@@ -311,7 +326,6 @@ void test_scheduler_cross_core(void) {
     
     scheduler_stop();
     scheduler_wait();
-    scheduler_cleanup();
     scheduler_cleanup();
     
     ASSERT_EQ(0, count0);
@@ -336,7 +350,6 @@ void test_scheduler_exit_clean(void) {
     
     scheduler_stop();
     scheduler_wait();
-    scheduler_cleanup();
     scheduler_cleanup();
     
     long end = get_time_ms();
@@ -377,7 +390,6 @@ void test_scheduler_backpressure(void) {
     
     scheduler_stop();
     scheduler_wait();
-    scheduler_cleanup();
     scheduler_cleanup();
     
     // With backpressure, should process all or nearly all messages

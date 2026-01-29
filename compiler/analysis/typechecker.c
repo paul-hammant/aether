@@ -386,18 +386,43 @@ int typecheck_actor_definition(ASTNode* actor, SymbolTable* table) {
             // Add state variables to actor's symbol table
             add_symbol(actor_table, child->value, clone_type(child->node_type), 0, 0, 1);
         } else if (child->type == AST_RECEIVE_STATEMENT) {
-            // Handle receive statement - add 'msg' parameter to scope
+            // Handle receive statement
             SymbolTable* receive_table = create_symbol_table(actor_table);
-            
-            // Add 'msg' as a Message type
-            Type* msg_type = create_type(TYPE_MESSAGE);
-            add_symbol(receive_table, child->value, msg_type, 0, 0, 0);
-            
-            // Type check the receive body
-            if (child->child_count > 0) {
-                typecheck_statement(child->children[0], receive_table);
+
+            // V1 syntax: receive(msg) { ... } has child->value set
+            // V2 syntax: receive { Pattern -> ... } has child->value = NULL
+            if (child->value) {
+                Type* msg_type = create_type(TYPE_MESSAGE);
+                add_symbol(receive_table, child->value, msg_type, 0, 0, 0);
             }
-            
+
+            // Type check the receive body/arms
+            for (int j = 0; j < child->child_count; j++) {
+                ASTNode* arm = child->children[j];
+
+                // For V2 receive arms, extract pattern variables
+                if (arm->type == AST_RECEIVE_ARM && arm->child_count >= 2) {
+                    ASTNode* pattern = arm->children[0];
+                    ASTNode* arm_body = arm->children[1];
+
+                    // Add pattern variables to scope
+                    if (pattern->type == AST_MESSAGE_PATTERN) {
+                        for (int k = 0; k < pattern->child_count; k++) {
+                            ASTNode* field = pattern->children[k];
+                            if (field->type == AST_PATTERN_FIELD) {
+                                // Field name is the variable name (implicit binding)
+                                add_symbol(receive_table, field->value, create_type(TYPE_INT), 0, 0, 0);
+                            }
+                        }
+                    }
+
+                    // Type check arm body
+                    typecheck_statement(arm_body, receive_table);
+                } else {
+                    typecheck_statement(arm, receive_table);
+                }
+            }
+
             free_symbol_table(receive_table);
             continue;
         }
@@ -479,7 +504,7 @@ int typecheck_statement(ASTNode* stmt, SymbolTable* table) {
                 ASTNode* init = stmt->children[0];
                 typecheck_expression(init, table);
                 Type* init_type = infer_type(init, table);
-                
+
                 // If variable has no explicit type (TYPE_UNKNOWN), use initializer's type
                 if (!stmt->node_type || stmt->node_type->kind == TYPE_UNKNOWN) {
                     if (stmt->node_type) free_type(stmt->node_type);
@@ -490,7 +515,7 @@ int typecheck_statement(ASTNode* stmt, SymbolTable* table) {
                     return 0;
                 }
             }
-            
+
             // Add to symbol table
             add_symbol(table, stmt->value, clone_type(stmt->node_type), 0, 0, 0);
             return 1;

@@ -15,11 +15,13 @@
 #define MESSAGES_PER_ACTOR 5000
 
 typedef struct Node {
-    int id;
     int active;
-    int assigned_core;
+    int id;
     Mailbox mailbox;
     void (*step)(void*);
+    pthread_t thread;
+    int auto_process;
+    int assigned_core;
     int next_id;
     int count;
 } Node;

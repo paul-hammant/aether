@@ -5,7 +5,7 @@
 MessageRegistry* create_message_registry(void) {
     MessageRegistry* registry = (MessageRegistry*)malloc(sizeof(MessageRegistry));
     registry->messages = NULL;
-    registry->next_id = 1000;
+    registry->next_id = 0;  // Start at 0 for 0-255 range
     return registry;
 }
 

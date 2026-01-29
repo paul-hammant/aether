@@ -1,32 +1,37 @@
-"""
-Scala Akka Ping-Pong Benchmark
-Classic actor framework comparison
-"""
+// Scala Akka Ping-Pong Benchmark
+// Classic actor framework comparison
 
-import akka.actor.{Actor, ActorSystem, Props}
+import akka.actor.{Actor, ActorRef, ActorSystem, Props}
 import scala.concurrent.duration._
 import scala.concurrent.{Await, Promise}
 
-case object Ping
-case object Pong
-case object Start
+case class Ping(value: Long)
+case class Pong(value: Long)
+case class Start(pong: ActorRef)
 case class Done(count: Long)
 
-class PingActor(pong: akka.actor.ActorRef, promise: Promise[Long]) extends Actor {
-  var count = 0L
+class PingActor(promise: Promise[Long]) extends Actor {
+  var i = 0L
   val maxCount = 10000000L
   var startTime = 0L
+  var pongRef: ActorRef = null
 
   def receive = {
-    case Start =>
+    case Start(pong) =>
+      pongRef = pong
       startTime = System.nanoTime()
-      count = 0
-      pong ! Pong
-      
-    case Ping =>
-      count += 1
-      if (count < maxCount) {
-        pong ! Pong
+      i = 0
+      pongRef ! Pong(i)
+
+    case Ping(value) =>
+      // Validate received value matches what was sent
+      if (value != i) {
+        System.err.println(s"Ping validation error: expected $i, got $value")
+      }
+
+      i += 1
+      if (i < maxCount) {
+        pongRef ! Pong(i)
       } else {
         val endTime = System.nanoTime()
         val elapsed = endTime - startTime
@@ -36,35 +41,40 @@ class PingActor(pong: akka.actor.ActorRef, promise: Promise[Long]) extends Actor
   }
 }
 
-class PongActor(ping: akka.actor.ActorRef) extends Actor {
+class PongActor(ping: ActorRef) extends Actor {
+  var expected = 0L
+
   def receive = {
-    case Pong =>
-      ping ! Ping
+    case Pong(value) =>
+      // Validate received value matches expected sequence
+      if (value != expected) {
+        System.err.println(s"Pong validation error: expected $expected, got $value")
+      }
+      expected += 1
+      // Echo back the EXACT value received
+      ping ! Ping(value)
   }
 }
 
 object PingPongBenchmark extends App {
   println("=== Scala Akka Ping-Pong Benchmark ===")
   println("Messages: 10000000\n")
-  
+
   val system = ActorSystem("PingPong")
   val promise = Promise[Long]()
-  
-  val ping = system.actorOf(Props(classOf[PingActor], null, promise))
+
+  val ping = system.actorOf(Props(classOf[PingActor], promise))
   val pong = system.actorOf(Props(classOf[PongActor], ping))
-  
-  // Update ping with pong reference
-  val pingWithPong = system.actorOf(Props(classOf[PingActor], pong, promise))
-  
-  pingWithPong ! Start
-  
+
+  ping ! Start(pong)
+
   val elapsed = Await.result(promise.future, 60.seconds)
-  val cycles = (elapsed.toDouble / 1e9) * 3e9 // Estimate cycles at 3GHz
-  val cyclesPerMsg = cycles / 10000000
-  val throughput = 3000.0 / cyclesPerMsg
-  
-  println(s"Cycles/msg: ${cyclesPerMsg}")
-  println(s"Throughput: ${throughput.toLong} M msg/sec")
-  
+  val elapsedSec = elapsed.toDouble / 1e9
+  val cyclesPerMsg = (elapsed.toDouble / 10000000.0) * 3.0  // Approximate at 3GHz
+  val throughput = 10000000.0 / elapsedSec / 1e6  // Convert to M msg/sec
+
+  println(s"Cycles/msg:     ${cyclesPerMsg}")
+  println(s"Throughput:     ${throughput} M msg/sec")
+
   Await.result(system.whenTerminated, 10.seconds)
 }

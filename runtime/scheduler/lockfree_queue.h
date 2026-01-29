@@ -79,4 +79,11 @@ static inline int queue_enqueue_batch(LockFreeQueue* q, void** actors, Message* 
     return count;
 }
 
+// Get current queue size (approximate - may change between read of head/tail)
+static inline int queue_size(LockFreeQueue* q) {
+    int head = atomic_load_explicit(&q->head, memory_order_relaxed);
+    int tail = atomic_load_explicit(&q->tail, memory_order_relaxed);
+    return (tail - head) & QUEUE_MASK;
+}
+
 #endif

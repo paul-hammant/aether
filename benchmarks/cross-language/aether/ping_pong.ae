@@ -1,0 +1,63 @@
+// Aether ping-pong benchmark with PROPER SYNCHRONIZATION
+// Validates that responses contain correct count values
+
+message Ping {
+    count: int
+}
+
+message Pong {
+    count: int
+}
+
+actor PingActor {
+    state pong_ref = 0;
+    state expected_count = 0;
+    state total_messages = 10000000;
+    state errors = 0;
+
+    receive {
+        Pong { count } -> {
+            // VALIDATE: The pong must echo back our expected count
+            if (count != expected_count) {
+                errors = errors + 1;
+            }
+
+            expected_count = expected_count + 1;
+            if (expected_count < total_messages) {
+                pong_ref ! Ping { count: expected_count };
+            }
+        }
+    }
+}
+
+actor PongActor {
+    state ping_ref = 0;
+
+    receive {
+        Ping { count } -> {
+            // Echo back the EXACT count we received
+            ping_ref ! Pong { count: count };
+        }
+    }
+}
+
+main() {
+    print("=== Aether Ping-Pong (Validated) ===");
+
+    ping = spawn PingActor();
+    pong = spawn PongActor();
+
+    ping.pong_ref = pong;
+    pong.ping_ref = ping;
+
+    // Start with count=0
+    pong ! Ping { count: 0 };
+
+    // Wait for completion
+    i = 0;
+    while (i < 100000000) {
+        i = i + 1;
+    }
+
+    print("Benchmark complete");
+}

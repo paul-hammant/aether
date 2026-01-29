@@ -19,7 +19,11 @@ public class PingPong {
             try {
                 for (int i = 0; i < MESSAGES; i++) {
                     sendQueue.put(i);
-                    recvQueue.take();
+                    int received = recvQueue.take();
+                    // VALIDATE: Must receive echo of what we sent
+                    if (received != i) {
+                        System.err.println("ERROR: Ping sent " + i + " but got back " + received);
+                    }
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -40,8 +44,13 @@ public class PingPong {
         public void run() {
             try {
                 for (int i = 0; i < MESSAGES; i++) {
-                    recvQueue.take();
-                    sendQueue.put(i);
+                    int received = recvQueue.take();
+                    // VALIDATE: Must receive expected sequence
+                    if (received != i) {
+                        System.err.println("ERROR: Pong expected " + i + " but got " + received);
+                    }
+                    // Echo back what we received
+                    sendQueue.put(received);
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();

@@ -1,7 +1,6 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::mpsc::sync_channel;
+use std::thread;
 use std::time::Instant;
-use tokio::sync::mpsc;
 
 const MESSAGES: usize = 10_000_000;
 
@@ -18,34 +17,45 @@ fn rdtsc() -> u64 {
         .as_nanos() as u64
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     println!("=== Rust Ping-Pong Benchmark ===");
-    println!("Messages: {}\n", MESSAGES);
-    
-    let (ping_tx, mut ping_rx) = mpsc::channel(1);
-    let (pong_tx, mut pong_rx) = mpsc::channel(1);
-    
+    println!("Messages: {}", MESSAGES);
+    println!("Using std::thread with sync_channel\n");
+
+    let (ping_tx, ping_rx) = sync_channel::<i32>(1);
+    let (pong_tx, pong_rx) = sync_channel::<i32>(1);
+
     let start = rdtsc();
     let time_start = Instant::now();
-    
-    let ping_task = tokio::spawn(async move {
-        for _ in 0..MESSAGES {
-            ping_tx.send(()).await.unwrap();
-            pong_rx.recv().await.unwrap();
+
+    let ping_thread = thread::spawn(move || {
+        for i in 0..MESSAGES {
+            let val = i as i32;
+            ping_tx.send(val).unwrap();
+            let received = pong_rx.recv().unwrap();
+            // VALIDATE: Must receive echo of what we sent
+            if received != val {
+                eprintln!("ERROR: Ping sent {} but got back {}", val, received);
+            }
         }
     });
-    
-    let pong_task = tokio::spawn(async move {
-        for _ in 0..MESSAGES {
-            ping_rx.recv().await.unwrap();
-            pong_tx.send(()).await.unwrap();
+
+    let pong_thread = thread::spawn(move || {
+        for i in 0..MESSAGES {
+            let expected = i as i32;
+            let received = ping_rx.recv().unwrap();
+            // VALIDATE: Must receive expected sequence
+            if received != expected {
+                eprintln!("ERROR: Pong expected {} but got {}", expected, received);
+            }
+            // Echo back what we received
+            pong_tx.send(received).unwrap();
         }
     });
-    
-    ping_task.await.unwrap();
-    pong_task.await.unwrap();
-    
+
+    ping_thread.join().unwrap();
+    pong_thread.join().unwrap();
+
     let cycles = rdtsc() - start;
     let elapsed = time_start.elapsed();
 

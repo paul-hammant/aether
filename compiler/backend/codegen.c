@@ -16,6 +16,8 @@ CodeGenerator* create_code_generator(FILE* output) {
     gen->actor_state_vars = NULL;
     gen->state_var_count = 0;
     gen->message_registry = create_message_registry();
+    gen->declared_vars = NULL;
+    gen->declared_var_count = 0;
     return gen;
 }
 
@@ -27,12 +29,47 @@ void free_code_generator(CodeGenerator* gen) {
                 free(gen->actor_state_vars[i]);
             }
             free(gen->actor_state_vars);
+        }
+        if (gen->declared_vars) {
+            for (int i = 0; i < gen->declared_var_count; i++) {
+                free(gen->declared_vars[i]);
+            }
+            free(gen->declared_vars);
+        }
         if (gen->message_registry) {
             free_message_registry(gen->message_registry);
         }
-        }
         free(gen);
     }
+}
+
+// Helper: check if variable was already declared in current function
+int is_var_declared(CodeGenerator* gen, const char* var_name) {
+    for (int i = 0; i < gen->declared_var_count; i++) {
+        if (strcmp(gen->declared_vars[i], var_name) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// Helper: mark variable as declared in current function
+void mark_var_declared(CodeGenerator* gen, const char* var_name) {
+    gen->declared_vars = realloc(gen->declared_vars, sizeof(char*) * (gen->declared_var_count + 1));
+    gen->declared_vars[gen->declared_var_count] = strdup(var_name);
+    gen->declared_var_count++;
+}
+
+// Helper: clear declared vars (call at function start)
+void clear_declared_vars(CodeGenerator* gen) {
+    if (gen->declared_vars) {
+        for (int i = 0; i < gen->declared_var_count; i++) {
+            free(gen->declared_vars[i]);
+        }
+        free(gen->declared_vars);
+    }
+    gen->declared_vars = NULL;
+    gen->declared_var_count = 0;
 }
 
 void indent(CodeGenerator* gen) {
@@ -178,10 +215,16 @@ void generate_expression(CodeGenerator* gen, ASTNode* expr) {
             break;
         
         case AST_MEMBER_ACCESS:
-            // expr.field becomes expr.field in C
+            // expr.field becomes expr.field in C (or expr->field for actor refs)
             if (expr->child_count > 0) {
-                generate_expression(gen, expr->children[0]);
-                fprintf(gen->output, ".%s", expr->value);
+                ASTNode* child = expr->children[0];
+                generate_expression(gen, child);
+                // Check if the child is an actor reference
+                if (child->node_type && child->node_type->kind == TYPE_ACTOR_REF) {
+                    fprintf(gen->output, "->%s", expr->value);
+                } else {
+                    fprintf(gen->output, ".%s", expr->value);
+                }
             }
             break;
             
@@ -364,7 +407,7 @@ void generate_expression(CodeGenerator* gen, ASTNode* expr) {
                         }
                         
                         fprintf(gen->output, " }; aether_send_message(");
-                        generate_expression(gen, target);
+                        fprintf(gen->output, "(void*)"); generate_expression(gen, target);
                         fprintf(gen->output, ", &_msg, sizeof(%s)); }", message->value);
                     } else {
                         fprintf(gen->output, "/* ERROR: unknown message type %s */", message->value);
@@ -439,27 +482,41 @@ void generate_statement(CodeGenerator* gen, ASTNode* stmt) {
                 }
                 fprintf(gen->output, ";\n");
             } else {
-                // Handle array types specially (C syntax: int name[size])
-                if (stmt->node_type && stmt->node_type->kind == TYPE_ARRAY) {
-                    const char* elem_type = get_c_type(stmt->node_type->element_type);
-                    fprintf(gen->output, "%s %s", elem_type, stmt->value);
-                    if (stmt->node_type->array_size > 0) {
-                        fprintf(gen->output, "[%d]", stmt->node_type->array_size);
-                    } else {
-                        // Dynamic array - use pointer
-                        fprintf(gen->output, "*");
+                // Check if this is a reassignment (Python-style)
+                if (is_var_declared(gen, stmt->value)) {
+                    // Already declared - generate assignment only
+                    fprintf(gen->output, "%s", stmt->value);
+                    if (stmt->child_count > 0) {
+                        fprintf(gen->output, " = ");
+                        generate_expression(gen, stmt->children[0]);
                     }
+                    fprintf(gen->output, ";\n");
                 } else {
-                    generate_type(gen, stmt->node_type);
-                    fprintf(gen->output, " %s", stmt->value);
+                    // First declaration - generate type + variable
+                    mark_var_declared(gen, stmt->value);
+
+                    // Handle array types specially (C syntax: int name[size])
+                    if (stmt->node_type && stmt->node_type->kind == TYPE_ARRAY) {
+                        const char* elem_type = get_c_type(stmt->node_type->element_type);
+                        fprintf(gen->output, "%s %s", elem_type, stmt->value);
+                        if (stmt->node_type->array_size > 0) {
+                            fprintf(gen->output, "[%d]", stmt->node_type->array_size);
+                        } else {
+                            // Dynamic array - use pointer
+                            fprintf(gen->output, "*");
+                        }
+                    } else {
+                        generate_type(gen, stmt->node_type);
+                        fprintf(gen->output, " %s", stmt->value);
+                    }
+
+                    if (stmt->child_count > 0) {
+                        fprintf(gen->output, " = ");
+                        generate_expression(gen, stmt->children[0]);
+                    }
+
+                    fprintf(gen->output, ";\n");
                 }
-                
-                if (stmt->child_count > 0) {
-                    fprintf(gen->output, " = ");
-                    generate_expression(gen, stmt->children[0]);
-                }
-                
-                fprintf(gen->output, ";\n");
             }
             break;
         }
@@ -819,9 +876,14 @@ void generate_actor_definition(CodeGenerator* gen, ASTNode* actor) {
         ASTNode* child = actor->children[i];
         if (child->type == AST_STATE_DECLARATION) {
             print_indent(gen);
-            generate_type(gen, child->node_type);
-            fprintf(gen->output, " %s;\n", child->value);
-        }
+            // Check if field name ends with "_ref" - these are actor references stored as void*
+            size_t name_len = strlen(child->value);
+            if (name_len > 4 && strcmp(child->value + name_len - 4, "_ref") == 0) {
+                fprintf(gen->output, "void* %s;\n", child->value);
+            } else {
+                generate_type(gen, child->node_type);
+                fprintf(gen->output, " %s;\n", child->value);
+            }        }
     }
     
     unindent(gen);
@@ -833,39 +895,64 @@ void generate_actor_definition(CodeGenerator* gen, ASTNode* actor) {
     for (int i = 0; i < actor->child_count; i++) {
         ASTNode* child = actor->children[i];
         if (child->type == AST_RECEIVE_STATEMENT && child->child_count > 0) {
-            ASTNode* body = child->children[0];
-            if (body->type == AST_BLOCK) {
-                for (int j = 0; j < body->child_count; j++) {
-                    ASTNode* stmt = body->children[j];
-                    if (stmt->type == AST_MESSAGE_PATTERN) {
-                        MessageDef* msg_def = lookup_message(gen->message_registry, stmt->value);
-                        if (msg_def) {
-                            print_line(gen, "static __attribute__((hot)) void %s_handle_%s(%s* self, void* _msg_data) {",
-                                      actor->value, stmt->value, actor->value);
-                            indent(gen);
-                            print_line(gen, "%s* _pattern = (%s*)_msg_data;", stmt->value, stmt->value);
-                            
-                            for (int k = 0; k < stmt->child_count; k++) {
-                                ASTNode* field = stmt->children[k];
-                                if (field->type == AST_PATTERN_FIELD) {
-                                    print_line(gen, "int %s = _pattern->%s;", field->value, field->value);
+            // V2 syntax: receive { Pattern -> body, ... }
+            // V1 syntax: receive(msg) { body }
+            for (int j = 0; j < child->child_count; j++) {
+                ASTNode* arm = child->children[j];
+
+                ASTNode* pattern = NULL;
+                ASTNode* arm_body = NULL;
+
+                // Check for V2 receive arm structure
+                if (arm->type == AST_RECEIVE_ARM && arm->child_count >= 2) {
+                    pattern = arm->children[0];
+                    arm_body = arm->children[1];
+                }
+                // Check for V1 BLOCK containing MESSAGE_PATTERN
+                else if (arm->type == AST_BLOCK) {
+                    for (int k = 0; k < arm->child_count; k++) {
+                        if (arm->children[k]->type == AST_MESSAGE_PATTERN) {
+                            pattern = arm->children[k];
+                            // Find the body (last BLOCK child of pattern)
+                            if (pattern->child_count > 0) {
+                                ASTNode* last = pattern->children[pattern->child_count - 1];
+                                if (last->type == AST_BLOCK) {
+                                    arm_body = last;
                                 }
                             }
-                            
-                            if (stmt->child_count > 0) {
-                                ASTNode* last_child = stmt->children[stmt->child_count - 1];
-                                if (last_child->type == AST_BLOCK) {
-                                    for (int k = 0; k < last_child->child_count; k++) {
-                                        generate_statement(gen, last_child->children[k]);
-                                    }
-                                }
-                            }
-                            
-                            unindent(gen);
-                            print_line(gen, "}");
-                            print_line(gen, "");
-                            pattern_count++;
+                            break;
                         }
+                    }
+                }
+
+                // Generate handler if we found a pattern
+                if (pattern && pattern->type == AST_MESSAGE_PATTERN) {
+                    MessageDef* msg_def = lookup_message(gen->message_registry, pattern->value);
+                    if (msg_def) {
+                        print_line(gen, "static __attribute__((hot)) void %s_handle_%s(%s* self, void* _msg_data) {",
+                                  actor->value, pattern->value, actor->value);
+                        indent(gen);
+                        print_line(gen, "%s* _pattern = (%s*)_msg_data;", pattern->value, pattern->value);
+
+                        // Extract pattern fields
+                        for (int k = 0; k < pattern->child_count; k++) {
+                            ASTNode* field = pattern->children[k];
+                            if (field->type == AST_PATTERN_FIELD) {
+                                print_line(gen, "int %s = _pattern->%s;", field->value, field->value);
+                            }
+                        }
+
+                        // Generate handler body
+                        if (arm_body && arm_body->type == AST_BLOCK) {
+                            for (int k = 0; k < arm_body->child_count; k++) {
+                                generate_statement(gen, arm_body->children[k]);
+                            }
+                        }
+
+                        unindent(gen);
+                        print_line(gen, "}");
+                        print_line(gen, "");
+                        pattern_count++;
                     }
                 }
             }
@@ -886,16 +973,26 @@ void generate_actor_definition(CodeGenerator* gen, ASTNode* actor) {
         for (int i = 0; i < actor->child_count; i++) {
             ASTNode* child = actor->children[i];
             if (child->type == AST_RECEIVE_STATEMENT && child->child_count > 0) {
-                ASTNode* body = child->children[0];
-                if (body->type == AST_BLOCK) {
-                    for (int j = 0; j < body->child_count; j++) {
-                        ASTNode* stmt = body->children[j];
-                        if (stmt->type == AST_MESSAGE_PATTERN) {
-                            MessageDef* msg_def = lookup_message(gen->message_registry, stmt->value);
-                            if (msg_def) {
-                                print_line(gen, "%s_handlers[%d] = %s_handle_%s;",
-                                          actor->value, msg_def->message_id, actor->value, stmt->value);
+                for (int j = 0; j < child->child_count; j++) {
+                    ASTNode* arm = child->children[j];
+                    ASTNode* pattern = NULL;
+
+                    if (arm->type == AST_RECEIVE_ARM && arm->child_count >= 1) {
+                        pattern = arm->children[0];
+                    } else if (arm->type == AST_BLOCK) {
+                        for (int k = 0; k < arm->child_count; k++) {
+                            if (arm->children[k]->type == AST_MESSAGE_PATTERN) {
+                                pattern = arm->children[k];
+                                break;
                             }
+                        }
+                    }
+
+                    if (pattern && pattern->type == AST_MESSAGE_PATTERN) {
+                        MessageDef* msg_def = lookup_message(gen->message_registry, pattern->value);
+                        if (msg_def) {
+                            print_line(gen, "%s_handlers[%d] = %s_handle_%s;",
+                                      actor->value, msg_def->message_id, actor->value, pattern->value);
                         }
                     }
                 }
@@ -924,7 +1021,7 @@ void generate_actor_definition(CodeGenerator* gen, ASTNode* actor) {
     if (pattern_count > 0) {
         print_line(gen, "// COMPUTED GOTO DISPATCH - 15-30%% faster than function pointers");
         print_line(gen, "// Used by CPython, LuaJIT for ultra-fast message dispatch");
-        print_line(gen, "void* _msg_data = msg.data;");
+        print_line(gen, "void* _msg_data = msg.payload_ptr;");
         print_line(gen, "int _msg_id = *(int*)_msg_data;");
         print_line(gen, "");
         print_line(gen, "// Dispatch table: direct jumps to labels (no indirect call overhead)");
@@ -932,18 +1029,31 @@ void generate_actor_definition(CodeGenerator* gen, ASTNode* actor) {
         indent(gen);
         
         // Generate dispatch table with labels
-        for (int i = 0; i < pattern_count; i++) {
-            if (actor->child_count > 0) {
-                ASTNode* receive_stmt = actor->children[0];
-                if (receive_stmt && receive_stmt->type == AST_RECEIVE_STATEMENT) {
-                    for (int j = 0; j < receive_stmt->child_count; j++) {
-                        ASTNode* stmt = receive_stmt->children[j];
-                        if (stmt->type == AST_MESSAGE_PATTERN) {
-                            MessageDef* msg_def = lookup_message(gen->message_registry, stmt->value);
-                            if (msg_def && msg_def->message_id == i) {
-                                print_line(gen, "[%d] = &&handle_%s,", i, stmt->value);
+        for (int i = 0; i < actor->child_count; i++) {
+            ASTNode* child = actor->children[i];
+            if (child->type == AST_RECEIVE_STATEMENT && child->child_count > 0) {
+                for (int j = 0; j < child->child_count; j++) {
+                    ASTNode* arm = child->children[j];
+                    ASTNode* pattern = NULL;
+
+                    // V2: AST_RECEIVE_ARM contains pattern
+                    if (arm->type == AST_RECEIVE_ARM && arm->child_count >= 1) {
+                        pattern = arm->children[0];
+                    }
+                    // V1: AST_BLOCK contains MESSAGE_PATTERN
+                    else if (arm->type == AST_BLOCK) {
+                        for (int k = 0; k < arm->child_count; k++) {
+                            if (arm->children[k]->type == AST_MESSAGE_PATTERN) {
+                                pattern = arm->children[k];
                                 break;
                             }
+                        }
+                    }
+
+                    if (pattern && pattern->type == AST_MESSAGE_PATTERN) {
+                        MessageDef* msg_def = lookup_message(gen->message_registry, pattern->value);
+                        if (msg_def) {
+                            print_line(gen, "[%d] = &&handle_%s,", msg_def->message_id, pattern->value);
                         }
                     }
                 }
@@ -963,15 +1073,31 @@ void generate_actor_definition(CodeGenerator* gen, ASTNode* actor) {
         print_line(gen, "");
         
         // Generate labels for each handler
-        if (actor->child_count > 0) {
-            ASTNode* receive_stmt = actor->children[0];
-            if (receive_stmt && receive_stmt->type == AST_RECEIVE_STATEMENT) {
-                for (int i = 0; i < receive_stmt->child_count; i++) {
-                    ASTNode* stmt = receive_stmt->children[i];
-                    if (stmt->type == AST_MESSAGE_PATTERN) {
-                        print_line(gen, "handle_%s:", stmt->value);
+        for (int i = 0; i < actor->child_count; i++) {
+            ASTNode* child = actor->children[i];
+            if (child->type == AST_RECEIVE_STATEMENT && child->child_count > 0) {
+                for (int j = 0; j < child->child_count; j++) {
+                    ASTNode* arm = child->children[j];
+                    ASTNode* pattern = NULL;
+
+                    // V2: AST_RECEIVE_ARM contains pattern
+                    if (arm->type == AST_RECEIVE_ARM && arm->child_count >= 1) {
+                        pattern = arm->children[0];
+                    }
+                    // V1: AST_BLOCK contains MESSAGE_PATTERN
+                    else if (arm->type == AST_BLOCK) {
+                        for (int k = 0; k < arm->child_count; k++) {
+                            if (arm->children[k]->type == AST_MESSAGE_PATTERN) {
+                                pattern = arm->children[k];
+                                break;
+                            }
+                        }
+                    }
+
+                    if (pattern && pattern->type == AST_MESSAGE_PATTERN) {
+                        print_line(gen, "handle_%s:", pattern->value);
                         indent(gen);
-                        print_line(gen, "%s_handle_%s(self, _msg_data);", actor->value, stmt->value);
+                        print_line(gen, "%s_handle_%s(self, _msg_data);", actor->value, pattern->value);
                         print_line(gen, "return;");
                         unindent(gen);
                         print_line(gen, "");
@@ -1113,6 +1239,7 @@ void generate_function_definition(CodeGenerator* gen, ASTNode* func) {
 
     fprintf(gen->output, ") {\n");
     indent(gen);
+    clear_declared_vars(gen);  // Reset for each function
     
     // Generate pattern matching checks
     int pattern_idx = 0;
@@ -1247,10 +1374,17 @@ void generate_struct_definition(CodeGenerator* gen, ASTNode* struct_def) {
 
 void generate_main_function(CodeGenerator* gen, ASTNode* main) {
     if (!main || main->type != AST_MAIN_FUNCTION) return;
-    
+
     print_line(gen, "int main() {");
     indent(gen);
-    
+    clear_declared_vars(gen);  // Reset for main function
+
+    // Add timing if we have actors (for benchmarking)
+    if (gen->actor_count > 0) {
+        print_line(gen, "uint64_t _bench_start = rdtsc();");
+        print_line(gen, "");
+    }
+
     // Initialize scheduler with recommended core count if actors were defined
     if (gen->actor_count > 0) {
         print_line(gen, "// Initialize Aether runtime with auto-detected optimizations");
@@ -1278,8 +1412,26 @@ void generate_main_function(CodeGenerator* gen, ASTNode* main) {
         print_line(gen, "// Wait for actors to complete and clean up");
         print_line(gen, "scheduler_stop();");
         print_line(gen, "scheduler_wait();");
+        print_line(gen, "");
+        print_line(gen, "// Output benchmark results");
+        print_line(gen, "uint64_t _bench_end = rdtsc();");
+        print_line(gen, "uint64_t _bench_cycles = _bench_end - _bench_start;");
+        print_line(gen, "#if defined(__x86_64__) || defined(__i386__)");
+        print_line(gen, "double cycles_per_msg = (double)_bench_cycles / (10000000 * 2);");
+        print_line(gen, "double cpu_freq_ghz = 3.0;  // Approximate CPU frequency");
+        print_line(gen, "double seconds = cycles_per_msg * (10000000 * 2) / (cpu_freq_ghz * 1e9);");
+        print_line(gen, "double throughput = (2.0 * 10000000) / seconds;");
+        print_line(gen, "printf(\"\\nCycles/msg:     %%.2f\\n\", cycles_per_msg);");
+        print_line(gen, "printf(\"Throughput:     %%.2f M msg/sec\\n\", throughput / 1e6);");
+        print_line(gen, "#elif defined(__aarch64__) || defined(__arm__)");
+        print_line(gen, "double seconds = _bench_cycles / 1e9;");
+        print_line(gen, "double throughput = (2.0 * 10000000) / seconds;");
+        print_line(gen, "double cycles_per_msg = _bench_cycles / (10000000 * 2.0);");
+        print_line(gen, "printf(\"\\nCycles/msg:     %%.2f\\n\", cycles_per_msg);");
+        print_line(gen, "printf(\"Throughput:     %%.2f M msg/sec\\n\", throughput / 1e6);");
+        print_line(gen, "#endif");
     }
-    
+
     print_line(gen, "return 0;");
     unindent(gen);
     print_line(gen, "}");
@@ -1293,7 +1445,9 @@ void generate_program(CodeGenerator* gen, ASTNode* program) {
     print_line(gen, "#include <stdlib.h>");
     print_line(gen, "#include <string.h>");
     print_line(gen, "#include <stdbool.h>");
-    
+    print_line(gen, "#include <stdatomic.h>");
+    print_line(gen, "");
+
     // Only include actor runtime if program uses actors
     bool has_actors = false;
     for (int i = 0; i < program->child_count; i++) {
@@ -1308,6 +1462,8 @@ void generate_program(CodeGenerator* gen, ASTNode* program) {
         print_line(gen, "");
         print_line(gen, "// Aether runtime libraries");
         print_line(gen, "#include \"actor_state_machine.h\"");
+        print_line(gen, "#include \"aether_send_message.h\"");
+        print_line(gen, "#include \"aether_actor_thread.h\"");
         print_line(gen, "#include \"multicore_scheduler.h\"");
         print_line(gen, "#include \"aether_cpu_detect.h\"");
         print_line(gen, "#include \"aether_optimization_config.h\"");
@@ -1318,9 +1474,24 @@ void generate_program(CodeGenerator* gen, ASTNode* program) {
         print_line(gen, "#include \"aether_tracing.h\"");
         print_line(gen, "#include \"aether_bounds_check.h\"");
         print_line(gen, "#include \"aether_runtime_types.h\"");
-        print_line(gen, "#include \"aether_type_pools.h\"");
+        print_line(gen, "// #include \"aether_type_pools.h\" // Not yet implemented");
         print_line(gen, "");
         print_line(gen, "extern __thread int current_core_id;");
+        print_line(gen, "");
+        print_line(gen, "// Benchmark timing function");
+        print_line(gen, "static inline uint64_t rdtsc() {");
+        print_line(gen, "#if defined(__x86_64__) || defined(__i386__)");
+        print_line(gen, "    unsigned int lo, hi;");
+        print_line(gen, "    __asm__ __volatile__ (\"rdtsc\" : \"=a\" (lo), \"=d\" (hi));");
+        print_line(gen, "    return ((uint64_t)hi << 32) | lo;");
+        print_line(gen, "#elif defined(__aarch64__) || defined(__arm__)");
+        print_line(gen, "    struct timespec ts;");
+        print_line(gen, "    clock_gettime(CLOCK_MONOTONIC, &ts);");
+        print_line(gen, "    return (uint64_t)ts.tv_sec * 1000000000ULL + ts.tv_nsec;");
+        print_line(gen, "#else");
+        print_line(gen, "    return 0;");
+        print_line(gen, "#endif");
+        print_line(gen, "}");
     }
     print_line(gen, "");
     
@@ -1469,8 +1640,8 @@ void generate_program(CodeGenerator* gen, ASTNode* program) {
                     
                     // Generate type-specific memory pool for this message type
                     print_line(gen, "// Type-specific memory pool for %s", child->value);
-                    print_line(gen, "DECLARE_TYPE_POOL(%s)", child->value);
-                    print_line(gen, "DECLARE_TLS_POOL(%s)", child->value);
+                    print_line(gen, "// DECLARE_TYPE_POOL(%s)", child->value);
+                    print_line(gen, "// DECLARE_TLS_POOL(%s)", child->value);
                     print_line(gen, "");
                     
                     register_message_type(gen->message_registry, child->value, first_field);

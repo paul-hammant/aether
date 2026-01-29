@@ -4,22 +4,32 @@
 defmodule PingPong do
   @messages 10_000_000
 
-  def ping(pong_pid, 0) do
+  def ping(pong_pid, 0, _) do
     send(pong_pid, :done)
   end
 
-  def ping(pong_pid, n) do
-    send(pong_pid, {:ping, self()})
+  def ping(pong_pid, n, i) do
+    send(pong_pid, {:ping, self(), i})
     receive do
-      :pong -> ping(pong_pid, n - 1)
+      {:pong, value} ->
+        # Validate received value matches what was sent
+        if value != i do
+          IO.puts(:stderr, "Ping validation error: expected #{i}, got #{value}")
+        end
+        ping(pong_pid, n - 1, i + 1)
     end
   end
 
-  def pong(ping_pid) do
+  def pong(expected) do
     receive do
-      {:ping, sender} ->
-        send(sender, :pong)
-        pong(ping_pid)
+      {:ping, sender, value} ->
+        # Validate received value matches expected sequence
+        if value != expected do
+          IO.puts(:stderr, "Pong validation error: expected #{expected}, got #{value}")
+        end
+        # Echo back the EXACT value received
+        send(sender, {:pong, value})
+        pong(expected + 1)
       :done ->
         :ok
     end
@@ -36,10 +46,10 @@ defmodule PingPong do
     IO.puts("Using Erlang/OTP processes\n")
 
     ping_pid = self()
-    pong_pid = spawn(fn -> pong(ping_pid) end)
+    pong_pid = spawn(fn -> pong(0) end)
 
     start = rdtsc()
-    ping(pong_pid, @messages)
+    ping(pong_pid, @messages, 0)
     finish = rdtsc()
 
     total_ns = finish - start
