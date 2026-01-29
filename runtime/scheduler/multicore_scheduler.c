@@ -410,8 +410,12 @@ int scheduler_register_actor(ActorBase* actor, int preferred_core) {
     }
     
     actor->assigned_core = preferred_core;
+
+    // Initialize SPSC queue for same-core messaging
+    spsc_queue_init(&actor->spsc_queue);
+
     sched->actors[sched->actor_count++] = actor;
-    
+
     return preferred_core;
 }
 

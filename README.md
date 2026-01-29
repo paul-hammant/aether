@@ -25,23 +25,23 @@ The Aether runtime implements a native actor system with optimized message passi
 ### Concurrency Model
 - **Multi-core scheduler** with per-core actor queues
 - **Work-stealing** for dynamic load balancing
-- **Lock-free SPSC queues** for same-core messaging (2-3x improvement)
-- **Cross-core messaging** with lock-free mailboxes (1.8x improvement under contention)
+- **Lock-free SPSC queues** for same-core messaging
+- **Cross-core messaging** with lock-free mailboxes
 
 ### Memory Management
 - **Arena allocators** for actor lifetimes
 - **Memory pools** with thread-local allocation
-- **Actor pooling** reducing allocation overhead (1.81x speedup)
-- **Zero-copy message passing** for large messages (4.8x improvement for >256 bytes)
+- **Actor pooling** reducing allocation overhead
+- **Zero-copy message passing** for large messages
 
 ### Message Optimization
-- **Sender-side batching** (256 messages per batch, 1.78x speedup)
-- **Message coalescing** (15x throughput improvement)
-- **Adaptive batching** (dynamically adjusts from 4-512 messages)
-- **Direct send** for same-core actors (bypasses queue)
+- **Sender-side batching** for reduced overhead
+- **Message coalescing** for higher throughput
+- **Adaptive batching** dynamically adjusts batch sizes
+- **Direct send** for same-core actors bypasses queues
 
 ### Advanced Features
-- **SIMD batch processing** with AVX2 support (1.5x improvement)
+- **SIMD batch processing** with AVX2 support
 - **NUMA-aware allocation** for multi-socket systems
 - **CPU feature detection** for runtime optimization selection
 - **Performance profiling** with per-core cycle counting

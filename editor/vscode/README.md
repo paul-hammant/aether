@@ -90,5 +90,5 @@ This extension is licensed under the MIT License. See the [LICENSE](../../LICENS
 
 ---
 
-**Enjoy coding with Aether!** 🚀
+**Enjoy coding with Aether!** 
 
