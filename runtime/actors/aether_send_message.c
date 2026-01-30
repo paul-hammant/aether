@@ -21,12 +21,12 @@ extern __thread int current_core_id;
 
 typedef struct {
     char buffer[MSG_PAYLOAD_MAX_SIZE];
-    _Atomic int in_use;
+    int in_use;  // Thread-local: no atomics needed
 } PooledPayload;
 
 typedef struct {
     PooledPayload payloads[MSG_PAYLOAD_POOL_SIZE];
-    _Atomic int next_index;  // For round-robin allocation
+    int next_index;  // Thread-local: no atomics needed
     int initialized;
 } PayloadPool;
 
@@ -52,9 +52,9 @@ static inline void payload_pool_init_thread(void) {
     g_payload_pool = calloc(1, sizeof(PayloadPool));
     if (!g_payload_pool) return;
 
-    atomic_store_explicit(&g_payload_pool->next_index, 0, memory_order_relaxed);
+    g_payload_pool->next_index = 0;
     for (int i = 0; i < MSG_PAYLOAD_POOL_SIZE; i++) {
-        atomic_store_explicit(&g_payload_pool->payloads[i].in_use, 0, memory_order_relaxed);
+        g_payload_pool->payloads[i].in_use = 0;
     }
     g_payload_pool->initialized = 1;
 }
@@ -73,14 +73,13 @@ static inline void* payload_pool_acquire(size_t size) {
         if (!g_payload_pool) return NULL;
     }
 
-    // Try to find free slot (round-robin with CAS)
+    // Try to find free slot (round-robin, thread-local so no CAS needed)
     for (int attempts = 0; attempts < MSG_PAYLOAD_POOL_SIZE; attempts++) {
-        int idx = atomic_fetch_add_explicit(&g_payload_pool->next_index, 1, memory_order_relaxed) & (MSG_PAYLOAD_POOL_SIZE - 1);
+        int idx = g_payload_pool->next_index++ & (MSG_PAYLOAD_POOL_SIZE - 1);
         PooledPayload* slot = &g_payload_pool->payloads[idx];
 
-        int expected = 0;
-        if (atomic_compare_exchange_strong(&slot->in_use, &expected, 1)) {
-            // Got a free slot
+        if (!slot->in_use) {
+            slot->in_use = 1;
             atomic_fetch_add_explicit(&g_pool_hits, 1, memory_order_relaxed);
             return slot->buffer;
         }
@@ -113,8 +112,8 @@ static inline int payload_pool_release(void* ptr) {
         return 0;  // Invalid
     }
 
-    // Mark as free
-    atomic_store_explicit(&g_payload_pool->payloads[slot_index].in_use, 0, memory_order_relaxed);
+    // Mark as free (thread-local: plain store)
+    g_payload_pool->payloads[slot_index].in_use = 0;
     return 1;  // Successfully returned to pool
 }
 

@@ -80,18 +80,12 @@ void* __attribute__((hot)) scheduler_thread(void* arg) {
         int batch_size = sched->batch_state.current_batch_size;
         if (batch_size > COALESCE_THRESHOLD) batch_size = COALESCE_THRESHOLD;
         
-        // TIER 1 ALWAYS ON: Message coalescing
-        sched->coalesce_buffer.count = 0;
-        void* actor_ptr;
-        Message msg;
-        
-        // Drain up to batch_size messages in one batch (adaptive)
-        while (sched->coalesce_buffer.count < batch_size &&
-               queue_dequeue(&sched->incoming_queue, &actor_ptr, &msg)) {
-            sched->coalesce_buffer.actors[sched->coalesce_buffer.count] = actor_ptr;
-            sched->coalesce_buffer.messages[sched->coalesce_buffer.count] = msg;
-            sched->coalesce_buffer.count++;
-        }
+        // TIER 1 ALWAYS ON: Message coalescing (batch dequeue reduces atomics from N to 1)
+        sched->coalesce_buffer.count = queue_dequeue_batch(
+            &sched->incoming_queue,
+            sched->coalesce_buffer.actors,
+            sched->coalesce_buffer.messages,
+            batch_size);
         
         // Process coalesced batch with minimal overhead
         for (int i = 0; i < sched->coalesce_buffer.count; i++) {
@@ -163,7 +157,7 @@ void* __attribute__((hot)) scheduler_thread(void* arg) {
         
         if (!work_done) {
             idle_count++;
-            atomic_fetch_add(&sched->idle_cycles, 1);
+            atomic_fetch_add_explicit(&sched->idle_cycles, 1, memory_order_relaxed);
             
             // WORK STEALING: After significant idle time, try to steal work
             if (idle_count > 5000 && idle_count % 1000 == 0) {
@@ -220,7 +214,7 @@ void* __attribute__((hot)) scheduler_thread(void* arg) {
             }
         } else {
             idle_count = 0;
-            atomic_store(&sched->idle_cycles, 0);
+            atomic_store_explicit(&sched->idle_cycles, 0, memory_order_relaxed);
         }
         
         // Explicit check to ensure timely exit on all platforms
@@ -448,7 +442,7 @@ void scheduler_send_remote(ActorBase* actor, Message msg, int from_core) {
         #endif
     }
     
-    atomic_fetch_add(&schedulers[target_core].work_count, 1);
+    atomic_fetch_add_explicit(&schedulers[target_core].work_count, 1, memory_order_relaxed);
     AETHER_STAT_INC(queue_sends);
 }
 

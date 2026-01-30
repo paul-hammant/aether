@@ -102,7 +102,7 @@ static inline int __attribute__((hot)) mailbox_send_batch(
     int sent = 0;
     while (sent < count && mbox->count < MAILBOX_SIZE) {
         mbox->messages[mbox->tail] = msgs[sent];
-        mbox->tail = (mbox->tail + 1) % MAILBOX_SIZE;
+        mbox->tail = (mbox->tail + 1) & MAILBOX_MASK;  // Fast power-of-2 masking
         mbox->count++;
         sent++;
     }

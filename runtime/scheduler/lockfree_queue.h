@@ -80,6 +80,30 @@ static inline int queue_enqueue_batch(LockFreeQueue* q, void** actors, Message* 
     return count;
 }
 
+// Batch dequeue - reduces atomic operations from N to 1
+static inline int queue_dequeue_batch(LockFreeQueue* q, void** actors, Message* msgs, int max_count) {
+    int head = atomic_load_explicit(&q->head, memory_order_relaxed);
+    int tail = atomic_load_explicit(&q->tail, memory_order_acquire);
+
+    int available = (tail - head) & QUEUE_MASK;
+    if (__builtin_expect(available == 0, 0)) {
+        return 0;  // Empty
+    }
+
+    int count = available < max_count ? available : max_count;
+
+    // Copy batch from queue
+    for (int i = 0; i < count; i++) {
+        actors[i] = q->items[head].actor;
+        msgs[i] = q->items[head].msg;
+        head = (head + 1) & QUEUE_MASK;
+    }
+
+    // Single atomic update for entire batch
+    atomic_store_explicit(&q->head, head, memory_order_release);
+    return count;
+}
+
 // Get current queue size (approximate - may change between read of head/tail)
 static inline int queue_size(LockFreeQueue* q) {
     int head = atomic_load_explicit(&q->head, memory_order_relaxed);
