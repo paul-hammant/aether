@@ -1136,7 +1136,7 @@ void generate_actor_definition(CodeGenerator* gen, ASTNode* actor) {
                         print_line(gen, "handle_%s:", pattern->value);
                         indent(gen);
                         print_line(gen, "%s_handle_%s(self, _msg_data);", actor->value, pattern->value);
-                        print_line(gen, "free(_msg_data);  // Free message payload after processing");
+                        print_line(gen, "aether_free_message(_msg_data);  // Return to pool or free");
                         print_line(gen, "return;");
                         unindent(gen);
                         print_line(gen, "");
@@ -1470,6 +1470,28 @@ void generate_main_function(CodeGenerator* gen, ASTNode* main) {
         print_line(gen, "printf(\"Throughput:     %%.2f M msg/sec\\n\", throughput / 1e6);");
         print_line(gen, "#endif");
     }
+
+    // Print message pool statistics
+    print_line(gen, "");
+    print_line(gen, "// Message pool statistics");
+    print_line(gen, "{");
+    indent(gen);
+    print_line(gen, "uint64_t pool_hits = 0, pool_misses = 0, too_large = 0;");
+    print_line(gen, "aether_message_pool_stats(&pool_hits, &pool_misses, &too_large);");
+    print_line(gen, "if (pool_hits + pool_misses + too_large > 0) {");
+    indent(gen);
+    print_line(gen, "printf(\"\\n=== Message Pool Statistics ===\\n\");");
+    print_line(gen, "printf(\"Pool hits:      %%llu\\n\", (unsigned long long)pool_hits);");
+    print_line(gen, "printf(\"Pool misses:    %%llu (exhausted)\\n\", (unsigned long long)pool_misses);");
+    print_line(gen, "printf(\"Too large:      %%llu (>256 bytes)\\n\", (unsigned long long)too_large);");
+    print_line(gen, "uint64_t total = pool_hits + pool_misses + too_large;");
+    print_line(gen, "double hit_rate = (double)pool_hits / total * 100.0;");
+    print_line(gen, "printf(\"Hit rate:       %%.1f%%%%\\n\", hit_rate);");
+    unindent(gen);
+    print_line(gen, "}");
+    unindent(gen);
+    print_line(gen, "}");
+    print_line(gen, "");
 
     print_line(gen, "return 0;");
     unindent(gen);
