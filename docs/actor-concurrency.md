@@ -4,51 +4,52 @@ Understanding the actor runtime, concurrency model, and message passing system.
 
 ## Performance Optimizations
 
-The actor runtime includes several performance optimizations that are applied automatically based on workload characteristics.
+The actor runtime includes several performance optimizations applied automatically. See [runtime-optimizations.md](runtime-optimizations.md) for detailed descriptions of each technique.
 
 ### Scheduler Design
 
 **Partitioned Multicore Scheduler:**
 - Static actor-to-core assignment at spawn time
-- Each core processes only its local actors (zero cross-core traffic in fast path)
+- Each core processes only its local actors in the fast path
 - Work stealing activated when cores become idle
-- Non-blocking work stealing: failed attempts don't block progress
-- NUMA-aware CPU pinning when available (Linux, Windows)
+- Non-blocking work stealing using try-lock with ascending core-id lock ordering
+- NUMA-aware allocation when available (Linux, macOS, Windows)
+- Message-driven actor migration co-locates actors with their frequent communicators
 
 **Work Stealing:**
-- Triggered after 5000 idle scheduler cycles
-- Selects busiest core (most pending work)
-- Steals entire actors (not individual messages)
-- Preserves cache locality and minimizes synchronization
+- Triggered after extended idle scheduler cycles
+- Selects the core with the most pending work
+- Steals entire actors (not individual messages) to preserve cache locality
+- Uses ascending core-id lock ordering consistent with migration to prevent deadlock
 
 **Message Delivery:**
-- Local messages: Direct mailbox writes (no queue overhead)
-- Remote messages: Lock-free queue with adaptive backpressure
-- Adaptive batch processing: 64-1024 messages per core cycle
+- Same-core messages: direct mailbox or SPSC queue write (no queue overhead)
+- Cross-core messages: lock-free queue with batch dequeue
+- Adaptive batch processing: 64 to 1024 messages per scheduler cycle
 
-### Implemented Optimizations
+### Active Optimizations
 
 **Message Coalescing:**
-- Batches multiple messages to reduce atomic operations
-- Processes up to 512 messages per scheduler cycle
-- Reduces per-message overhead
+- Batch dequeue drains multiple messages in a single atomic operation
+- Configurable threshold (COALESCE_THRESHOLD = 512)
 
-**Actor Pooling:**
-- Reuses actor instances instead of repeated allocation
-- Lock-free pool with pre-allocated actors
-- Falls back to malloc when exhausted
+**Thread-Local Message Pools:**
+- Per-thread pool of 256 pre-allocated buffers (up to 256 bytes each)
+- Eliminates malloc/free on the message hot path
+- Falls back to malloc for oversized messages or pool exhaustion
 
-**Direct Send Optimization:**
-- Bypasses queue for same-core actors
-- Directly writes to actor mailbox
-- Eliminates enqueue/dequeue latency
+**Direct Send:**
+- Bypasses incoming queue for same-core actors
+- Writes directly to actor mailbox or SPSC queue
+- Guarded by `current_core_id` to prevent data races from non-scheduler threads
 
 **Adaptive Batching:**
 - Dynamically adjusts batch size based on queue depth
-- Balances throughput and latency
-- Increases batch size under load, decreases when idle
+- Increases under sustained load, decreases when idle
 
-See [runtime/actors/README.md](../runtime/actors/README.md) for implementation details and usage examples.
+**Inline Single-Int Messages:**
+- Messages with one integer field bypass pool allocation entirely
+- Value encoded directly in `Message.payload_int`
 
 ## Actor Model
 
@@ -57,32 +58,41 @@ Aether implements a lightweight actor model where actors are state machines that
 ### Actor Lifecycle
 
 1. **Spawn** - Create actor instance with `spawn_ActorName()`
-2. **Send** - Send messages with `send_ActorName()`
-3. **Step** - Process messages with `ActorName_step()`
-4. **Terminate** - Actor becomes inactive when mailbox is empty
+2. **Send** - Send messages with the `!` operator or generated send functions
+3. **Step** - Scheduler calls the actor's step function to process mailbox messages
+4. **Deactivate** - Actor is marked inactive when its mailbox is empty
 
 ### Actor Structure
 
-Each actor is a C struct:
+Each actor is a C struct. The first fields must match `ActorBase` layout:
 
 ```c
-typedef struct Counter {
-    int id;              // Unique actor ID
-    int active;          // Active flag
-    int assigned_core;   // Core assignment (multi-core)
-    Mailbox mailbox;     // Message queue
-    void (*step)(void*); // Step function pointer
-    int count;           // User state variables
-} Counter;
+typedef struct {
+    int active;
+    int id;
+    Mailbox mailbox;
+    void (*step)(void*);
+    pthread_t thread;
+    int auto_process;
+    int assigned_core;
+    int migrate_to;
+    SPSCQueue spsc_queue;
+    // User state fields follow
+} ActorBase;
 ```
+
+User-defined actors extend this layout with additional fields after `spsc_queue`.
 
 ## Message Passing
 
 ### Mailbox
 
-Each actor has a ring buffer mailbox (256 messages, optimized for L1 cache):
+Each actor has a ring buffer mailbox with 256 slots, sized for cache locality:
 
 ```c
+#define MAILBOX_SIZE 256
+#define MAILBOX_MASK (MAILBOX_SIZE - 1)
+
 typedef struct {
     Message messages[MAILBOX_SIZE];
     int head;
@@ -91,104 +101,81 @@ typedef struct {
 } Mailbox;
 ```
 
-**Performance tip:** Use `MessageBatch` API for bulk sends:
-
-```c
-MessageBatch* batch = batch_create(256);
-batch_add(batch, target_id, msg1);
-batch_add(batch, target_id, msg2);
-// ... add up to 256 messages
-batch_send(batch);  // Bulk send
-```
+The mailbox is not thread-safe. Only the owning scheduler thread (or the actor's own thread for `auto_process` actors) reads from and writes to it. Cross-core messages arrive via the lock-free incoming queue and are delivered by the scheduler.
 
 ### Message Structure
 
 ```c
 typedef struct {
-    int type;           // Message type
+    int type;           // Message type ID
     int sender_id;      // Sender actor ID
-    int payload_int;    // Integer payload
-    void* payload_ptr;  // Pointer payload
+    int payload_int;    // Integer payload (used by inline single-int messages)
+    void* payload_ptr;  // Pointer to message data (pool or malloc allocated)
+    struct {
+        void* data;
+        int size;
+        int owned;
+    } zerocopy;
 } Message;
 ```
 
 ### Sending Messages
 
-Messages are sent asynchronously. The mailbox enqueues the message immediately.
-
-```aether
-send_Counter(c, 1, 42);
-```
-
-This generates:
+Messages are sent asynchronously. The generated code routes messages through the scheduler:
 
 ```c
-void send_Counter(Counter* actor, int type, int payload) {
-    Message msg = {type, 0, payload, NULL};
-    if (actor->assigned_core == current_core_id) {
-        scheduler_send_local((ActorBase*)actor, msg);
-    } else {
-        scheduler_send_remote((ActorBase*)actor, msg, current_core_id);
-    }
+// Same-core: direct delivery
+if (current_core_id >= 0 && current_core_id == actor->assigned_core) {
+    scheduler_send_local(actor, msg);
+} else {
+    scheduler_send_remote(actor, msg, current_core_id);
 }
 ```
+
+For single-int messages, the code generator emits an inline path that stores the value directly in `msg.payload_int`, bypassing pool allocation.
 
 ### Receiving Messages
 
-The `receive` block in your actor definition becomes the step function:
-
-```aether
-receive(msg) {
-    if (msg.type == 1) {
-        count = count + 1;
-    }
-}
-```
-
-This generates:
+The `receive` block in the actor definition becomes the step function. The code generator emits a computed goto dispatch table for message handler selection:
 
 ```c
-void Counter_step(Counter* self) {
+void ActorName_step(ActorName* self) {
     Message msg;
-    if (!mailbox_receive(&self->mailbox, &msg)) {
-        self->active = 0;
+    if (!mailbox_receive(&self->base.mailbox, &msg)) {
+        self->base.active = 0;
         return;
     }
-    // Generated code from receive block
-    if (msg.type == 1) {
-        self->count = self->count + 1;
+    void* _msg_data = msg.payload_ptr;
+    int _msg_id = msg.type;
+
+    static void* dispatch_table[256] = {
+        [1] = &&handle_MessageA,
+        [2] = &&handle_MessageB,
+    };
+
+    if (_msg_id >= 0 && _msg_id < 256 && dispatch_table[_msg_id]) {
+        goto *dispatch_table[_msg_id];
     }
+    return;
+
+    handle_MessageA:
+        // process message
+        return;
 }
 ```
 
 ## Single-Core Runtime
 
-In single-core mode, actors run cooperatively. You manually call step functions:
-
-```aether
-main() {
-    Counter c = spawn_Counter();
-    send_Counter(c, 1, 0);
-    Counter_step(c);  // Process one message
-}
-```
-
-### Performance
-
-Single-core characteristics:
-- Lock-free message passing
-- Zero-copy transfers
-- Cooperative scheduling
-- Minimal per-actor overhead (264 bytes)
+In single-core mode, actors run cooperatively. The scheduler processes actors in a loop, calling each actor's step function when its mailbox contains messages.
 
 ## Multi-Core Runtime
 
 The multi-core scheduler uses fixed core partitioning:
 
-- N cores = N independent schedulers
-- Each scheduler runs in a pthread
-- Actors assigned to cores via hash (actor_id % num_cores)
-- Cross-core messages use lock-free queues
+- N cores = N independent scheduler threads
+- Each scheduler runs in a pthread pinned to a core
+- Actors assigned to cores via round-robin (`actor_id % num_cores`)
+- Cross-core messages use lock-free queues with batch dequeue/enqueue
 
 ### Initialization
 
@@ -196,51 +183,34 @@ The multi-core scheduler uses fixed core partitioning:
 int main() {
     scheduler_init(4);  // Use 4 cores
     scheduler_start();
-    
+
     // Create and use actors
-    
+
     scheduler_stop();
     scheduler_wait();
 }
 ```
 
-### Core Assignment
+### Core Assignment and Migration
 
-Actors are assigned to cores at spawn time:
-
-```c
-int core = actor->id % num_cores;
-```
-
-This ensures deterministic placement and good load balancing.
+Actors are assigned to cores at spawn time. During operation, cross-core message senders set a `migrate_to` hint on the target actor. The owning scheduler thread processes the hint and migrates the actor to co-locate it with its primary communicator. Migration is non-blocking: if the destination lock cannot be acquired, migration is deferred to the next iteration.
 
 ### Message Routing
 
-- **Local messages** (same core): Direct mailbox enqueue
-- **Remote messages** (different core): Lock-free queue to target core
-
-Cross-core messages incur additional latency due to cache coherence.
+- **Same-core messages:** Direct mailbox or SPSC queue write (verified via `current_core_id`)
+- **Cross-core messages:** Enqueued to target core's lock-free incoming queue
+- **Migrated actor messages:** Forwarded to the actor's current core with spin-retry
 
 ## Memory Management
 
-Actors use manual memory management (malloc/free). The compiler generates allocation in spawn functions, but cleanup is manual:
+Actor memory is allocated using NUMA-aware allocation (`aether_numa_alloc`) at spawn time. The `scheduler_spawn_pooled` function accepts the full derived-struct size to ensure correct allocation for user-defined actor types.
 
-```c
-Counter* c = spawn_Counter();
-// ... use actor ...
-free(c);  // Manual cleanup
-```
-
-## Best Practices
-
-1. **Batch Processing** - Process multiple messages per step when possible
-2. **Local Communication** - Prefer actors on same core for hot paths
-3. **Message Types** - Use enum constants for message types
-4. **State Access** - Access state via `self->` in generated code
+Message payloads are managed by thread-local pools. Payloads are returned to the pool on free via `aether_free_message`, which checks whether the pointer falls within the pool range before falling back to `free`.
 
 ## Limitations
 
 - No automatic garbage collection
-- No actor supervision trees (yet)
-- No pattern matching in receive blocks (yet)
+- No actor supervision trees
+- No pattern matching in receive blocks
 - Fixed mailbox size (256 messages)
+- Mailbox is not thread-safe; only the owning thread may access it

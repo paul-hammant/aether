@@ -2,60 +2,41 @@
 
 ## Overview
 
-The Aether runtime implements several performance optimizations based on empirical benchmarking. These optimizations target message-passing overhead, synchronization primitives, and memory access patterns.
+The Aether runtime implements several performance optimizations targeting message-passing overhead, synchronization primitives, and memory access patterns. Each optimization is integrated into the scheduler and message delivery paths.
 
-## Implemented Optimizations
+## Active Optimizations
 
 ### Thread-Local Message Payload Pools
 
 **Implementation:** `runtime/actors/aether_send_message.c`
 
-**Technique:**
-Per-thread pool of pre-allocated buffers to eliminate dynamic allocation overhead in the message-passing hot path. Global atomic counters track pool effectiveness across all scheduler threads.
+Per-thread pool of pre-allocated buffers eliminates dynamic allocation overhead in the message-passing hot path. Each pool contains 256 buffers of up to 256 bytes. Messages that fit within the pool buffer size are served from the pool; larger messages fall back to `malloc`. Global atomic counters track pool hit/miss rates across threads.
 
 ```c
 #define MSG_PAYLOAD_POOL_SIZE 256
 #define MSG_PAYLOAD_MAX_SIZE 256
 
-static _Thread_local struct {
-    uint8_t buffers[MSG_PAYLOAD_POOL_SIZE][MSG_PAYLOAD_MAX_SIZE];
-    uint8_t in_use[MSG_PAYLOAD_POOL_SIZE];
-} payload_pool;
+typedef struct {
+    char buffer[MSG_PAYLOAD_MAX_SIZE];
+    int in_use;  // Thread-local: no atomics needed
+} PooledPayload;
 
-static _Atomic uint64_t g_pool_hits = 0;
-static _Atomic uint64_t g_pool_misses = 0;
+typedef struct {
+    PooledPayload payloads[MSG_PAYLOAD_POOL_SIZE];
+    int next_index;  // Thread-local: plain increment
+    int initialized;
+} PayloadPool;
+
+static __thread PayloadPool* g_payload_pool = NULL;
 ```
 
-**Rationale:**
-- Eliminates allocator overhead and memory fragmentation
-- Message size threshold chosen to cover majority of typical workloads
-- Thread-local design avoids synchronization overhead
-- Pool statistics enable runtime verification of effectiveness
+Because each pool is thread-local, acquisition and release use plain loads and stores rather than atomic operations. The round-robin index uses bitwise AND masking for constant-time slot lookup.
 
-### Adaptive Batch Size Configuration
+### Message Coalescing with Batch Dequeue
 
-**Implementation:** `runtime/actors/aether_adaptive_batch.h`
+**Implementation:** `runtime/scheduler/multicore_scheduler.c`, `runtime/scheduler/lockfree_queue.h`
 
-**Technique:**
-Configurable batch size range to amortize message processing overhead under high load while maintaining responsiveness under low load.
-
-```c
-#define MIN_BATCH_SIZE 64
-#define MAX_BATCH_SIZE 1024
-```
-
-**Rationale:**
-- Larger batches reduce per-message overhead when queues are full
-- Adaptive algorithm scales down for low-load scenarios
-- Batch size adjusts dynamically based on consecutive full or partial batches
-- Testing showed diminishing returns beyond 1024 due to cache effects
-
-### Message Coalescing
-
-**Implementation:** `runtime/scheduler/multicore_scheduler.c`
-
-**Technique:**
-Drains multiple messages from the lock-free queue in a single batch dequeue operation, reducing atomic operations from 3-per-message to a single atomic store for the entire batch.
+The scheduler drains multiple messages from the lock-free incoming queue in a single batch dequeue operation. This reduces atomic operations from one-per-message to one-per-batch.
 
 ```c
 #define COALESCE_THRESHOLD 512
@@ -63,21 +44,29 @@ Drains multiple messages from the lock-free queue in a single batch dequeue oper
 // Single batch dequeue: 1 atomic store for entire batch
 count = queue_dequeue_batch(&incoming_queue, buffer.actors, buffer.messages, batch_size);
 
-// Process entire batch
 for (int i = 0; i < count; i++) {
-    deliver_to_mailbox(buffer.actors[i], buffer.messages[i]);
+    // Redirect migrated actors, deliver to mailbox, or enqueue to SPSC
 }
 ```
 
-**Rationale:**
-Atomic queue operations (CAS, memory barriers) dominate cost at high message rates. The batch dequeue reads head/tail once, copies all available messages, then advances head with a single atomic store — matching the existing batch enqueue pattern.
+The batch dequeue reads `head` and `tail` once, copies all available messages, then advances `head` with a single `atomic_store`. This matches the existing batch enqueue pattern used by `queue_enqueue_batch`.
 
-### Optimized Spinlock with PAUSE Instruction
+### Adaptive Batch Size
+
+**Implementation:** `runtime/actors/aether_adaptive_batch.h`
+
+The batch size adjusts dynamically based on queue utilization. Under sustained load the batch size increases (up to 1024) to amortize overhead. During idle periods it decreases (down to 64) to maintain responsiveness.
+
+```c
+#define MIN_BATCH_SIZE 64
+#define MAX_BATCH_SIZE 1024
+```
+
+### Optimized Spinlock with Platform-Specific Yield
 
 **Implementation:** `runtime/scheduler/multicore_scheduler.h`
 
-**Technique:**
-Custom spinlock using atomic_flag with platform-specific CPU yield hints during spin-wait.
+Custom spinlock using `atomic_flag` with platform-specific CPU yield hints during spin-wait.
 
 ```c
 static inline void spinlock_lock(OptimizedSpinlock* lock) {
@@ -91,69 +80,99 @@ static inline void spinlock_lock(OptimizedSpinlock* lock) {
 }
 ```
 
-**Rationale:**
-- PAUSE instruction reduces power consumption during spin-wait
-- Improves memory ordering efficiency on hyper-threaded cores
-- Signals CPU that thread is in a spin-loop for SMT optimization
+The `PAUSE` instruction (x86) and `YIELD` instruction (ARM) reduce power consumption during spin-wait and signal the CPU that the thread is in a spin-loop, improving SMT scheduling.
 
-### Lock-Free Message Queue
+### Lock-Free Cross-Core Queue
 
 **Implementation:** `runtime/scheduler/lockfree_queue.h`
 
-**Technique:**
-Single-producer, single-consumer (SPSC) ring buffer using atomic head/tail pointers with memory ordering constraints.
+Single-producer, single-consumer ring buffer using atomic head/tail pointers with explicit memory ordering.
 
 ```c
-typedef struct {
+typedef struct __attribute__((aligned(64))) {
     atomic_int head;
     char padding1[60];  // Cache line alignment
     atomic_int tail;
     char padding2[60];
-    QueueItem items[QUEUE_SIZE];
+    QueueItem items[QUEUE_SIZE];  // QUEUE_SIZE = 16384
 } LockFreeQueue;
 ```
 
-**Rationale:**
-- Eliminates mutex overhead in message passing hot path
-- Cache line padding prevents false sharing between producer and consumer
-- Power-of-2 masking enables fast modulo operations
+Cache line padding on `head` and `tail` prevents false sharing between producer and consumer cores. Power-of-2 sizing enables bitwise AND masking instead of modulo division.
+
+### SPSC Queue for Same-Core Messaging
+
+**Implementation:** `runtime/actors/aether_spsc_queue.h`
+
+Each actor has a dedicated SPSC (single-producer, single-consumer) queue for receiving messages from its owning scheduler thread or from other actor threads via `scheduler_send_local`. This separates same-core and cross-core message paths.
+
+### Direct Mailbox Delivery
+
+**Implementation:** `runtime/scheduler/multicore_scheduler.c` (`scheduler_send_remote`)
+
+When the sender is on the same core as the target actor and is actually running on that core's scheduler thread (verified via `current_core_id`), messages bypass the incoming queue entirely and write directly to the actor's mailbox or SPSC queue.
+
+```c
+if (from_core >= 0 && from_core == target_core &&
+    from_core == current_core_id) {
+    if (unlikely(actor->auto_process)) {
+        spsc_enqueue(&actor->spsc_queue, msg);
+    } else {
+        mailbox_send(&actor->mailbox, msg);
+    }
+    actor->active = 1;
+    return;
+}
+```
+
+The `current_core_id` guard prevents non-scheduler threads (such as the main thread) from writing to the mailbox concurrently with the scheduler thread, which would be a data race on the non-thread-safe ring buffer.
+
+### Message-Driven Actor Migration
+
+**Implementation:** `runtime/scheduler/multicore_scheduler.c` (`scheduler_send_remote`, scheduler actor loop)
+
+When a cross-core send occurs, the sender sets a `migrate_to` hint on the target actor. The scheduler thread that owns the actor checks this hint after processing messages and, if set, migrates the actor to the hinted core. This co-locates actors with their most frequent communicators.
+
+Migration uses ascending core-id lock ordering to prevent deadlock between concurrent migration and work-stealing operations. The actor is always processed before migration is attempted, ensuring progress even under constant migration pressure.
+
+### Inline Single-Int Messages
+
+**Implementation:** `compiler/backend/codegen.c`
+
+The code generator detects messages with exactly one integer field and emits an inline fast path. Instead of allocating a pool buffer and copying the message struct, the message ID is stored in `msg.type` and the field value in `msg.payload_int`. The receiver reconstructs the struct on the stack. This eliminates pool allocation and deallocation for the most common message pattern.
+
+### Computed Goto Dispatch
+
+**Implementation:** `compiler/backend/codegen.c` (generated code)
+
+The code generator emits a dispatch table with GCC computed goto (`goto *dispatch_table[msg_id]`) for message handler selection. This replaces indirect function calls or switch statements with direct label jumps. The message ID is read from `msg.type` rather than dereferencing the payload pointer.
 
 ### Progressive Backoff Strategy
 
 **Implementation:** `runtime/scheduler/multicore_scheduler.c`
 
-**Technique:**
-Three-phase idle strategy based on iteration count:
+Three-phase idle strategy:
 
-1. **Tight spin:** Ultra-low latency, high power consumption
-2. **PAUSE spin:** Reduced power, fast response time
-3. **OS yield:** Minimal power, cooperative scheduling
+1. **Tight spin with PAUSE/YIELD:** Low latency, used for the first 10,000 idle iterations
+2. **Work stealing:** After 5,000 idle cycles, scan for busy cores and steal actors
+3. **OS yield:** After 10,000 idle iterations, call `sched_yield()` and partially reset the counter
 
 ```c
 if (idle_count < 10000) {
-    // Tight spin with pause
     #if defined(__x86_64__) || defined(_M_X64)
     __asm__ __volatile__("pause" ::: "memory");
     #endif
 } else {
-    // Brief yield only after extended idle
     sched_yield();
-    idle_count = 5000;
+    idle_count = 5000;  // Partial reset to stay responsive
 }
 ```
-
-**Rationale:**
-- Aggressive spinning for high-throughput workloads
-- PAUSE instruction reduces power consumption during spin-wait
-- Extended idle threshold before yielding maintains responsiveness
-- Partial reset keeps system responsive to new work
 
 ### Cache Line Alignment
 
 **Implementation:** Multiple components
 
-**Technique:**
-Align frequently-accessed shared data structures to cache line boundaries and optimize buffer sizes for cache locality.
+Frequently-accessed shared data structures are aligned to 64-byte cache line boundaries to prevent false sharing.
 
 ```c
 typedef struct __attribute__((aligned(64))) {
@@ -161,212 +180,109 @@ typedef struct __attribute__((aligned(64))) {
     char padding[63];
 } OptimizedSpinlock;
 
-// Mailbox optimized for L1 cache fit
-#define MAILBOX_SIZE 256  // 256 slots × 48 bytes = 12KB
+#define MAILBOX_SIZE 256  // 256 slots for L1 cache locality
 ```
-
-**Rationale:**
-- Prevents false sharing when multiple threads access different variables
-- Cache line bouncing between cores degrades performance
-- Mailbox size chosen to fit in L1 cache for better access latency
 
 ### Power-of-2 Buffer Sizing
 
 **Implementation:** All ring buffers
 
-**Technique:**
-Use power-of-2 sizes with bitwise AND masking instead of modulo division.
+All ring buffers use power-of-2 sizes with bitwise AND masking instead of modulo division.
 
 ```c
 #define QUEUE_SIZE 16384
 #define QUEUE_MASK (QUEUE_SIZE - 1)
-
 int index = (head + 1) & QUEUE_MASK;
 
-// Also used in thread-local pool index calculations (plain increment, no atomics)
+// Also used in thread-local pool (plain increment, no atomics)
 int idx = pool->next_index++ & (MSG_PAYLOAD_POOL_SIZE - 1);
 ```
 
-**Rationale:**
-Bitwise AND operations are significantly faster than modulo division. Explicit masking ensures consistent optimization across compilers.
-
 ### Relaxed Atomic Memory Ordering
 
-**Implementation:** `runtime/actors/aether_send_message.c`
+**Implementation:** `runtime/actors/aether_send_message.c`, `runtime/scheduler/multicore_scheduler.c`
 
-**Technique:**
-Use `memory_order_relaxed` for atomic operations that don't require synchronization with other operations, particularly for statistics counters.
+Non-critical atomic operations use `memory_order_relaxed` to avoid unnecessary memory barriers:
 
 ```c
-// Statistics counters (no synchronization needed)
+// Statistics counters
 atomic_fetch_add_explicit(&g_pool_hits, 1, memory_order_relaxed);
-atomic_fetch_add_explicit(&g_pool_misses, 1, memory_order_relaxed);
 
-// Pool initialization and state
-atomic_store_explicit(&pool->next_index, 0, memory_order_relaxed);
-atomic_store_explicit(&slot->in_use, 0, memory_order_relaxed);
+// Scheduler idle tracking
+atomic_fetch_add_explicit(&sched->idle_cycles, 1, memory_order_relaxed);
+atomic_store_explicit(&sched->idle_cycles, 0, memory_order_relaxed);
 ```
 
-**Rationale:**
-- Default `memory_order_seq_cst` provides full sequential consistency but incurs memory barrier overhead
-- Statistics counters don't need synchronization with message passing operations
-- Pool state within thread-local storage doesn't require cross-thread ordering
-- Relaxed ordering eliminates expensive memory barriers on hot paths
-- Still provides atomicity and eventual consistency for monitoring purposes
+Statistics counters and approximate work counts do not require sequential consistency. Relaxed ordering provides atomicity without the overhead of full memory barriers.
 
-## Benchmarking Methodology
+### NUMA-Aware Allocation
 
-### Test Environment
+**Implementation:** `runtime/aether_numa.c`, `runtime/aether_numa.h`
 
-- Compiler: GCC with -O3 -march=native
-- Platform: x86_64 multi-core system
-- Measurement: RDTSC or clock_gettime for precision timing
-- Verification: Checksum validation for correctness
+Actor structures are allocated on the NUMA node local to the assigned core. The topology is detected at scheduler initialization. On systems without NUMA support, allocation falls back to standard `malloc`.
 
-### Baseline Comparison
+- **Linux:** `numa_alloc_onnode` (requires libnuma)
+- **Windows:** `VirtualAllocExNuma`
+- **Single-node systems:** Graceful degradation to `malloc`
 
-Each optimization is measured against a naive implementation:
+### Link-Time Optimization
 
-1. Implement baseline version
-2. Implement optimized version
-3. Run identical workload on both
-4. Verify correctness via output comparison
+**Implementation:** `benchmarks/cross-language/aether/Makefile`
 
-### Statistical Validity
+The benchmark build uses `-flto` for both compilation and linking, enabling cross-translation-unit inlining and dead code elimination.
 
-- Multiple runs to account for variance
-- Report median values to avoid outlier bias
-- Measure cache effects (cold vs warm runs)
+### CPU Detection Fallback
+
+**Implementation:** `runtime/utils/aether_cpu_detect.c`
+
+The `cpu_recommend_cores` function uses CPUID on x86 and falls back to OS-level APIs (`sysctl` on macOS, `sysconf` on Linux, `GetNativeSystemInfo` on Windows) when CPUID returns zero (ARM, virtualized environments).
 
 ## Rejected Optimizations
 
 ### Manual Prefetching
 
-**Reason:** Modern CPUs have superior automatic prefetching. Manual prefetch instructions introduced pipeline stalls.
-
-### Profile-Guided Optimization
-
-**Reason:** Training workload differed from production patterns, resulting in suboptimal code layout.
+Benchmarks showed hardware prefetchers handle sequential ring buffer access more effectively than manual `__builtin_prefetch` hints. Manual prefetch introduced pipeline stalls.
 
 ### SIMD Message Processing
 
-**Reason:** Message processing is memory-bound rather than compute-bound. Vectorization overhead exceeded benefits.
+Message processing is memory-bound. Vectorization overhead exceeded benefits for typical message sizes.
 
-## Actor-Level Optimizations
+## Inactive Headers
 
-These optimizations target actor-specific operations:
+The following headers exist in the source tree but are not called from the scheduler or message delivery paths:
 
-### Actor Pooling
-**Implementation:** `runtime/actors/aether_actor_pool.h`
+- `runtime/actors/aether_direct_send.h` - Direct send logic (functionality integrated into `scheduler_send_remote` instead)
+- `runtime/actors/aether_message_dedup.h` - Message deduplication
+- `runtime/actors/aether_message_specialize.h` - Compile-time message specialization
+- `runtime/actors/aether_simd_batch.h` - SIMD batch processing
 
-Reuses actor instances instead of repeated malloc/free operations. Maintains pool of pre-allocated actors per type with lock-free acquisition.
-
-### Direct Actor Bypass
-**Implementation:** `runtime/actors/aether_direct_send.h`
-
-Skips mailbox queue overhead for same-core actors by directly invoking message handlers when appropriate.
-
-### Message Deduplication
-**Implementation:** `runtime/actors/aether_message_dedup.h`
-
-Detects and skips redundant messages using a rolling window with fast hash-based fingerprinting.
-
-### Compile-Time Message Specialization
-**Implementation:** `runtime/actors/aether_message_specialize.h`
-
-Generates optimized send/receive functions for specific message types, eliminating generic message construction overhead.
+These headers define interfaces that may be integrated in a future release.
 
 ## Benchmarking
 
-### Core Scheduler Benchmarks
-**Location:** `tests/runtime/bench_scheduler.c`
+### Cross-Language Benchmarks
 
-Comprehensive benchmark suite measuring:
-- Single/multi-core throughput
-- Cross-core messaging overhead
-- Latency characteristics
-- Contention handling
-- Burst pattern recovery
-- Saturation behavior
-- Scalability analysis
-
-Run benchmarks:
 ```bash
-cd build
-./bench_scheduler.exe
+cd benchmarks/cross-language
+./run_benchmarks.sh
 ```
 
-### Actor-Level Benchmarks
-**Location:** `benchmarks/optimizations/`
+### Test Suite
 
-- `bench_actor_baseline.c`: Unoptimized actor operations
-- `bench_actor_optimized.c`: All optimizations applied
-- `bench_message_coalescing.c`: Message batching analysis
-- `bench_inline_asm_atomics.c`: Spinlock comparison
-- `bench_zerocopy.c`: Large message optimization
-
-Build and run:
 ```bash
-cd benchmarks/optimizations
-gcc -O3 -march=native -o bench_name bench_name.c
-./bench_name
+make test  # Runs all 153 tests
 ```
 
-### Testing
-**File:** [tests/runtime/test_actor_optimizations.c](../tests/runtime/test_actor_optimizations.c)
+### Methodology
 
-Tests each optimization individually and in combination:
-- Actor pool acquisition/release
-- Direct send same/different core detection
-- Message deduplication
-- Specialized sends
-- Adaptive batching
-
-Running tests:
-```bash
-cd tests/runtime
-gcc -O2 -I../.. test_actor_optimizations.c -o test_optimizations
-./test_optimizations
-```
-
-## Performance Characteristics
-
-### Scalability
-
-The scheduler exhibits near-linear scaling for independent actors due to:
-
-- Partitioned design
-- Lock-free cross-core messaging
-- Cache-local actor processing
-
-Efficiency decreases under high cross-core communication due to cache coherency overhead.
-
-## Future Optimization Opportunities
-
-### Zero-Copy Message Passing
-
-Transfer ownership of large message payloads instead of copying data. Requires:
-- Reference counting or move semantics
-- Payload size threshold detection
-- Fallback to copy for small messages
-
-### Type-Specific Actor Pools
-
-Pre-allocate actors in type-specific pools with free-list indexing:
-- Single allocation for N actors
-- O(1) actor creation/destruction
-- Improved memory locality
-
-### NUMA-Aware Allocation
-
-Allocate actor memory on the same NUMA node as the executing core:
-- Reduces memory access latency
-- Requires platform-specific APIs (numa_alloc_onnode)
-- Only beneficial on NUMA architectures
+- Compiler: GCC or Clang with `-O3 -march=native -flto`
+- Multiple runs to account for variance
+- Median values reported to avoid outlier bias
+- Cold-start and warm-cache scenarios measured separately
 
 ## References
 
 - Lock-Free Programming: Harris, "A Pragmatic Implementation of Non-Blocking Linked-Lists"
 - Cache Coherency: Intel 64 and IA-32 Architectures Optimization Reference Manual
 - Memory Ordering: C11 Atomic Operations and Memory Model
-- Actor Model: Hewitt, "A Universal Modular ACTOR Formalism"
+- Actor Model: Hewitt, Bishop, Steiger (1973)

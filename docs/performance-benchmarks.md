@@ -2,138 +2,102 @@
 
 ## Overview
 
-This document describes the benchmark methodology and available performance tests for the Aether runtime. Benchmarks measure message-passing throughput, latency, memory usage, and scalability characteristics.
+This document describes the benchmark methodology and available performance tests for the Aether runtime. Benchmarks measure message-passing throughput, latency, and scalability characteristics.
 
 ## Benchmark Patterns
 
 ### Ping-Pong
-Two actors exchange messages in sequence. Tests basic message passing latency and throughput.
+
+Two actors exchange messages in sequence. Tests basic message-passing latency and throughput.
 
 **Workload:**
 - 2 actors
 - 10 million messages exchanged
-- Measures: throughput, latency, memory usage
+- Measures throughput and per-message latency
 
 **Location:** `benchmarks/cross-language/aether/ping_pong.ae`
 
-**Note:** Additional benchmark patterns (ring, skynet) are planned for future implementation.
-
 ## Cross-Language Benchmarks
 
-The `benchmarks/cross-language/` directory contains equivalent implementations across multiple languages for comparative analysis. Each implementation follows idiomatic patterns for that language:
+The `benchmarks/cross-language/` directory contains equivalent implementations across multiple languages for comparative analysis:
 
-- **Aether**: Lock-free SPSC queues with adaptive batching
+- **Aether**: Lock-free SPSC queues, batch dequeue, thread-local message pools
 - **Go**: Goroutines with buffered channels
 - **Rust**: Tokio async runtime with mpsc channels
 - **C++**: std::thread with concurrent queues
 - **Erlang**: BEAM VM processes with mailboxes
 - **Java**: Thread pools with blocking queues
 
-**Note:** Results vary significantly based on:
-- Runtime design choices (VM vs native, GC vs manual, etc.)
-- Language abstractions and safety guarantees
-- Hardware architecture and OS scheduler
-- Compiler optimization levels
+Results vary based on hardware architecture, OS scheduler, compiler optimization level, and runtime design choices (VM vs native, GC vs manual memory management). Report your specific test environment when sharing results.
 
-See [benchmarks/cross-language/README.md](../benchmarks/cross-language/README.md) for detailed methodology and fairness considerations.
+See [benchmarks/cross-language/README.md](../benchmarks/cross-language/README.md) for detailed methodology.
 
-## Optimization Techniques
+## Active Optimization Techniques
 
-### Lock-Free SPSC Queues
-Single-producer, single-consumer queues for same-core messaging.
+### Lock-Free Queues
+Single-producer, single-consumer ring buffers for cross-core messaging. Cache-line aligned with power-of-2 sizing for fast modulo.
 
-**Implementation:** `runtime/actors/aether_spsc_queue.h`
-
-**Characteristics:**
-- No mutex overhead in fast path
-- Cache-line aligned to prevent false sharing
-- Power-of-2 sizing for fast modulo
+**Implementation:** `runtime/scheduler/lockfree_queue.h`
 
 ### Message Coalescing
-Batch processing of messages to amortize atomic operations.
+Batch dequeue drains multiple messages in a single atomic operation, reducing per-message atomic overhead.
 
 **Implementation:** `runtime/scheduler/multicore_scheduler.c`
 
-**Configuration:** `COALESCE_THRESHOLD` (configurable)
-
-**Characteristics:**
-- Reduces atomic operations per message
-- Maintains message ordering guarantees
-- Adapts to workload patterns
-
 ### Thread-Local Message Pools
-Pre-allocated message buffers to eliminate allocation overhead.
+Per-thread pre-allocated buffers eliminate malloc/free on the hot path. Falls back to malloc for oversized messages.
 
 **Implementation:** `runtime/actors/aether_send_message.c`
 
-**Characteristics:**
-- Thread-local pools avoid synchronization
-- Fallback to malloc for large messages
-- Pool statistics track effectiveness
-
-### Actor Pooling
-Pre-allocated actor instances to reduce allocation overhead.
-
-**Implementation:** `runtime/actors/aether_actor_pool.h`
-
-**Characteristics:**
-- Type-specific pools
-- Lock-free acquisition
-- Configurable pool sizes
-
 ### Adaptive Batching
-Dynamic batch size adjustment based on queue utilization.
+Dynamic batch size adjustment based on queue utilization. Range: 64 to 1024 messages.
 
 **Implementation:** `runtime/actors/aether_adaptive_batch.h`
 
-**Configuration:** MIN_BATCH_SIZE: 64, MAX_BATCH_SIZE: 1024
+### Inline Single-Int Messages
+Messages with exactly one integer field bypass pool allocation. The value is stored directly in `Message.payload_int`.
 
-**Characteristics:**
-- Increases batch size under load
-- Decreases during idle periods
-- Balances latency and throughput
+**Implementation:** `compiler/backend/codegen.c`
+
+### Computed Goto Dispatch
+Message handlers use a dispatch table with GCC computed goto for direct label jumps.
+
+**Implementation:** `compiler/backend/codegen.c` (generated code)
 
 ## Methodology
 
 ### Measurement Approach
 
-All benchmarks use:
-- High-precision timing (RDTSC on x86_64, clock_gettime elsewhere)
+- High-precision timing (`clock_gettime` with `CLOCK_MONOTONIC`)
 - Multiple runs with warmup periods
 - Isolated processes to minimize interference
-- Consistent compiler optimization levels
-- Validation of correctness before measurements
+- Compiler flags: `-O3 -march=native -flto`
+- Correctness validation before measurement
 
 ### Hardware Specifications
 
-Document your test environment:
-- CPU model and clock speed
-- Number of cores
+Document your test environment when reporting results:
+- CPU model, core count, and clock speed
 - Operating system and version
 - Compiler and version
 - Memory configuration
 
-Results vary across different hardware. Report your specific environment when sharing benchmark results.
-
 ### Statistical Validity
 
-- Run multiple iterations to account for variance
-- Report median values to avoid outlier bias
-- Consider both cold-start and warm-cache scenarios
-- Measure memory usage separately from throughput
+- Multiple iterations to account for variance
+- Median values to avoid outlier bias
+- Both cold-start and warm-cache scenarios considered
 
 ## Running Benchmarks
 
-### Quick Benchmarks
+### Cross-Language Suite
 
 ```bash
 cd benchmarks/cross-language
 ./run_benchmarks.sh
 ```
 
-### Custom Runs
-
-Benchmarks can be compiled and run directly:
+### Aether Only
 
 ```bash
 cd benchmarks/cross-language/aether
@@ -146,28 +110,17 @@ make
 ### Key Metrics
 
 - **Throughput**: Messages processed per second
-- **Latency**: Time from send to receive
-- **Memory**: RSS or allocated bytes
-- **Scalability**: Performance vs actor/core count
+- **Latency**: Time from send to receive (per round-trip)
 
 ### Considerations
 
 - Single-node architecture (no distributed messaging)
-- Manual memory management required
-- Requires C compilation toolchain
-- Platform-specific optimizations (AVX2, PAUSE, etc.)
-
-### Comparative Analysis
-
-When comparing across languages:
-- Consider different runtime models (GC, async, threads)
-- Account for language safety guarantees
-- Recognize optimization maturity differences
-- Understand fairness limitations in cross-language benchmarks
+- Manual memory management (no GC pauses)
+- Platform-specific optimizations (PAUSE, YIELD, NUMA)
+- Cross-language comparisons involve fundamentally different runtime models
 
 ## References
 
 - [Cross-Language Benchmarks](../benchmarks/cross-language/)
 - [Runtime Optimizations](runtime-optimizations.md)
-- [Memory Management](memory-management.md)
 - [Scheduler Architecture](scheduler-quick-reference.md)

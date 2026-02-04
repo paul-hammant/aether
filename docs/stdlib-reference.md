@@ -188,16 +188,6 @@ response = Net.receive(socket, 4096)
 Net.close(socket)
 ```
 
-## Memory Management
-
-Aether uses optimized arena allocation with size classes:
-
-- **Small allocations** (< 128B): Fast bump allocation
-- **Medium allocations** (128B - 4KB): Dedicated arena
-- **Large allocations** (> 4KB): Separate handling
-
-Memory is automatically managed per-thread, eliminating contention.
-
 ## Best Practices
 
 1. **Choose the right collection:**
@@ -224,6 +214,6 @@ Memory is automatically managed per-thread, eliminating contention.
 ## See Also
 
 - [Getting Started](getting-started.md)
-- [Language Reference](language-reference.md)
-- [Performance Guide](performance-guide.md)
+- [Tutorial](tutorial.md)
+- [Architecture](architecture.md)
 
