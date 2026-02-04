@@ -4,6 +4,15 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+#include <unistd.h>
+
+#if defined(__APPLE__) || defined(__MACOS__)
+#include <sys/sysctl.h>
+#endif
+
+#if defined(_WIN32)
+#include <windows.h>
+#endif
 
 #ifdef _WIN32
 #include <intrin.h>
@@ -175,11 +184,34 @@ void cpu_print_info() {
 // Recommend optimal core count
 int cpu_recommend_cores() {
     const CPUInfo* info = cpu_get_info();
-    
+
     // Use all logical cores, but cap at 16 for diminishing returns
     int cores = info->num_cores;
+
+    // CPUID returns 0 on non-x86 (ARM, virtualized) — fall back to OS API
+    if (cores < 1) {
+#if defined(__linux__)
+        long sc = sysconf(_SC_NPROCESSORS_ONLN);
+        cores = (sc > 0) ? (int)sc : 1;
+#elif defined(__APPLE__) || defined(__MACOS__)
+        int mib[2] = {CTL_HW, HW_NCPU};
+        unsigned int val = 0;
+        size_t len = sizeof(val);
+        if (sysctl(mib, 2, &val, &len, NULL, 0) == 0 && val > 0)
+            cores = (int)val;
+        else
+            cores = 1;
+#elif defined(_WIN32)
+        SYSTEM_INFO si;
+        GetNativeSystemInfo(&si);
+        cores = (int)si.dwNumberOfProcessors;
+#else
+        cores = 1;
+#endif
+    }
+
     if (cores > 16) cores = 16;
     if (cores < 1) cores = 1;
-    
+
     return cores;
 }

@@ -91,7 +91,38 @@ void* __attribute__((hot)) scheduler_thread(void* arg) {
         for (int i = 0; i < sched->coalesce_buffer.count; i++) {
             ActorBase* actor = (ActorBase*)sched->coalesce_buffer.actors[i];
             Message msg = sched->coalesce_buffer.messages[i];
-            
+
+            // Actor may have been migrated to another core after this message
+            // was enqueued.  Forward to the actor's current core rather than
+            // delivering here (which would race with the new core's processing).
+            if (unlikely(actor->assigned_core != sched->core_id)) {
+                int new_core = actor->assigned_core;
+                if (new_core >= 0 && new_core < num_cores) {
+                    // Spin-retry: must not drop messages during redirect
+                    int retries = 0;
+                    while (!queue_enqueue(&schedulers[new_core].incoming_queue, actor, msg)) {
+                        // Actor may have migrated again — re-read destination
+                        int cur = actor->assigned_core;
+                        if (cur >= 0 && cur < num_cores) new_core = cur;
+                        if (++retries % 1000 == 0) sched_yield();
+                    }
+                }
+                work_done = 1;
+                continue;
+            }
+
+            // auto_process actors own their mailbox from their thread;
+            // deliver via SPSC queue (thread-safe) instead of mailbox.
+            if (unlikely(actor->auto_process)) {
+                if (!spsc_enqueue(&actor->spsc_queue, msg)) {
+                    // SPSC full - re-queue for next iteration
+                    queue_enqueue(&sched->incoming_queue, actor, msg);
+                } else {
+                    work_done = 1;
+                }
+                continue;
+            }
+
             // Drain actor mailbox aggressively BEFORE trying to add new message
             if (actor->mailbox.count > MAILBOX_SIZE / 2) {
                 // Mailbox getting full - drain it NOW
@@ -101,7 +132,7 @@ void* __attribute__((hot)) scheduler_thread(void* arg) {
                     drained++;
                 }
             }
-            
+
             // Now try to deliver message
             if (!mailbox_send(&actor->mailbox, msg)) {
                 // Still full - re-queue for later
@@ -120,34 +151,79 @@ void* __attribute__((hot)) scheduler_thread(void* arg) {
         // This is the performance-critical loop
         for (int i = 0; i < sched->actor_count; i++) {
             ActorBase* actor = sched->actors[i];
-            
+
             // Prefetch next actor for better pipeline utilization
             if (i + 1 < sched->actor_count) {
                 __builtin_prefetch(sched->actors[i + 1], 0, 3);
             }
-            
-            if (likely(actor && actor->active)) {
+
+            if (unlikely(!actor)) continue;
+
+            // auto_process actors own their mailbox and SPSC from their
+            // own thread.  Skip entirely — touching either here would
+            // race with aether_actor_thread.  Messages arrive via the
+            // coalescing path above (spsc_enqueue).
+            if (unlikely(actor->auto_process)) {
+                work_done = 1;
+                continue;
+            }
+
+            // FIRST: Process actor to ensure progress even during migration
+            if (likely(actor->active)) {
                 if (likely(actor->step)) {
-                    // FIRST: Drain SPSC queue (lock-free same-core messages)
+                    // Drain SPSC queue (lock-free same-core messages)
                     Message spsc_msgs[128];
                     int spsc_count = spsc_dequeue_batch(&actor->spsc_queue, spsc_msgs, 128);
                     if (spsc_count > 0) {
-                        // Batch send to mailbox for processing
                         mailbox_send_batch(&actor->mailbox, spsc_msgs, spsc_count);
                     }
 
-                    // THEN: Process ALL messages in mailbox to prevent buildup
+                    // Process messages in mailbox
                     int processed = 0;
                     while (actor->mailbox.count > 0 && processed < 64) {
                         actor->step(actor);
                         processed++;
                     }
-                    // If mailbox is now empty, mark inactive
-                    if (actor->mailbox.count == 0) {
+                    if (processed > 0 && actor->mailbox.count == 0) {
                         actor->active = 0;
                     }
                 }
                 work_done = 1;
+            }
+
+            // THEN: Message-driven migration — move actor to the core that
+            // communicates with it most.  Processing first ensures the actor
+            // makes progress even under constant migration pressure.
+            if (unlikely(actor->migrate_to >= 0 &&
+                         actor->migrate_to != sched->core_id &&
+                         actor->migrate_to < num_cores)) {
+                int dst_core = actor->migrate_to;
+                Scheduler* dst = &schedulers[dst_core];
+
+                // Lock in ascending core-id order to prevent deadlock
+                OptimizedSpinlock* first_lock  = (sched->core_id < dst_core) ? &sched->actor_lock : &dst->actor_lock;
+                OptimizedSpinlock* second_lock = (sched->core_id < dst_core) ? &dst->actor_lock : &sched->actor_lock;
+
+                if (!atomic_flag_test_and_set_explicit(
+                        &first_lock->lock, memory_order_acquire)) {
+                    if (!atomic_flag_test_and_set_explicit(
+                            &second_lock->lock, memory_order_acquire)) {
+                        if (dst->actor_count < dst->capacity) {
+                            sched->actors[i] = sched->actors[--sched->actor_count];
+                            actor->assigned_core = dst_core;
+                            actor->migrate_to = -1;
+                            dst->actors[dst->actor_count++] = actor;
+
+                            atomic_flag_clear_explicit(&second_lock->lock, memory_order_release);
+                            atomic_flag_clear_explicit(&first_lock->lock, memory_order_release);
+
+                            i--;  // Re-examine this slot (now holds a different actor)
+                            continue;
+                        }
+                        atomic_flag_clear_explicit(&second_lock->lock, memory_order_release);
+                    }
+                    atomic_flag_clear_explicit(&first_lock->lock, memory_order_release);
+                }
             }
         }
         
@@ -173,30 +249,27 @@ void* __attribute__((hot)) scheduler_thread(void* arg) {
                     }
                 }
                 
-                // If found a busy core, try to steal an actor
+                // If found a busy core, try to steal an actor.
+                // Lock in ascending core-id order to prevent deadlock
+                // (same convention as migration).
                 if (busiest_core >= 0 && max_work > 100) {
                     Scheduler* victim = &schedulers[busiest_core];
-                    
-                    // Try to lock victim's actor list (non-blocking)
-                    if (atomic_flag_test_and_set_explicit(&victim->actor_lock.lock, memory_order_acquire) == 0) {
-                        // Steal last actor if victim has multiple actors
-                        if (victim->actor_count > 4) {
-                            ActorBase* stolen = victim->actors[--victim->actor_count];
-                            
-                            // Add to our core
-                            spinlock_lock(&sched->actor_lock);
-                            if (sched->actor_count < sched->capacity) {
+                    OptimizedSpinlock* first_lock  = (sched->core_id < busiest_core) ? &sched->actor_lock : &victim->actor_lock;
+                    OptimizedSpinlock* second_lock = (sched->core_id < busiest_core) ? &victim->actor_lock : &sched->actor_lock;
+
+                    if (!atomic_flag_test_and_set_explicit(&first_lock->lock, memory_order_acquire)) {
+                        if (!atomic_flag_test_and_set_explicit(&second_lock->lock, memory_order_acquire)) {
+                            if (victim->actor_count > 4 && sched->actor_count < sched->capacity) {
+                                ActorBase* stolen = victim->actors[--victim->actor_count];
                                 stolen->assigned_core = sched->core_id;
+                                stolen->migrate_to = -1;
                                 sched->actors[sched->actor_count++] = stolen;
                                 work_done = 1;
                                 atomic_fetch_add(&sched->steal_attempts, 1);
-                            } else {
-                                // No space, return it
-                                victim->actors[victim->actor_count++] = stolen;
                             }
-                            spinlock_unlock(&sched->actor_lock);
+                            atomic_flag_clear_explicit(&second_lock->lock, memory_order_release);
                         }
-                        atomic_flag_clear_explicit(&victim->actor_lock.lock, memory_order_release);
+                        atomic_flag_clear_explicit(&first_lock->lock, memory_order_release);
                     }
                 }
             }
@@ -414,60 +487,76 @@ int scheduler_register_actor(ActorBase* actor, int preferred_core) {
 }
 
 void scheduler_send_local(ActorBase* actor, Message msg) {
-    mailbox_send(&actor->mailbox, msg);
+    // auto_process actors own their mailbox; deliver via thread-safe SPSC.
+    if (unlikely(actor->auto_process)) {
+        spsc_enqueue(&actor->spsc_queue, msg);
+    } else {
+        mailbox_send(&actor->mailbox, msg);
+    }
     actor->active = 1;
 }
 
 void scheduler_send_remote(ActorBase* actor, Message msg, int from_core) {
     int target_core = actor->assigned_core;
-    
-    // TIER 1 ALWAYS ON: Direct send for same-core actors (bypasses queue)
-    if (from_core >= 0 && from_core == target_core) {
-        // Same core - direct mailbox delivery, no queue overhead
-        mailbox_send(&actor->mailbox, msg);
+
+    // Guard against uninitialized or invalid assigned_core
+    if (unlikely(target_core < 0 || target_core >= num_cores)) {
+        target_core = actor->id % num_cores;
+    }
+
+    // Already same-core AND caller is actually running on that core's
+    // scheduler thread — deliver directly to mailbox (no queue overhead).
+    // The current_core_id check prevents non-scheduler threads (e.g. main)
+    // from racing with the scheduler thread on mailbox access.
+    if (from_core >= 0 && from_core == target_core &&
+        from_core == current_core_id) {
+        if (unlikely(actor->auto_process)) {
+            spsc_enqueue(&actor->spsc_queue, msg);
+        } else {
+            mailbox_send(&actor->mailbox, msg);
+        }
         actor->active = 1;
         AETHER_STAT_INC(direct_sends);
         return;
     }
-    
-    // Retry with backoff if queue full
+
+    // Cross-core send: set affinity hint so the scheduler thread that owns
+    // this actor will migrate it to from_core.  Only set the hint when
+    // the caller is actually running on the stated core (i.e. is a
+    // scheduler thread or actor thread), not from the main thread or
+    // external callers that pass arbitrary from_core values.
+    if (from_core >= 0 && from_core == current_core_id && !actor->auto_process) {
+        actor->migrate_to = from_core;
+    }
+
+    // Enqueue to target core's incoming queue
     int retries = 0;
     while (!queue_enqueue(&schedulers[target_core].incoming_queue, actor, msg)) {
-        // Queue full - yield to let scheduler thread drain it
         if (++retries % 1000 == 0) {
-            sched_yield();  // Let scheduler threads run
+            sched_yield();
         }
         #if defined(__x86_64__) || defined(_M_X64)
         __asm__ __volatile__("pause" ::: "memory");
         #endif
     }
-    
+
     atomic_fetch_add_explicit(&schedulers[target_core].work_count, 1, memory_order_relaxed);
     AETHER_STAT_INC(queue_sends);
 }
 
-// TIER 1 ALWAYS ON: Spawn actor from pool (1.81x faster than malloc)
-ActorBase* scheduler_spawn_pooled(int preferred_core, void (*step)(void*)) {
+// Spawn actor with NUMA-aware allocation.  actor_size must be >= sizeof(ActorBase)
+// and cover the full derived-actor struct (e.g. sizeof(PingActor)).
+ActorBase* scheduler_spawn_pooled(int preferred_core, void (*step)(void*), size_t actor_size) {
     if (preferred_core < 0 || preferred_core >= num_cores) {
         preferred_core = atomic_fetch_add(&next_actor_id, 1) % num_cores;
     }
-    
-    Scheduler* sched = &schedulers[preferred_core];
+    if (actor_size < sizeof(ActorBase)) actor_size = sizeof(ActorBase);
+
     ActorBase* actor = NULL;
-    
-    // TIER 1 ALWAYS ON: Try to get from pool first
-    if (sched->actor_pool) {
-        PooledActor* pooled = actor_pool_acquire(sched->actor_pool);
-        if (pooled) {
-            actor = (ActorBase*)pooled;
-            AETHER_STAT_INC(actors_pooled);
-        }
-    }
-    
-    // Fallback to malloc if pool exhausted - use NUMA-aware allocation
-    if (!actor) {
+
+    {
         int numa_node = aether_numa_node_of_cpu(preferred_core);
-        actor = aether_numa_alloc(sizeof(ActorBase), numa_node);
+        actor = aether_numa_alloc(actor_size, numa_node);
         if (!actor) return NULL;
         mailbox_init(&actor->mailbox);
         spsc_queue_init(&actor->spsc_queue);
@@ -480,6 +569,7 @@ ActorBase* scheduler_spawn_pooled(int preferred_core, void (*step)(void*)) {
     actor->thread = 0;
     actor->auto_process = 0;
     actor->assigned_core = preferred_core;
+    actor->migrate_to = -1;
 
     scheduler_register_actor(actor, preferred_core);
 

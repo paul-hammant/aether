@@ -55,24 +55,22 @@ Configurable batch size range to amortize message processing overhead under high
 **Implementation:** `runtime/scheduler/multicore_scheduler.c`
 
 **Technique:**
-Drains multiple messages from the lock-free queue in a single atomic operation batch, reducing per-message overhead by amortizing atomic operations across multiple messages.
+Drains multiple messages from the lock-free queue in a single batch dequeue operation, reducing atomic operations from 3-per-message to a single atomic store for the entire batch.
 
 ```c
 #define COALESCE_THRESHOLD 512
 
-// Drain messages into local buffer
-while (count < COALESCE_THRESHOLD && queue_dequeue(...)) {
-    buffer[count++] = message;
-}
+// Single batch dequeue: 1 atomic store for entire batch
+count = queue_dequeue_batch(&incoming_queue, buffer.actors, buffer.messages, batch_size);
 
 // Process entire batch
 for (int i = 0; i < count; i++) {
-    process_message(buffer[i]);
+    deliver_to_mailbox(buffer.actors[i], buffer.messages[i]);
 }
 ```
 
 **Rationale:**
-Atomic queue operations (CAS, memory barriers) dominate cost at high message rates. Batching significantly reduces the number of atomic operations required.
+Atomic queue operations (CAS, memory barriers) dominate cost at high message rates. The batch dequeue reads head/tail once, copies all available messages, then advances head with a single atomic store — matching the existing batch enqueue pattern.
 
 ### Optimized Spinlock with PAUSE Instruction
 
@@ -185,9 +183,8 @@ Use power-of-2 sizes with bitwise AND masking instead of modulo division.
 
 int index = (head + 1) & QUEUE_MASK;
 
-// Also used in pool index calculations
-int idx = atomic_fetch_add_explicit(&pool->next_index, 1, memory_order_relaxed)
-          & (MSG_PAYLOAD_POOL_SIZE - 1);
+// Also used in thread-local pool index calculations (plain increment, no atomics)
+int idx = pool->next_index++ & (MSG_PAYLOAD_POOL_SIZE - 1);
 ```
 
 **Rationale:**

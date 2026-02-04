@@ -52,6 +52,7 @@ typedef struct {
     pthread_t thread;
     int auto_process;
     int assigned_core;
+    int migrate_to;        // Affinity hint: core to migrate to (-1 = none)
     SPSCQueue spsc_queue;  // Lock-free same-core messaging
 } ActorBase;
 
@@ -100,7 +101,7 @@ void scheduler_send_local(ActorBase* actor, Message msg);
 void scheduler_send_remote(ActorBase* actor, Message msg, int from_core);
 
 // Optimized APIs using integrated features (TIER 1 - always on)
-ActorBase* scheduler_spawn_pooled(int preferred_core, void (*step)(void*));
+ActorBase* scheduler_spawn_pooled(int preferred_core, void (*step)(void*), size_t actor_size);
 void scheduler_release_pooled(ActorBase* actor);
 
 // Legacy API - now controls only TIER 3 opt-in features
