@@ -11,11 +11,11 @@ High-performance hash map using Robin Hood hashing for better cache locality.
 ```aether
 import std.collections.HashMap
 
-let map = HashMap.new()
+map = HashMap.new()
 map.insert("key", "value")
-let value = map.get("key")
+value = map.get("key")
 map.remove("key")
-let size = map.size()
+size = map.size()
 ```
 
 **Methods:**
@@ -37,16 +37,16 @@ Set implementation with set operations.
 ```aether
 import std.collections.Set
 
-let set = Set.new()
+set = Set.new()
 set.add("item")
 set.remove("item")
-let has = set.contains("item")
+has = set.contains("item")
 
-let a = Set.from(["a", "b", "c"])
-let b = Set.from(["b", "c", "d"])
-let union = a.union(b)         // {a, b, c, d}
-let intersection = a.intersection(b)  // {b, c}
-let difference = a.difference(b)      // {a}
+a = Set.from(["a", "b", "c"])
+b = Set.from(["b", "c", "d"])
+union = a.union(b)         // {a, b, c, d}
+intersection = a.intersection(b)  // {b, c}
+difference = a.difference(b)      // {a}
 ```
 
 **Methods:**
@@ -67,16 +67,16 @@ Dynamic array with amortized O(1) append.
 ```aether
 import std.collections.Vector
 
-let vec = Vector.new()
+vec = Vector.new()
 vec.push(1)
 vec.push(2)
 vec.push(3)
 
-let item = vec.get(0)
+item = vec.get(0)
 vec.set(0, 10)
 vec.remove(1)
 
-let size = vec.size()
+size = vec.size()
 vec.reverse()
 vec.sort()
 ```
@@ -100,12 +100,12 @@ Binary heap implementation for priority-based task scheduling.
 ```aether
 import std.collections.PriorityQueue
 
-let pq = PriorityQueue.new_min()  // Min-heap
-let pq = PriorityQueue.new_max()  // Max-heap
+pq = PriorityQueue.new_min()  // Min-heap
+pq = PriorityQueue.new_max()  // Max-heap
 
 pq.insert(task)
-let highest = pq.peek()
-let task = pq.extract()
+highest = pq.peek()
+task = pq.extract()
 ```
 
 **Methods:**
@@ -147,14 +147,14 @@ Cross-platform file system operations.
 import std.fs as FS
 
 // File operations
-let exists = FS.file_exists("path/to/file.txt")
-let content = FS.read_file("file.txt")
+exists = FS.file_exists("path/to/file.txt")
+content = FS.read_file("file.txt")
 FS.write_file("file.txt", "content")
 FS.delete_file("file.txt")
 
 // Directory operations
 FS.create_dir("new_folder")
-let files = FS.list_dir("folder")
+files = FS.list_dir("folder")
 FS.delete_dir("folder")
 ```
 
@@ -175,28 +175,18 @@ Network utilities for building servers and clients.
 import std.net as Net
 
 // Server
-let server = Net.server_create(8080)
-let conn = Net.server_accept(server)
-let data = Net.receive(conn, 1024)
+server = Net.server_create(8080)
+conn = Net.server_accept(server)
+data = Net.receive(conn, 1024)
 Net.send(conn, "HTTP/1.1 200 OK\r\n\r\nHello")
 Net.close(conn)
 
 // Client
-let socket = Net.connect("localhost", 8080)
+socket = Net.connect("localhost", 8080)
 Net.send(socket, "GET / HTTP/1.1\r\n\r\n")
-let response = Net.receive(socket, 4096)
+response = Net.receive(socket, 4096)
 Net.close(socket)
 ```
-
-## Memory Management
-
-Aether uses optimized arena allocation with size classes:
-
-- **Small allocations** (< 128B): Fast bump allocation
-- **Medium allocations** (128B - 4KB): Dedicated arena
-- **Large allocations** (> 4KB): Separate handling
-
-Memory is automatically managed per-thread, eliminating contention.
 
 ## Best Practices
 
@@ -224,6 +214,6 @@ Memory is automatically managed per-thread, eliminating contention.
 ## See Also
 
 - [Getting Started](getting-started.md)
-- [Language Reference](language-reference.md)
-- [Performance Guide](performance-guide.md)
+- [Tutorial](tutorial.md)
+- [Architecture](architecture.md)
 

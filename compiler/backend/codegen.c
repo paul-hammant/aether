@@ -6,6 +6,17 @@
 #include <pthread.h>
 #include "codegen.h"
 
+// Returns the field name if msg has exactly one int field (eligible for inline encoding),
+// or NULL otherwise. Inline messages skip pool allocation entirely — the single int field
+// is stored in Message.payload_int, avoiding memcpy and pool lookup on every send.
+static const char* get_single_int_field(MessageDef* msg_def) {
+    if (!msg_def || !msg_def->fields) return NULL;
+    MessageFieldDef* field = msg_def->fields;
+    if (field->type_kind != TYPE_INT) return NULL;
+    if (field->next != NULL) return NULL;  // More than one field
+    return field->name;
+}
+
 CodeGenerator* create_code_generator(FILE* output) {
     CodeGenerator* gen = malloc(sizeof(CodeGenerator));
     gen->output = output;
@@ -19,6 +30,7 @@ CodeGenerator* create_code_generator(FILE* output) {
     gen->declared_vars = NULL;
     gen->declared_var_count = 0;
     gen->generating_lvalue = 0;  // Not generating lvalue by default
+    gen->in_condition = 0;  // Not in condition by default
     return gen;
 }
 
@@ -255,11 +267,15 @@ void generate_expression(CodeGenerator* gen, ASTNode* expr) {
             
         case AST_BINARY_EXPRESSION:
             if (expr->child_count >= 2) {
-                fprintf(gen->output, "(");
+                // Skip outer parens if we're in a condition (if/while already provide parens)
+                int skip_parens = gen->in_condition;
+                gen->in_condition = 0;  // Only skip for top-level, not nested
+
+                if (!skip_parens) fprintf(gen->output, "(");
                 generate_expression(gen, expr->children[0]);
                 fprintf(gen->output, " %s ", get_c_operator(expr->value));
                 generate_expression(gen, expr->children[1]);
-                fprintf(gen->output, ")");
+                if (!skip_parens) fprintf(gen->output, ")");
             }
             break;
             
@@ -418,22 +434,46 @@ void generate_expression(CodeGenerator* gen, ASTNode* expr) {
                 if (message && message->type == AST_MESSAGE_CONSTRUCTOR) {
                     MessageDef* msg_def = lookup_message(gen->message_registry, message->value);
                     if (msg_def) {
-                        fprintf(gen->output, "{ %s _msg = { ._message_id = %d", 
-                                message->value, msg_def->message_id);
-                        
-                        for (int i = 0; i < message->child_count; i++) {
-                            ASTNode* field_init = message->children[i];
-                            if (field_init && field_init->type == AST_FIELD_INIT) {
-                                fprintf(gen->output, ", .%s = ", field_init->value);
-                                if (field_init->child_count > 0) {
+                        const char* single_int = get_single_int_field(msg_def);
+                        if (single_int) {
+                            // Inline fast path: single-int messages bypass pool allocation.
+                            // Encode _message_id in msg.type, field value in msg.payload_int.
+                            fprintf(gen->output, "{ Message _imsg = {%d, 0, ", msg_def->message_id);
+                            // Find and emit the single field initializer
+                            for (int i = 0; i < message->child_count; i++) {
+                                ASTNode* field_init = message->children[i];
+                                if (field_init && field_init->type == AST_FIELD_INIT && field_init->child_count > 0) {
                                     generate_expression(gen, field_init->children[0]);
+                                    break;
                                 }
                             }
+                            fprintf(gen->output, ", NULL, {NULL, 0, 0}}; ");
+                            fprintf(gen->output, "if (current_core_id >= 0 && current_core_id == ((ActorBase*)(");
+                            generate_expression(gen, target);
+                            fprintf(gen->output, "))->assigned_core) { scheduler_send_local((ActorBase*)(");
+                            generate_expression(gen, target);
+                            fprintf(gen->output, "), _imsg); } else { scheduler_send_remote((ActorBase*)(");
+                            generate_expression(gen, target);
+                            fprintf(gen->output, "), _imsg, current_core_id); } }");
+                        } else {
+                            // General path: multi-field messages go through pool allocation
+                            fprintf(gen->output, "{ %s _msg = { ._message_id = %d",
+                                    message->value, msg_def->message_id);
+
+                            for (int i = 0; i < message->child_count; i++) {
+                                ASTNode* field_init = message->children[i];
+                                if (field_init && field_init->type == AST_FIELD_INIT) {
+                                    fprintf(gen->output, ", .%s = ", field_init->value);
+                                    if (field_init->child_count > 0) {
+                                        generate_expression(gen, field_init->children[0]);
+                                    }
+                                }
+                            }
+
+                            fprintf(gen->output, " }; aether_send_message(");
+                            fprintf(gen->output, "(void*)"); generate_expression(gen, target);
+                            fprintf(gen->output, ", &_msg, sizeof(%s)); }", message->value);
                         }
-                        
-                        fprintf(gen->output, " }; aether_send_message(");
-                        fprintf(gen->output, "(void*)"); generate_expression(gen, target);
-                        fprintf(gen->output, ", &_msg, sizeof(%s)); }", message->value);
                     } else {
                         fprintf(gen->output, "/* ERROR: unknown message type %s */", message->value);
                     }
@@ -564,23 +604,25 @@ void generate_statement(CodeGenerator* gen, ASTNode* stmt) {
         case AST_IF_STATEMENT:
             fprintf(gen->output, "if (");
             if (stmt->child_count > 0) {
+                gen->in_condition = 1;
                 generate_expression(gen, stmt->children[0]);
+                gen->in_condition = 0;
             }
             fprintf(gen->output, ") {\n");
-            
+
             indent(gen);
             if (stmt->child_count > 1) {
                 generate_statement(gen, stmt->children[1]);
             }
             unindent(gen);
-            
+
             if (stmt->child_count > 2) {
                 print_line(gen, "} else {");
                 indent(gen);
                 generate_statement(gen, stmt->children[2]);
                 unindent(gen);
             }
-            
+
             print_line(gen, "}");
             break;
             
@@ -623,10 +665,12 @@ void generate_statement(CodeGenerator* gen, ASTNode* stmt) {
         case AST_WHILE_LOOP:
             fprintf(gen->output, "while (");
             if (stmt->child_count > 0) {
+                gen->in_condition = 1;
                 generate_expression(gen, stmt->children[0]);
+                gen->in_condition = 0;
             }
             fprintf(gen->output, ") {\n");
-            
+
             indent(gen);
             if (stmt->child_count > 1) {
                 generate_statement(gen, stmt->children[1]);
@@ -1060,7 +1104,7 @@ void generate_actor_definition(CodeGenerator* gen, ASTNode* actor) {
         print_line(gen, "// COMPUTED GOTO DISPATCH - 15-30%% faster than function pointers");
         print_line(gen, "// Used by CPython, LuaJIT for ultra-fast message dispatch");
         print_line(gen, "void* _msg_data = msg.payload_ptr;");
-        print_line(gen, "int _msg_id = *(int*)_msg_data;");
+        print_line(gen, "int _msg_id = msg.type;  // Already set by aether_send_message, avoids pointer dereference");
         print_line(gen, "");
         print_line(gen, "// Dispatch table: direct jumps to labels (no indirect call overhead)");
         print_line(gen, "static void* dispatch_table[256] = {");
@@ -1133,10 +1177,30 @@ void generate_actor_definition(CodeGenerator* gen, ASTNode* actor) {
                     }
 
                     if (pattern && pattern->type == AST_MESSAGE_PATTERN) {
+                        MessageDef* msg_def = lookup_message(gen->message_registry, pattern->value);
+                        const char* single_int = msg_def ? get_single_int_field(msg_def) : NULL;
+
                         print_line(gen, "handle_%s:", pattern->value);
                         indent(gen);
-                        print_line(gen, "%s_handle_%s(self, _msg_data);", actor->value, pattern->value);
-                        print_line(gen, "aether_free_message(_msg_data);  // Return to pool or free");
+                        if (single_int) {
+                            // Inline fast path: reconstruct struct on stack from msg fields.
+                            // No pool buffer exists, no free needed.
+                            print_line(gen, "if (_msg_data) {");
+                            indent(gen);
+                            print_line(gen, "%s_handle_%s(self, _msg_data);", actor->value, pattern->value);
+                            print_line(gen, "aether_free_message(_msg_data);");
+                            unindent(gen);
+                            print_line(gen, "} else {");
+                            indent(gen);
+                            print_line(gen, "%s _inline = { ._message_id = msg.type, .%s = msg.payload_int };",
+                                      pattern->value, single_int);
+                            print_line(gen, "%s_handle_%s(self, &_inline);", actor->value, pattern->value);
+                            unindent(gen);
+                            print_line(gen, "}");
+                        } else {
+                            print_line(gen, "%s_handle_%s(self, _msg_data);", actor->value, pattern->value);
+                            print_line(gen, "aether_free_message(_msg_data);  // Return to pool or free");
+                        }
                         print_line(gen, "return;");
                         unindent(gen);
                         print_line(gen, "");
@@ -1152,10 +1216,9 @@ void generate_actor_definition(CodeGenerator* gen, ASTNode* actor) {
     
     print_line(gen, "%s* spawn_%s() {", actor->value, actor->value);
     indent(gen);
-    print_line(gen, "// OPTIMIZATION: Try to get from per-core actor pool (1.8x faster)");
     print_line(gen, "int core = atomic_fetch_add(&next_actor_id, 1) %% num_cores;");
-    print_line(gen, "%s* actor = (%s*)scheduler_spawn_pooled(core, (void (*)(void*))%s_step);", 
-               actor->value, actor->value, actor->value);
+    print_line(gen, "%s* actor = (%s*)scheduler_spawn_pooled(core, (void (*)(void*))%s_step, sizeof(%s));",
+               actor->value, actor->value, actor->value, actor->value);
     print_line(gen, "if (!actor) {");
     indent(gen);
     print_line(gen, "// Fallback to aligned allocation if pool exhausted");
@@ -1169,7 +1232,7 @@ void generate_actor_definition(CodeGenerator* gen, ASTNode* actor) {
     unindent(gen);
     print_line(gen, "}");
     print_line(gen, "actor->active = 1;");
-    print_line(gen, "actor->auto_process = 1;");
+    print_line(gen, "actor->auto_process = 0;");
     print_line(gen, "");
     
     for (int i = 0; i < actor->child_count; i++) {

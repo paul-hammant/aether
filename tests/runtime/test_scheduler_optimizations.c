@@ -197,13 +197,13 @@ TEST_CATEGORY(adaptive_batch_boundaries, TEST_CATEGORY_RUNTIME) {
     
     // Should start at default (128)
     ASSERT_TRUE(state.current_batch_size >= 64);
-    ASSERT_TRUE(state.current_batch_size <= 512);
-    
+    ASSERT_TRUE(state.current_batch_size <= 1024);
+
     // Push to max
     for (int i = 0; i < 50; i++) {
         adaptive_batch_adjust(&state, state.current_batch_size);
     }
-    ASSERT_TRUE(state.current_batch_size <= 512);  // Should not exceed max
+    ASSERT_TRUE(state.current_batch_size <= 1024);  // Should not exceed max
     
     // Push to min
     for (int i = 0; i < 100; i++) {

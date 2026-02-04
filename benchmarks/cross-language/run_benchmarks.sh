@@ -76,6 +76,11 @@ check_and_install() {
         echo "  macOS:  $macos_install"
         echo "  Linux:  $linux_install"
         echo ""
+        # Skip prompt if stdin is not a terminal (e.g. piped from make)
+        if [ ! -t 0 ]; then
+            echo "Skipping $tool_name benchmark (non-interactive)."
+            return 1
+        fi
         read -p "Install now? (y/n): " response
 
         if [[ "$response" =~ ^[Yy]$ ]]; then
@@ -116,7 +121,12 @@ if ! detect_java; then
     echo "  macOS:  brew install openjdk@17"
     echo "  Linux:  sudo apt-get install openjdk-17-jdk"
     echo ""
+    # Skip prompt if stdin is not a terminal (e.g. piped from make)
+    if [ ! -t 0 ]; then
+        echo "Skipping Java and Scala benchmarks (non-interactive)."
+    else
     read -p "Install now? (y/n): " response
+    fi
     if [[ "$response" =~ ^[Yy]$ ]]; then
         echo "Installing Java 17..."
         if [[ "$OSTYPE" == "darwin"* ]]; then

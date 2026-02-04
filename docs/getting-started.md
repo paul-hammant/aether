@@ -1,6 +1,6 @@
 # Getting Started with Aether
 
-This guide will help you install and start using the Aether programming language.
+This guide covers installation and basic usage of the Aether programming language.
 
 ## Installation
 
@@ -8,18 +8,20 @@ This guide will help you install and start using the Aether programming language
 
 **All Platforms:**
 - Git
-- 1GB free disk space
-- 2GB RAM minimum (4GB recommended for parallel builds)
-
-**Linux/macOS:**
 - GCC 9.0+ or Clang 10.0+
 - Make
 - pthread support (usually built-in)
 
 **Windows:**
-- MinGW-w64 GCC 11.0+ (MSVC not supported)
-- PowerShell 5.1+ (comes with Windows 10+)
-- Download MinGW: [mingw-w64.org](https://www.mingw-w64.org/) or via package manager
+- MinGW-w64 GCC 11.0+ (MSVC is not supported)
+- PowerShell 5.1+
+
+**macOS:**
+- Xcode command line tools: `xcode-select --install`
+- Homebrew GCC recommended: `brew install gcc`
+
+**Linux:**
+- `sudo apt-get install build-essential` (Debian/Ubuntu)
 
 ### Building from Source
 
@@ -30,7 +32,7 @@ cd aether
 # Linux/macOS
 make compiler
 
-# Windows
+# Windows (MinGW)
 ./build_compiler.ps1
 ```
 
@@ -52,49 +54,25 @@ Compile and run:
 
 ## Actor-Based Programming
 
-Aether is built around the actor model. Here's a simple ping-pong example:
+Aether is built around the actor model. Here is a simple counter example:
 
 ```aether
-actor Pong {
-    receive {
-        "ping" => {
-            print("Pong!")
-            send msg.sender, "pong"
-        }
+actor counter {
+    state int count = 0;
+
+    receive(msg) {
+        count++;
+        print(count);
     }
 }
 
-actor Ping {
-    state {
-        count: int
-        pong: ActorRef[Pong]
-    }
-    
-    receive {
-        "start" => {
-            count = 0
-            send pong, "ping"
-        }
-        
-        "pong" => {
-            count = count + 1
-            print("Ping " + count)
-            
-            if (count < 5) {
-                send pong, "ping"
-            }
-        }
-    }
-}
-
-main {
-    let pong = spawn Pong
-    let ping = spawn Ping
-    
-    send ping, "pong" -> pong
-    send ping, "start"
+main() {
+    c = spawn_counter();
+    send_counter(c, 1, 0);
 }
 ```
+
+Actors are lightweight concurrent entities that communicate through asynchronous messages. Each actor has private state and a mailbox for incoming messages. The runtime distributes actors across available CPU cores automatically.
 
 ## Module System
 
@@ -106,20 +84,20 @@ import std.log as Log
 
 main {
     Log.info("Starting application")
-    
-    let map = HashMap.new()
+
+    map = HashMap.new()
     map.insert("key", "value")
-    
+
     print(map.get("key"))
 }
 ```
 
 ## Standard Library
 
-Aether comes with a rich standard library:
+Aether includes a standard library with the following modules:
 
 ### Collections
-- **HashMap**: O(1) hash map with Robin Hood hashing
+- **HashMap**: Hash map with Robin Hood hashing
 - **Set**: Set operations (union, intersection, difference)
 - **Vector**: Dynamic array with amortized O(1) append
 - **PriorityQueue**: Binary heap for priority-based scheduling
@@ -129,9 +107,11 @@ Aether comes with a rich standard library:
 - **fs**: File system operations
 - **net**: Networking utilities
 
+See [stdlib-reference.md](stdlib-reference.md) for the full API reference.
+
 ## Pattern Matching
 
-Aether supports powerful pattern matching:
+Aether supports pattern matching:
 
 ```aether
 match value {
@@ -144,24 +124,10 @@ match value {
 
 ## Next Steps
 
-- Read the [Language Reference](language-reference.md)
+- Read the [Tutorial](tutorial.md) for a guided introduction
 - Explore [Standard Library Documentation](stdlib-reference.md)
-- Check out [Example Programs](../examples/)
-- Join the community on GitHub
-
-## Performance Tips
-
-1. Use pattern matching for cleaner code
-2. Leverage the profiler to identify bottlenecks
-3. Use appropriate collection types (HashMap for lookups, Vector for sequences)
-4. Keep actors lightweight and focused
-5. Use the import system to organize code
-
-## Getting Help
-
-- GitHub Issues: Report bugs and request features
-- Documentation: Check docs/ folder
-- Examples: See examples/ folder for working code
+- See [Architecture](architecture.md) for compiler and runtime internals
+- See [Runtime Optimizations](runtime-optimizations.md) for performance details
 
 ## Troubleshooting
 
@@ -170,36 +136,32 @@ match value {
 **"gcc: command not found" (Windows)**
 - Ensure MinGW bin directory is in PATH
 - Verify: `gcc --version`
-- Add to PATH: `$env:PATH += ";C:\mingw64\bin"`
 
 **"pthread.h: No such file or directory"**
-- Install pthread library: `sudo apt-get install libpthread-stubs0-dev` (Linux)
+- Linux: `sudo apt-get install libpthread-stubs0-dev`
 - MinGW includes pthread by default
 
 **Test failures**
 - Run specific test category: `./build/test_runner --category=compiler`
 - Check for port conflicts if network tests fail (port 8080)
-- Ensure no antivirus blocking test executables
 
 ### Common Pitfalls
 
-1. **Forgetting to rebuild after changes**: Run `make clean && make` or `.\build_compiler.ps1` after pulling updates
-2. **Using MSVC on Windows**: Aether requires GCC. MSVC will not work.
-3. **Missing -lpthread flag**: When compiling manually, always include `-lpthread`
-4. **Running out of memory during parallel builds**: Reduce job count (`make -j4` instead of `-j8`)
-5. **Permission denied on test_runner**: Ensure no previous test process is hanging (check Task Manager/htop)
+1. Forgetting to rebuild after changes: run `make clean && make`
+2. Using MSVC on Windows: Aether requires GCC (MinGW)
+3. Missing `-lpthread` flag when compiling manually
+4. Actor structs missing the `migrate_to` field (causes struct layout mismatch)
 
 ### Platform-Specific Notes
 
-**Windows MinGW:**
-- Use PowerShell, not CMD
-- Forward slashes in paths work: `./build/aetherc`
-- Some ANSI colors may not render correctly in older terminals
-
 **macOS:**
-- May need to install command line tools: `xcode-select --install`
+- May need `xcode-select --install` for command line tools
 - Homebrew GCC recommended: `brew install gcc`
 
 **Linux:**
-- Requires kernel 4.14+ for full NUMA support
-- AddressSanitizer requires `sudo apt-get install gcc-multilib` on some distributions
+- Kernel 4.14+ recommended for full NUMA support
+- AddressSanitizer may require `gcc-multilib` on some distributions
+
+**Windows:**
+- Use PowerShell, not CMD
+- Forward slashes in paths work: `./build/aetherc`

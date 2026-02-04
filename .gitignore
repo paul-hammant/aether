@@ -9,6 +9,7 @@
 *.so
 *.dll
 *.dylib
+-o
 
 # Generated C code (from .ae compilation)
 output.c

@@ -1,2 +1,0 @@
-mailbox_ops_per_sec=732600733
-allocation_ops_per_sec=37042457

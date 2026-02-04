@@ -35,6 +35,7 @@ typedef struct {
     pthread_t thread;
     int auto_process;
     int assigned_core;
+    int migrate_to;
     SPSCQueue spsc_queue;
     // Test-specific fields below
     atomic_int count;
@@ -50,6 +51,7 @@ typedef struct {
     pthread_t thread;
     int auto_process;
     int assigned_core;
+    int migrate_to;
     SPSCQueue spsc_queue;
     // Test-specific fields below
     atomic_int received[1000];
@@ -146,6 +148,7 @@ void test_scheduler_basic_messaging(void) {
     actor->active = 0;
     actor->step = (void (*)(void*))counter_step;
     actor->auto_process = 0;
+    actor->migrate_to = -1;
     atomic_store(&actor->count, 0);
     atomic_store(&actor->last_value, -1);
     mailbox_init(&actor->mailbox);
@@ -188,6 +191,7 @@ void test_scheduler_high_throughput(void) {
     actor->active = 0;
     actor->step = (void (*)(void*))counter_step;
     actor->auto_process = 0;
+    actor->migrate_to = -1;
     atomic_store(&actor->count, 0);
     atomic_store(&actor->last_value, -1);
     mailbox_init(&actor->mailbox);
@@ -240,6 +244,7 @@ void test_scheduler_message_ordering(void) {
     actor->active = 0;
     actor->step = (void (*)(void*))order_step;
     actor->auto_process = 0;
+    actor->migrate_to = -1;
     atomic_store(&actor->count, 0);
     mailbox_init(&actor->mailbox);
 
@@ -296,6 +301,7 @@ void test_scheduler_cross_core(void) {
     actor0->active = 0;
     actor0->step = (void (*)(void*))counter_step;
     actor0->auto_process = 0;
+    actor0->migrate_to = -1;
     atomic_store(&actor0->count, 0);
     mailbox_init(&actor0->mailbox);
 
@@ -303,6 +309,7 @@ void test_scheduler_cross_core(void) {
     actor1->active = 0;
     actor1->step = (void (*)(void*))counter_step;
     actor1->auto_process = 0;
+    actor1->migrate_to = -1;
     atomic_store(&actor1->count, 0);
     mailbox_init(&actor1->mailbox);
     

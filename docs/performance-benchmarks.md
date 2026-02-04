@@ -1,186 +1,126 @@
 # Aether Performance Benchmarks
 
-**Last Updated:** January 2026
-**Test Platform:** Apple M1 Pro, 8 cores, Darwin
-**Workload:** Actor message passing benchmarks
+## Overview
 
-## Current Performance Metrics
-
-### Cross-Language Benchmark Results
-
-Comprehensive benchmarks comparing Aether against established actor systems and concurrent runtimes.
-
-| Pattern | Aether | Go | Rust | C++ | Erlang | Java |
-|---------|--------|----|----|-----|--------|------|
-| **Ping-Pong** (2 actors) | 226M msg/sec | 4.0M | 4.3M | 15M | 8.5M | 0.27M |
-| **Ring** (100 actors) | 418M msg/sec | 131M | 95M | 78M | 42M | - |
-| **Skynet** (1111 actors) | 3.1B msg/sec | 88K actors/sec | 73K | 59K | 50K | 31K |
-
-**Latency** (cycles per message):
-- Ping-Pong: 13.29 cycles/msg
-- Ring: 7.18 cycles/msg
-- Skynet: 0.96 cycles/msg (sub-nanosecond)
-
-**Memory Usage**:
-- Ping-Pong: 2.1 MB
-- C pthread baseline: 0.96 MB
-
-See [benchmarks/cross-language/methodology.md](../benchmarks/cross-language/methodology.md) for detailed methodology.
+This document describes the benchmark methodology and available performance tests for the Aether runtime. Benchmarks measure message-passing throughput, latency, and scalability characteristics.
 
 ## Benchmark Patterns
 
 ### Ping-Pong
-Two actors exchange messages. Tests basic message passing latency and throughput.
+
+Two actors exchange messages in sequence. Tests basic message-passing latency and throughput.
 
 **Workload:**
 - 2 actors
-- 10 million messages
-- Measures: throughput, latency, memory
+- 10 million messages exchanged
+- Measures throughput and per-message latency
 
-**Results:**
-- Aether: 226M msg/sec, 13.29 cycles/msg
-- vs Go: 56x faster
-- vs Java: 837x faster
+**Location:** `benchmarks/cross-language/aether/ping_pong.ae`
 
-### Ring
-100 actors in a ring topology pass messages. Tests routing efficiency and multi-actor coordination.
+## Cross-Language Benchmarks
 
-**Workload:**
-- 100 actors in ring
-- 100K rounds (10M total messages)
-- Measures: throughput under coordination
+The `benchmarks/cross-language/` directory contains equivalent implementations across multiple languages for comparative analysis:
 
-**Results:**
-- Aether: 418M msg/sec, 7.18 cycles/msg
-- vs Go: 3.2x faster
-- vs C++: 5.4x faster
+- **Aether**: Lock-free SPSC queues, batch dequeue, thread-local message pools
+- **Go**: Goroutines with buffered channels
+- **Rust**: Tokio async runtime with mpsc channels
+- **C++**: std::thread with concurrent queues
+- **Erlang**: BEAM VM processes with mailboxes
+- **Java**: Thread pools with blocking queues
 
-### Skynet
-Hierarchical actor tree with 1111 actors. Tests scaling and actor creation overhead.
+Results vary based on hardware architecture, OS scheduler, compiler optimization level, and runtime design choices (VM vs native, GC vs manual memory management). Report your specific test environment when sharing results.
 
-**Workload:**
-- 1111 actors (tree of 10 nodes, each spawning 10 children)
-- Tests: actor creation speed, tree messaging
+See [benchmarks/cross-language/README.md](../benchmarks/cross-language/README.md) for detailed methodology.
 
-**Results:**
-- Aether: 1.25M actors/sec, 0.89ms total time
-- vs Go: 14x faster actor creation
-- vs Rust: 17x faster
-- vs Erlang: 25x faster
+## Active Optimization Techniques
 
-## Optimization Techniques
+### Lock-Free Queues
+Single-producer, single-consumer ring buffers for cross-core messaging. Cache-line aligned with power-of-2 sizing for fast modulo.
 
-### Lock-Free SPSC Queues
-Single-producer, single-consumer queues for same-core messaging.
-
-**Implementation:** `runtime/actors/aether_spsc_queue.h`
-
-**Performance:** 2-3x improvement over mutex-based queues for same-core messaging.
+**Implementation:** `runtime/scheduler/lockfree_queue.h`
 
 ### Message Coalescing
-Batch processing of messages to amortize atomic operations.
+Batch dequeue drains multiple messages in a single atomic operation, reducing per-message atomic overhead.
 
 **Implementation:** `runtime/scheduler/multicore_scheduler.c`
 
-**Configuration:** `COALESCE_THRESHOLD = 512` messages
+### Thread-Local Message Pools
+Per-thread pre-allocated buffers eliminate malloc/free on the hot path. Falls back to malloc for oversized messages.
 
-**Performance:** 15x throughput improvement at high message rates.
+**Implementation:** `runtime/actors/aether_send_message.c`
 
-### Sender-Side Batching
-Thread-local send buffers accumulate messages before flushing.
+### Adaptive Batching
+Dynamic batch size adjustment based on queue utilization. Range: 64 to 1024 messages.
 
-**Implementation:** `runtime/actors/aether_send_buffer.h`
+**Implementation:** `runtime/actors/aether_adaptive_batch.h`
 
-**Batch Size:** 256 messages optimal
+### Inline Single-Int Messages
+Messages with exactly one integer field bypass pool allocation. The value is stored directly in `Message.payload_int`.
 
-**Performance:** 1.78x speedup (batch_256 vs single sends).
+**Implementation:** `compiler/backend/codegen.c`
 
-### Actor Pooling
-Pre-allocated actor pool to eliminate allocation overhead.
+### Computed Goto Dispatch
+Message handlers use a dispatch table with GCC computed goto for direct label jumps.
 
-**Implementation:** `runtime/actors/aether_actor_pool.h`
-
-**Pool Size:** 256 actors per type
-
-**Performance:** 1.81x speedup.
-
-### Zero-Copy Message Passing
-Transfer ownership of large payloads without copying.
-
-**Implementation:** `runtime/actors/aether_zerocopy.h`
-
-**Applicability:** Messages > 256 bytes
-
-**Performance:** 4.8x improvement for large messages.
-
-### SIMD Batch Processing
-AVX2 vectorization for batch operations.
-
-**Implementation:** `runtime/actors/aether_simd_batch.h`
-
-**Requirements:** AVX2-capable CPU
-
-**Performance:** 1.5x improvement for compute-heavy handlers.
+**Implementation:** `compiler/backend/codegen.c` (generated code)
 
 ## Methodology
 
-All benchmarks use:
-- High-precision timing (RDTSC on x86_64, clock_gettime on ARM)
-- Multiple runs with warmup
-- Isolated processes
-- Same hardware for all languages
-- Best practices for each language
+### Measurement Approach
 
-Each language implementation uses idiomatic patterns:
-- Go: Goroutines with buffered channels
-- Rust: Tokio async with mpsc channels
-- C++: std::thread with queues
-- Erlang: BEAM VM processes
-- Java: ArrayBlockingQueue
-- Aether: Lock-free SPSC queues with batching
+- High-precision timing (`clock_gettime` with `CLOCK_MONOTONIC`)
+- Multiple runs with warmup periods
+- Isolated processes to minimize interference
+- Compiler flags: `-O3 -march=native -flto`
+- Correctness validation before measurement
 
-## Performance Characteristics
+### Hardware Specifications
 
-**Strengths:**
-- Extremely low latency (sub-nanosecond per message in skynet)
-- High throughput (226M-3.1B msg/sec depending on pattern)
-- Low memory overhead (2.1 MB for ping-pong)
-- Scales well with actor count
+Document your test environment when reporting results:
+- CPU model, core count, and clock speed
+- Operating system and version
+- Compiler and version
+- Memory configuration
 
-**Considerations:**
-- Single-node only (no distribution)
-- Manual memory management
-- Requires C compilation toolchain
+### Statistical Validity
+
+- Multiple iterations to account for variance
+- Median values to avoid outlier bias
+- Both cold-start and warm-cache scenarios considered
 
 ## Running Benchmarks
 
+### Cross-Language Suite
+
 ```bash
 cd benchmarks/cross-language
-
-# Quick benchmark (1 run per language)
-./quick_bench.sh
-
-# Statistical analysis (5 runs + warmup)
-bash run_statistical_bench.sh
-
-# Start web UI
-make benchmark-ui
-# Open http://localhost:8080
+./run_benchmarks.sh
 ```
 
-## Hardware Specifications
+### Aether Only
 
-All benchmarks run on:
-- CPU: Apple M1 Pro (3.2GHz, 8 cores)
-- OS: macOS (Darwin)
-- Memory: Dedicated process memory
-- Compiler: Clang with -O3 optimization
+```bash
+cd benchmarks/cross-language/aether
+make
+./ping_pong
+```
 
-Results will vary on different hardware but relative performance should remain consistent.
+## Interpreting Results
+
+### Key Metrics
+
+- **Throughput**: Messages processed per second
+- **Latency**: Time from send to receive (per round-trip)
+
+### Considerations
+
+- Single-node architecture (no distributed messaging)
+- Manual memory management (no GC pauses)
+- Platform-specific optimizations (PAUSE, YIELD, NUMA)
+- Cross-language comparisons involve fundamentally different runtime models
 
 ## References
 
 - [Cross-Language Benchmarks](../benchmarks/cross-language/)
-- [Benchmark Methodology](../benchmarks/cross-language/methodology.md)
 - [Runtime Optimizations](runtime-optimizations.md)
-- [Memory Management](memory-management.md)
+- [Scheduler Architecture](scheduler-quick-reference.md)

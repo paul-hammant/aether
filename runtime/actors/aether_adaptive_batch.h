@@ -8,7 +8,7 @@
 #include "actor_state_machine.h"
 
 #define MIN_BATCH_SIZE 64
-#define MAX_BATCH_SIZE 512
+#define MAX_BATCH_SIZE 1024
 
 // Per-actor adaptive batching state
 typedef struct {

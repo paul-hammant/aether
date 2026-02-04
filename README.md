@@ -172,56 +172,49 @@ aether/
 ## Language Example
 
 ```aether
-// Distributed counter with actor supervision
+// Counter actor with message handling
+message Increment {}
+message Decrement {}
+message GetCount {}
+message Reset {}
+
 actor Counter {
-    var count = 0
+    state count = 0
 
     receive {
-        Increment => count += 1
-
-        Decrement => count -= 1
-
-        GetCount(reply) => {
-            reply.send(count)
+        Increment -> {
+            count = count + 1;
         }
 
-        Reset => count = 0
-    }
-}
-
-actor Supervisor {
-    var counters: [ActorRef<Counter>] = []
-
-    init() {
-        // Spawn 4 counter actors
-        for i in 0..4 {
-            counters.push(spawn Counter)
-        }
-    }
-
-    receive {
-        IncrementAll => {
-            for counter in counters {
-                counter ! Increment
-            }
+        Decrement -> {
+            count = count - 1;
         }
 
-        GetTotal(reply) => {
-            var total = 0
-            for counter in counters {
-                let count = counter !? GetCount
-                total += count
-            }
-            reply.send(total)
+        GetCount -> {
+            print("Current count: ");
+            print(count);
+            print("\n");
+        }
+
+        Reset -> {
+            count = 0;
         }
     }
 }
 
-// Main program
-let supervisor = spawn Supervisor
-supervisor ! IncrementAll
-let total = supervisor !? GetTotal
-println("Total count: {total}")
+main() {
+    // Spawn counter actor
+    counter = spawn Counter();
+
+    // Send messages
+    counter ! Increment;
+    counter ! Increment;
+    counter ! GetCount;
+    counter ! Decrement;
+    counter ! GetCount;
+    counter ! Reset;
+    counter ! GetCount;
+}
 ```
 
 ## Runtime Configuration

@@ -21,12 +21,12 @@ extern __thread int current_core_id;
 
 typedef struct {
     char buffer[MSG_PAYLOAD_MAX_SIZE];
-    _Atomic int in_use;
+    int in_use;  // Thread-local: no atomics needed
 } PooledPayload;
 
 typedef struct {
     PooledPayload payloads[MSG_PAYLOAD_POOL_SIZE];
-    _Atomic int next_index;  // For round-robin allocation
+    int next_index;  // Thread-local: no atomics needed
     int initialized;
 } PayloadPool;
 
@@ -40,9 +40,9 @@ static _Atomic uint64_t g_too_large = 0;
 
 // Get pool statistics (for debugging/profiling)
 void aether_message_pool_stats(uint64_t* hits, uint64_t* misses, uint64_t* large) {
-    *hits = atomic_load(&g_pool_hits);
-    *misses = atomic_load(&g_pool_misses);
-    *large = atomic_load(&g_too_large);
+    *hits = atomic_load_explicit(&g_pool_hits, memory_order_relaxed);
+    *misses = atomic_load_explicit(&g_pool_misses, memory_order_relaxed);
+    *large = atomic_load_explicit(&g_too_large, memory_order_relaxed);
 }
 
 // Initialize thread-local payload pool
@@ -52,9 +52,9 @@ static inline void payload_pool_init_thread(void) {
     g_payload_pool = calloc(1, sizeof(PayloadPool));
     if (!g_payload_pool) return;
 
-    atomic_store(&g_payload_pool->next_index, 0);
+    g_payload_pool->next_index = 0;
     for (int i = 0; i < MSG_PAYLOAD_POOL_SIZE; i++) {
-        atomic_store(&g_payload_pool->payloads[i].in_use, 0);
+        g_payload_pool->payloads[i].in_use = 0;
     }
     g_payload_pool->initialized = 1;
 }
@@ -63,7 +63,7 @@ static inline void payload_pool_init_thread(void) {
 static inline void* payload_pool_acquire(size_t size) {
     // Too large for pool
     if (size > MSG_PAYLOAD_MAX_SIZE) {
-        atomic_fetch_add(&g_too_large, 1);
+        atomic_fetch_add_explicit(&g_too_large, 1, memory_order_relaxed);
         return NULL;
     }
 
@@ -73,21 +73,20 @@ static inline void* payload_pool_acquire(size_t size) {
         if (!g_payload_pool) return NULL;
     }
 
-    // Try to find free slot (round-robin with CAS)
+    // Try to find free slot (round-robin, thread-local so no CAS needed)
     for (int attempts = 0; attempts < MSG_PAYLOAD_POOL_SIZE; attempts++) {
-        int idx = atomic_fetch_add(&g_payload_pool->next_index, 1) % MSG_PAYLOAD_POOL_SIZE;
+        int idx = g_payload_pool->next_index++ & (MSG_PAYLOAD_POOL_SIZE - 1);
         PooledPayload* slot = &g_payload_pool->payloads[idx];
 
-        int expected = 0;
-        if (atomic_compare_exchange_strong(&slot->in_use, &expected, 1)) {
-            // Got a free slot
-            atomic_fetch_add(&g_pool_hits, 1);
+        if (!slot->in_use) {
+            slot->in_use = 1;
+            atomic_fetch_add_explicit(&g_pool_hits, 1, memory_order_relaxed);
             return slot->buffer;
         }
     }
 
     // Pool exhausted
-    atomic_fetch_add(&g_pool_misses, 1);
+    atomic_fetch_add_explicit(&g_pool_misses, 1, memory_order_relaxed);
     return NULL;
 }
 
@@ -113,8 +112,8 @@ static inline int payload_pool_release(void* ptr) {
         return 0;  // Invalid
     }
 
-    // Mark as free
-    atomic_store(&g_payload_pool->payloads[slot_index].in_use, 0);
+    // Mark as free (thread-local: plain store)
+    g_payload_pool->payloads[slot_index].in_use = 0;
     return 1;  // Successfully returned to pool
 }
 
