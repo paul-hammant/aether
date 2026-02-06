@@ -115,7 +115,7 @@ make
 ### Considerations
 
 - Single-node architecture (no distributed messaging)
-- Manual memory management (no GC pauses)
+- Arena-based memory management (no tracing GC pauses)
 - Platform-specific optimizations (PAUSE, YIELD, NUMA)
 - Cross-language comparisons involve fundamentally different runtime models
 

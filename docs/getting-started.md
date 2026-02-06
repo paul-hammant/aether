@@ -135,7 +135,7 @@ Aether is built around the actor model. Here is a simple counter example:
 ```aether
 message Ping {}
 
-actor counter {
+actor Counter {
     state count = 0
 
     receive {
@@ -147,7 +147,7 @@ actor counter {
 }
 
 main() {
-    c = spawn(counter())
+    c = spawn(Counter())
     c ! Ping {}
 }
 ```

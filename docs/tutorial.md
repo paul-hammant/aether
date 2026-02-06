@@ -20,7 +20,7 @@ Actors are the core abstraction in Aether. An actor is a lightweight concurrent 
 ```aether
 message Ping {}
 
-actor counter {
+actor Counter {
     state count = 0
 
     receive {
@@ -32,17 +32,17 @@ actor counter {
 }
 
 main() {
-    c = spawn(counter())
+    c = spawn(Counter())
     c ! Ping {}
 }
 ```
 
 **What happens here:**
 - `message Ping {}` defines a message type
-- `actor counter { ... }` defines an actor named `counter`
+- `actor Counter { ... }` defines an actor with uppercase name (convention)
 - `state count = 0` declares the actor's private state
 - `receive { ... }` is the message handler with pattern matching
-- `spawn(counter())` creates a new counter actor
+- `spawn(Counter())` creates a new Counter actor
 - `c ! Ping {}` sends a Ping message to the actor
 
 ### Key Concepts
@@ -105,7 +105,7 @@ Actors can have array state:
 ```aether
 message Store { value: int }
 
-actor buffer {
+actor Buffer {
     state int[100] data;
     state int count = 0;
 
@@ -118,7 +118,7 @@ actor buffer {
 }
 
 main() {
-    buf = spawn(buffer())
+    buf = spawn(Buffer())
 
     for (i = 0; i < 10; i = i + 1) {
         buf ! Store { value: i * 10 }
@@ -137,7 +137,7 @@ Actors can send messages to each other:
 ```aether
 message DoWork {}
 
-actor worker {
+actor Worker {
     state work_done = 0
 
     receive {
@@ -149,9 +149,9 @@ actor worker {
 }
 
 main() {
-    w1 = spawn(worker())
-    w2 = spawn(worker())
-    w3 = spawn(worker())
+    w1 = spawn(Worker())
+    w2 = spawn(Worker())
+    w3 = spawn(Worker())
 
     w1 ! DoWork {}
     w2 ! DoWork {}
@@ -168,7 +168,7 @@ message Increment {}
 message Decrement {}
 message Reset {}
 
-actor processor {
+actor Processor {
     state count = 0
 
     receive {
@@ -216,7 +216,7 @@ Aether automatically distributes actors across CPU cores using round-robin assig
 ```aether
 message DoWork { value: int }
 
-actor worker {
+actor Worker {
     state work_done = 0
 
     receive {
@@ -227,10 +227,10 @@ actor worker {
 }
 
 main() {
-    actors = make([]actor worker, 100);
+    actors = make([]actor Worker, 100);
 
     for (i = 0; i < 100; i = i + 1) {
-        actors[i] = spawn(worker())
+        actors[i] = spawn(Worker())
     }
 
     for (i = 0; i < 100; i = i + 1) {
@@ -258,7 +258,7 @@ A complete application demonstrating actors, messaging, and control flow:
 message Compute { value: int }
 message PrintCount {}
 
-actor worker {
+actor Worker {
     state int[1000] results;
     state count = 0
 
@@ -275,7 +275,7 @@ actor worker {
 
 message Dispatch { value: int }
 
-actor coordinator {
+actor Coordinator {
     state next_worker = 0
 
     receive {
@@ -290,10 +290,10 @@ actor coordinator {
 }
 
 main() {
-    w1 = spawn(worker())
-    w2 = spawn(worker())
-    w3 = spawn(worker())
-    w4 = spawn(worker())
+    w1 = spawn(Worker())
+    w2 = spawn(Worker())
+    w3 = spawn(Worker())
+    w4 = spawn(Worker())
 
     for (i = 0; i < 100; i = i + 1) {
         // Distribute work across workers

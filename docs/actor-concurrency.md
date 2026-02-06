@@ -207,9 +207,11 @@ Actor memory is allocated using NUMA-aware allocation (`aether_numa_alloc`) at s
 
 Message payloads are managed by thread-local pools. Payloads are returned to the pool on free via `aether_free_message`, which checks whether the pointer falls within the pool range before falling back to `free`.
 
-## Limitations
+## Memory Model
 
-- No automatic garbage collection
-- No actor supervision trees
-- Fixed mailbox size (256 messages)
-- Mailbox is not thread-safe; only the owning thread may access it
+Aether uses arena-based memory management for automatic cleanup:
+- **Actor memory**: NUMA-aware allocation at spawn time
+- **Message payloads**: Thread-local pools with automatic return
+- **Arenas**: Bulk deallocation without per-object tracking
+
+See [Memory Management](memory-management.md) for details on arenas, pools, and allocation strategies.

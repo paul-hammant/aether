@@ -343,9 +343,9 @@ See [runtime-optimizations.md](runtime-optimizations.md) for implementation deta
 - **Mitigation:** Incremental builds, parallel compilation
 
 ### Memory Safety vs Performance
-- **Choice:** Manual memory management (no GC)
-- **Implication:** Potential memory leaks if cleanup is omitted
-- **Mitigation:** Valgrind, AddressSanitizer, thread-local pools with bounded lifetime
+- **Choice:** Arena-based memory management (bulk deallocation, no tracing GC)
+- **Implication:** Deterministic cleanup, no GC pauses
+- **Mitigation:** Valgrind, AddressSanitizer for leak detection during development
 
 ### Portability vs Optimization
 - **Choice:** Portable C11 code with platform-specific branches
