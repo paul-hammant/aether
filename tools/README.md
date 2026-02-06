@@ -1,42 +1,69 @@
-# Aether REPL
+# Aether Tools
 
-Interactive Read-Eval-Print Loop for the Aether programming language.
+Development tools for the Aether programming language.
 
-## Features
+## Directory Structure
 
-- **Immediate evaluation** - Execute expressions and see results instantly
-- **Multiline mode** - Define complex functions, actors, and structs
-- **Session persistence** - All definitions remain available throughout the session
-- **Command history** - Navigate previous commands (Unix/Linux with readline)
-- **Color output** - Syntax-highlighted prompts and error messages
-- **Auto-detection** - Automatically enters multiline mode for incomplete statements
-
-## Building
-
-### Windows
-```powershell
-.\tools\build_repl.ps1
+```
+tools/
+├── ae.c                    # Unified CLI tool (recommended)
+├── aether_repl.c           # Interactive REPL
+├── apkg/                   # Package manager
+│   ├── apkg.c/h           # Package manager implementation
+│   ├── main.c             # Package manager entry point
+│   └── toml_parser.c/h    # TOML configuration parser
+├── profiler/               # Runtime profiler (see profiler/README.md)
+├── benchmark_compare.py    # Benchmark result comparison
+├── benchmark_runner.sh     # CI benchmark execution
+├── check_regression.py     # Performance regression detection
+└── test_apkg.sh           # Package manager tests
 ```
 
-### Linux/macOS
+## Building Tools
+
+All tools are built via the Makefile in the project root:
+
 ```bash
-chmod +x tools/build_repl.sh
-./tools/build_repl.sh
+# Recommended: Build the unified CLI tool
+make ae
+./build/ae help
+
+# Build individual tools
+make repl       # Interactive REPL
+make apkg       # Package manager
+make profiler   # Profiler dashboard
 ```
 
-Note: On Linux/macOS, you need the `readline` library:
-- Ubuntu/Debian: `sudo apt-get install libreadline-dev`
+## ae - Unified CLI Tool
+
+The primary interface for working with Aether programs.
+
+```bash
+./build/ae run file.ae       # Compile and run
+./build/ae build file.ae     # Build executable
+./build/ae init myproject    # Create new project
+./build/ae test              # Run project tests
+./build/ae repl              # Start interactive REPL
+./build/ae version           # Show version info
+./build/ae help              # Show all commands
+```
+
+## REPL - Interactive Mode
+
+Start an interactive session for quick experimentation:
+
+```bash
+make repl
+./build/ae repl
+```
+
+### Requirements
+
+readline library:
 - macOS: `brew install readline`
+- Ubuntu/Debian: `sudo apt-get install libreadline-dev`
 
-## Usage
-
-Start the REPL:
-```bash
-./aether-repl        # Linux/macOS
-.\aether-repl.exe    # Windows
-```
-
-## Commands
+### Commands
 
 | Command | Shortcut | Description |
 |---------|----------|-------------|
@@ -47,109 +74,61 @@ Start the REPL:
 | `:reset` | `:r` | Reset the session |
 | `:show` | `:s` | Show current session code |
 
-## Examples
+### Examples
 
-### Simple Expressions
 ```aether
 >>> 2 + 3
 5
 
->>> 42 * 2
-84
-
->>> "Hello, " + "Aether!"
-Hello, Aether!
-```
-
-### Variables
-```aether
->>> int x = 10
->>> int y = 20
+>>> x = 10
+>>> y = 20
 >>> x + y
 30
-```
 
-### Functions
-```aether
 >>> :multi
-... func add(int a, int b): int {
-...     return a + b
-... }
-...
-OK
-
->>> add(5, 7)
-12
-```
-
-### Actors (Multiline)
-```aether
->>> actor Counter {
-...     state count: int
-...     
-...     func init() {
-...         count = 0
-...     }
-...     
+... actor Counter {
+...     state count = 0
 ...     receive {
-...         "increment" -> {
-...             count = count + 1
-...             print(count)
-...         }
+...         Increment() -> { count = count + 1 }
 ...     }
 ... }
 ...
 OK
-
->>> counter = spawn Counter()
->>> send counter, "increment"
-1
 ```
 
-### Collections
-```aether
->>> import std.collections.HashMap
+## Package Manager (apkg)
 
->>> map = HashMap.new()
->>> map.insert("key1", 100)
->>> map.get("key1")
-100
+Manage Aether projects and dependencies:
+
+```bash
+make apkg
+./build/apkg init myproject
+./build/apkg build
+./build/apkg test
 ```
 
-## Tips
+## Profiler Dashboard
 
-1. **Multiline Mode**: Press Enter on an empty line to execute multiline code
-2. **Quick Test**: Use the REPL to quickly test type inference and expressions
-3. **Debugging**: Use `:show` to see all code defined in the current session
-4. **Reset**: Use `:reset` if something goes wrong
+Web-based real-time profiler for monitoring runtime performance:
 
-## Implementation Details
+```bash
+make profiler
+./build/profiler_demo
+# Open http://localhost:8080
+```
 
-The REPL works by:
-1. Taking user input
-2. Wrapping expressions in a temporary `main()` function
-3. Writing to a temporary `.ae` file
-4. Compiling with `aetherc`
-5. Running the compiled executable
-6. Displaying the output
+See [profiler/README.md](profiler/README.md) for integration details.
 
-This means:
-- Full Aether language support (whatever the compiler supports)
-- Real compilation and execution (not interpreted)
-- Same performance as compiled programs
-- Proper error messages from the compiler
+## Benchmark Tools
 
-## Limitations
+Used by CI for performance tracking:
 
-- Each line/block is compiled independently (slight overhead)
-- Previous definitions are not carried between compilations (use `:multi` for related definitions)
-- Requires `aetherc` compiler in PATH
+- `benchmark_runner.sh` - Executes benchmark suite
+- `benchmark_compare.py` - Compares results between runs
+- `check_regression.py` - Detects performance regressions
 
-## Future Enhancements
+Run benchmarks:
 
-- [ ] Persistent session (save/load)
-- [ ] Syntax highlighting in input
-- [ ] Auto-completion
-- [ ] Integration with LSP for better suggestions
-- [ ] Better error recovery
-- [ ] Incremental compilation mode
+```bash
+make benchmark
+```

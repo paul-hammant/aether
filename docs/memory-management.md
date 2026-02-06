@@ -146,7 +146,7 @@ Bytes:
   Peak:      51200 (0.05 MB)
 
 Leak Detection:
-  SUPPORTED No memory leaks detected
+  No memory leaks detected
 =======================================
 ```
 
@@ -242,12 +242,12 @@ Aether fully supports 64-bit architectures:
 
 ## Performance
 
-Benchmarks show:
+Allocation characteristics:
 
-- **Arena allocation**: 10-50x faster than malloc
-- **Pool allocation**: 5-20x faster than malloc
-- **Zero GC pauses**: Predictable latency
-- **Low overhead**: <1% memory overhead
+- **Arena allocation**: Constant-time bump-pointer allocation, faster than general-purpose allocators for batch workloads
+- **Pool allocation**: Constant-time free-list allocation, suited for fixed-size objects
+- **No GC pauses**: Deterministic deallocation timing
+- **Low overhead**: Minimal bookkeeping per allocation
 
 ## Best Practices
 
@@ -258,7 +258,7 @@ Benchmarks show:
 
 ## CI/CD Integration
 
-Memory checks run automatically on every commit:
+Memory checks can be integrated into CI pipelines:
 
 - **Valgrind** - Full leak detection
 - **AddressSanitizer** - Runtime error detection

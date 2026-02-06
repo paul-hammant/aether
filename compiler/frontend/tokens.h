@@ -30,13 +30,15 @@ typedef enum {
     TOKEN_STATE,
     TOKEN_STRUCT,
     TOKEN_IMPORT,
+    TOKEN_AS,               // 'as' keyword for import aliasing
     TOKEN_EXPORT,
     TOKEN_MODULE,
     TOKEN_MESSAGE_KEYWORD,  // 'message' keyword for message definitions
     TOKEN_REPLY,            // 'reply' keyword for sending responses
     TOKEN_EXCLAIM,          // '!' operator for fire-and-forget
     TOKEN_QUESTION,         // '?' operator for ask pattern
-    
+    TOKEN_EXTERN,           // 'extern' keyword for C FFI
+
     // Types
     TOKEN_INT,
     TOKEN_INT64,
@@ -46,6 +48,7 @@ typedef enum {
     TOKEN_STRING,
     TOKEN_ACTOR_REF,
     TOKEN_MESSAGE,
+    TOKEN_PTR,              // 'ptr' type for void* (C interop)
     
     // Literals
     TOKEN_IDENTIFIER,

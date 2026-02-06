@@ -17,16 +17,17 @@ SymbolTable* create_symbol_table(SymbolTable* parent) {
 
 void free_symbol_table(SymbolTable* table) {
     if (!table) return;
-    
+
     Symbol* current = table->symbols;
     while (current) {
         Symbol* next = current->next;
         if (current->name) free(current->name);
         if (current->type) free_type(current->type);
+        if (current->alias_target) free(current->alias_target);
         free(current);
         current = next;
     }
-    
+
     free(table);
 }
 
@@ -37,6 +38,8 @@ void add_symbol(SymbolTable* table, const char* name, Type* type, int is_actor, 
     symbol->is_actor = is_actor;
     symbol->is_function = is_function;
     symbol->is_state = is_state;
+    symbol->is_module_alias = 0;
+    symbol->alias_target = NULL;
     symbol->node = NULL;  // Initialize to NULL
     symbol->next = table->symbols;
     table->symbols = symbol;
@@ -62,6 +65,55 @@ Symbol* lookup_symbol_local(SymbolTable* table, const char* name) {
         current = current->next;
     }
     return NULL;
+}
+
+// Module alias functions
+void add_module_alias(SymbolTable* table, const char* alias, const char* module_name) {
+    Symbol* symbol = malloc(sizeof(Symbol));
+    symbol->name = strdup(alias);
+    symbol->type = NULL;  // Modules don't have types
+    symbol->is_actor = 0;
+    symbol->is_function = 0;
+    symbol->is_state = 0;
+    symbol->is_module_alias = 1;
+    symbol->alias_target = strdup(module_name);
+    symbol->node = NULL;
+    symbol->next = table->symbols;
+    table->symbols = symbol;
+}
+
+Symbol* resolve_module_alias(SymbolTable* table, const char* name) {
+    Symbol* symbol = lookup_symbol(table, name);
+    if (symbol && symbol->is_module_alias) {
+        return symbol;
+    }
+    return NULL;
+}
+
+Symbol* lookup_qualified_symbol(SymbolTable* table, const char* qualified_name) {
+    // Split qualified name on '.'
+    char* name_copy = strdup(qualified_name);
+    char* dot = strchr(name_copy, '.');
+
+    if (dot) {
+        *dot = '\0';
+        const char* prefix = name_copy;
+        const char* suffix = dot + 1;
+
+        // Check if prefix is a module alias
+        Symbol* alias_sym = resolve_module_alias(table, prefix);
+        if (alias_sym && alias_sym->alias_target) {
+            // Reconstruct with actual module name
+            char resolved_name[512];
+            snprintf(resolved_name, sizeof(resolved_name), "%s.%s",
+                    alias_sym->alias_target, suffix);
+            free(name_copy);
+            return lookup_symbol(table, resolved_name);
+        }
+    }
+
+    free(name_copy);
+    return lookup_symbol(table, qualified_name);
 }
 
 // Error reporting
@@ -107,8 +159,22 @@ int is_assignable(Type* from, Type* to) {
 }
 
 int is_callable(Type* type) {
-    // For now, assume all types are callable if they have a function call AST node
-    return type != NULL;
+    if (!type) return 0;
+    switch (type->kind) {
+        case TYPE_INT:
+        case TYPE_INT64:
+        case TYPE_UINT64:
+        case TYPE_FLOAT:
+        case TYPE_BOOL:
+        case TYPE_STRING:
+        case TYPE_VOID:
+        case TYPE_ARRAY:
+        case TYPE_WILDCARD:
+        case TYPE_PTR:
+            return 0;
+        default:
+            return 1;
+    }
 }
 
 // Type inference functions
@@ -154,7 +220,32 @@ Type* infer_type(ASTNode* expr, SymbolTable* table) {
         case AST_ARRAY_ACCESS:
             // Return the element type from array access (set during type inference)
             return expr->node_type ? clone_type(expr->node_type) : create_type(TYPE_UNKNOWN);
-            
+
+        case AST_MEMBER_ACCESS: {
+            // If node_type already set, use it
+            if (expr->node_type && expr->node_type->kind != TYPE_UNKNOWN)
+                return clone_type(expr->node_type);
+            // Look up the struct type and find the field type
+            if (expr->child_count > 0 && expr->children[0]) {
+                Type* base_type = infer_type(expr->children[0], table);
+                if (base_type && base_type->kind == TYPE_STRUCT && base_type->struct_name) {
+                    Symbol* struct_sym = lookup_symbol(table, base_type->struct_name);
+                    if (struct_sym && struct_sym->node) {
+                        ASTNode* struct_def = struct_sym->node;
+                        for (int fi = 0; fi < struct_def->child_count; fi++) {
+                            ASTNode* field = struct_def->children[fi];
+                            if (field && field->value && strcmp(field->value, expr->value) == 0) {
+                                if (field->node_type && field->node_type->kind != TYPE_UNKNOWN)
+                                    return clone_type(field->node_type);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            return create_type(TYPE_UNKNOWN);
+        }
+
         default:
             return create_type(TYPE_UNKNOWN);
     }
@@ -163,24 +254,9 @@ Type* infer_type(ASTNode* expr, SymbolTable* table) {
 Type* infer_binary_type(ASTNode* left, ASTNode* right, AeTokenType operator) {
     Type* left_type = left ? left->node_type : NULL;
     Type* right_type = right ? right->node_type : NULL;
-    
-    if (!left_type || !right_type) return create_type(TYPE_UNKNOWN);
-    
+
+    // Comparison and logical operators always produce bool, even with unknown operands
     switch (operator) {
-        case TOKEN_PLUS:
-        case TOKEN_MINUS:
-        case TOKEN_MULTIPLY:
-        case TOKEN_DIVIDE:
-        case TOKEN_MODULO:
-            // Numeric operations
-            if (left_type->kind == TYPE_FLOAT || right_type->kind == TYPE_FLOAT) {
-                return create_type(TYPE_FLOAT);
-            }
-            if (left_type->kind == TYPE_INT && right_type->kind == TYPE_INT) {
-                return create_type(TYPE_INT);
-            }
-            break;
-            
         case TOKEN_EQUALS:
         case TOKEN_NOT_EQUALS:
         case TOKEN_LESS:
@@ -190,6 +266,33 @@ Type* infer_binary_type(ASTNode* left, ASTNode* right, AeTokenType operator) {
         case TOKEN_AND:
         case TOKEN_OR:
             return create_type(TYPE_BOOL);
+        default:
+            break;
+    }
+
+    if (!left_type || !right_type) return create_type(TYPE_UNKNOWN);
+
+    switch (operator) {
+        case TOKEN_PLUS:
+        case TOKEN_MINUS:
+        case TOKEN_MULTIPLY:
+        case TOKEN_DIVIDE:
+        case TOKEN_MODULO:
+            // Numeric operations
+            if (left_type->kind == TYPE_UNKNOWN || right_type->kind == TYPE_UNKNOWN) {
+                // If either type is unknown (e.g., unresolved parameter), allow it
+                return create_type(TYPE_UNKNOWN);
+            }
+            if (left_type->kind == TYPE_FLOAT || right_type->kind == TYPE_FLOAT) {
+                return create_type(TYPE_FLOAT);
+            }
+            if (left_type->kind == TYPE_INT && right_type->kind == TYPE_INT) {
+                return create_type(TYPE_INT);
+            }
+            if (left_type->kind == TYPE_STRING && right_type->kind == TYPE_STRING) {
+                return create_type(TYPE_STRING);
+            }
+            break;
             
         case TOKEN_ASSIGN:
             return clone_type(right_type);
@@ -298,6 +401,11 @@ int typecheck_program(ASTNode* program) {
                 add_symbol(global_table, child->value, clone_type(child->node_type), 0, 1, 0);
                 break;
             }
+            case AST_EXTERN_FUNCTION: {
+                // Register extern C function in symbol table
+                add_symbol(global_table, child->value, clone_type(child->node_type), 0, 1, 0);
+                break;
+            }
             case AST_STRUCT_DEFINITION: {
                 Type* struct_type = create_type(TYPE_STRUCT);
                 struct_type->struct_name = strdup(child->value);
@@ -309,9 +417,35 @@ int typecheck_program(ASTNode* program) {
                 }
                 break;
             }
+            case AST_MESSAGE_DEFINITION: {
+                // Register message type so receive patterns can look up field types
+                Type* msg_type = create_type(TYPE_MESSAGE);
+                add_symbol(global_table, child->value, msg_type, 0, 0, 0);
+                Symbol* msg_sym = lookup_symbol(global_table, child->value);
+                if (msg_sym) {
+                    msg_sym->node = child;
+                }
+                break;
+            }
             case AST_MAIN_FUNCTION:
                 // Main function doesn't need to be in symbol table
                 break;
+            case AST_IMPORT_STATEMENT: {
+                // Process import and register alias if present
+                const char* module_name = child->value;
+
+                // Check if this import has an alias (last child is identifier)
+                if (child->child_count > 0) {
+                    ASTNode* last_child = child->children[child->child_count - 1];
+                    // Check if last child is the alias (an identifier node)
+                    if (last_child && last_child->type == AST_IDENTIFIER) {
+                        const char* alias = last_child->value;
+                        // Register the alias in symbol table
+                        add_module_alias(global_table, alias, module_name);
+                    }
+                }
+                break;
+            }
             default:
                 break;
         }
@@ -364,6 +498,9 @@ int typecheck_node(ASTNode* node, SymbolTable* table) {
             return typecheck_actor_definition(node, table);
         case AST_FUNCTION_DEFINITION:
             return typecheck_function_definition(node, table);
+        case AST_EXTERN_FUNCTION:
+            // Extern functions have no body to check - just a declaration
+            return 1;
         case AST_STRUCT_DEFINITION:
             return typecheck_struct_definition(node, table);
         case AST_MAIN_FUNCTION:
@@ -371,6 +508,22 @@ int typecheck_node(ASTNode* node, SymbolTable* table) {
         default:
             return typecheck_statement(node, table);
     }
+}
+
+// Look up the type of a specific field in a message definition
+static Type* lookup_message_field_type(SymbolTable* table, const char* message_name, const char* field_name) {
+    Symbol* msg_sym = lookup_symbol(table, message_name);
+    if (!msg_sym || !msg_sym->node || msg_sym->node->type != AST_MESSAGE_DEFINITION) {
+        return NULL;
+    }
+    ASTNode* msg_def = msg_sym->node;
+    for (int i = 0; i < msg_def->child_count; i++) {
+        ASTNode* field = msg_def->children[i];
+        if (field->type == AST_MESSAGE_FIELD && field->value && strcmp(field->value, field_name) == 0) {
+            return field->node_type ? clone_type(field->node_type) : NULL;
+        }
+    }
+    return NULL;
 }
 
 int typecheck_actor_definition(ASTNode* actor, SymbolTable* table) {
@@ -410,8 +563,12 @@ int typecheck_actor_definition(ASTNode* actor, SymbolTable* table) {
                         for (int k = 0; k < pattern->child_count; k++) {
                             ASTNode* field = pattern->children[k];
                             if (field->type == AST_PATTERN_FIELD) {
-                                // Field name is the variable name (implicit binding)
-                                add_symbol(receive_table, field->value, create_type(TYPE_INT), 0, 0, 0);
+                                // Look up actual field type from message definition
+                                Type* field_type = lookup_message_field_type(table, pattern->value, field->value);
+                                if (!field_type) {
+                                    field_type = create_type(TYPE_UNKNOWN);
+                                }
+                                add_symbol(receive_table, field->value, field_type, 0, 0, 0);
                             }
                         }
                     }
@@ -442,8 +599,9 @@ int typecheck_function_definition(ASTNode* func, SymbolTable* table) {
     // Add parameters to function's symbol table
     for (int i = 0; i < func->child_count - 1; i++) { // Last child is body
         ASTNode* param = func->children[i];
-        if (param->type == AST_VARIABLE_DECLARATION) {
-            add_symbol(func_table, param->value, clone_type(param->node_type), 0, 0, 0);
+        if (param->type == AST_VARIABLE_DECLARATION || param->type == AST_PATTERN_VARIABLE) {
+            Type* param_type = param->node_type ? clone_type(param->node_type) : create_type(TYPE_UNKNOWN);
+            add_symbol(func_table, param->value, param_type, 0, 0, 0);
         }
     }
     
@@ -660,6 +818,68 @@ int typecheck_statement(ASTNode* stmt, SymbolTable* table) {
             return 1;
         }
         
+        case AST_MATCH_STATEMENT: {
+            // Type check the match expression
+            Type* match_expr_type = NULL;
+            Type* element_type = NULL;
+            if (stmt->child_count > 0) {
+                typecheck_expression(stmt->children[0], table);
+                match_expr_type = stmt->children[0]->node_type;
+                // Extract element type if matching on an array
+                if (match_expr_type && match_expr_type->kind == TYPE_ARRAY && match_expr_type->element_type) {
+                    element_type = match_expr_type->element_type;
+                }
+            }
+            // Default to int if we couldn't determine the element type
+            if (!element_type) {
+                element_type = create_type(TYPE_INT);
+            }
+
+            // Type check each match arm
+            for (int i = 1; i < stmt->child_count; i++) {
+                ASTNode* arm = stmt->children[i];
+                if (!arm || arm->type != AST_MATCH_ARM || arm->child_count < 2) continue;
+
+                ASTNode* pattern = arm->children[0];
+                ASTNode* body = arm->children[1];
+
+                // Create a new scope for pattern variables
+                SymbolTable* arm_table = create_symbol_table(table);
+
+                // Register pattern variables from list patterns using the actual element type
+                if (pattern->type == AST_PATTERN_LIST) {
+                    for (int j = 0; j < pattern->child_count; j++) {
+                        ASTNode* elem = pattern->children[j];
+                        if (elem && elem->type == AST_PATTERN_VARIABLE && elem->value) {
+                            add_symbol(arm_table, elem->value, clone_type(element_type), 0, 0, 0);
+                        }
+                    }
+                } else if (pattern->type == AST_PATTERN_CONS) {
+                    // [h|t] - register head and tail with proper types
+                    if (pattern->child_count >= 1) {
+                        ASTNode* head = pattern->children[0];
+                        if (head && head->type == AST_PATTERN_VARIABLE && head->value) {
+                            add_symbol(arm_table, head->value, clone_type(element_type), 0, 0, 0);
+                        }
+                    }
+                    if (pattern->child_count >= 2) {
+                        ASTNode* tail = pattern->children[1];
+                        if (tail && tail->type == AST_PATTERN_VARIABLE && tail->value) {
+                            Type* tail_type = create_type(TYPE_ARRAY);
+                            tail_type->element_type = clone_type(element_type);
+                            add_symbol(arm_table, tail->value, tail_type, 0, 0, 0);
+                        }
+                    }
+                }
+
+                // Type check the arm body in the new scope
+                typecheck_statement(body, arm_table);
+
+                free_symbol_table(arm_table);
+            }
+            return 1;
+        }
+
         default:
             // Type check all children
             for (int i = 0; i < stmt->child_count; i++) {
@@ -738,10 +958,25 @@ int typecheck_expression(ASTNode* expr, SymbolTable* table) {
                         expr->node_type = create_type(TYPE_VOID);
                     }
                 }
-                // Handle struct member access
-                else if (base_type && base_type->kind == TYPE_STRUCT) {
-                    // Type inference will handle this
-                    expr->node_type = infer_type(expr, table);
+                // Handle struct member access — look up field type from definition
+                else if (base_type && base_type->kind == TYPE_STRUCT && base_type->struct_name) {
+                    Symbol* struct_sym = lookup_symbol(table, base_type->struct_name);
+                    if (struct_sym && struct_sym->node) {
+                        ASTNode* struct_def = struct_sym->node;
+                        for (int fi = 0; fi < struct_def->child_count; fi++) {
+                            ASTNode* field = struct_def->children[fi];
+                            if (field && field->value && strcmp(field->value, expr->value) == 0) {
+                                if (field->node_type && field->node_type->kind != TYPE_UNKNOWN) {
+                                    expr->node_type = clone_type(field->node_type);
+                                }
+                                break;
+                            }
+                        }
+                    }
+                    // Fallback to general inference
+                    if (!expr->node_type || expr->node_type->kind == TYPE_UNKNOWN) {
+                        expr->node_type = infer_type(expr, table);
+                    }
                 }
             }
             return 1;
@@ -778,7 +1013,10 @@ int typecheck_binary_expression(ASTNode* expr, SymbolTable* table) {
         expr->node_type = clone_type(left_type);
     } else {
         Type* result_type = infer_binary_type(left, right, operator);
-        if (result_type->kind == TYPE_UNKNOWN) {
+        if (result_type->kind == TYPE_UNKNOWN &&
+            left_type && left_type->kind != TYPE_UNKNOWN &&
+            right_type && right_type->kind != TYPE_UNKNOWN) {
+            // Only error if both types are known but incompatible
             type_error("Invalid operation for given types", expr->line, expr->column);
             return 0;
         }

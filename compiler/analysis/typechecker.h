@@ -9,6 +9,8 @@ typedef struct Symbol {
     int is_actor;
     int is_function;
     int is_state;
+    int is_module_alias;        // Indicates this is a module alias
+    char* alias_target;         // The actual module name for aliases
     ASTNode* node;  // Pointer to AST node (for structs, functions, etc.)
     struct Symbol* next;
 } Symbol;
@@ -24,6 +26,11 @@ void free_symbol_table(SymbolTable* table);
 void add_symbol(SymbolTable* table, const char* name, Type* type, int is_actor, int is_function, int is_state);
 Symbol* lookup_symbol(SymbolTable* table, const char* name);
 Symbol* lookup_symbol_local(SymbolTable* table, const char* name);
+
+// Module alias functions
+void add_module_alias(SymbolTable* table, const char* alias, const char* module_name);
+Symbol* resolve_module_alias(SymbolTable* table, const char* name);
+Symbol* lookup_qualified_symbol(SymbolTable* table, const char* qualified_name);
 
 // Type checking functions
 int typecheck_program(ASTNode* program);

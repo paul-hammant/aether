@@ -17,7 +17,7 @@ actor PingActor {
     state completed = 0;
 
     receive {
-        Pong { count } -> {
+        Pong(count) -> {
             // VALIDATE: The pong must echo back our expected count
             if (count != expected_count) {
                 print("ERROR: Ping validation failed - expected ");
@@ -43,7 +43,7 @@ actor PongActor {
     state expected_count = 0;
 
     receive {
-        Ping { count } -> {
+        Ping(count) -> {
             // VALIDATE: Must receive messages in sequence
             if (count != expected_count) {
                 print("ERROR: Pong validation failed - expected ");
@@ -62,8 +62,8 @@ actor PongActor {
 main() {
     print("=== Aether Ping-Pong (Validated) ===\n");
 
-    ping = spawn PingActor();
-    pong = spawn PongActor();
+    ping = spawn(PingActor());
+    pong = spawn(PongActor());
 
     ping.pong_ref = pong;
     pong.ping_ref = ping;

@@ -18,27 +18,32 @@ This tutorial covers the fundamentals of the Aether programming language. Aether
 Actors are the core abstraction in Aether. An actor is a lightweight concurrent entity that processes messages.
 
 ```aether
-actor counter {
-    state int count = 0;
+message Ping {}
 
-    receive(msg) {
-        count++;
-        print(count);
+actor counter {
+    state count = 0
+
+    receive {
+        Ping() -> {
+            count = count + 1
+            print(count)
+        }
     }
 }
 
 main() {
-    c = spawn_counter();
-    send_counter(c, 1, 0);
+    c = spawn(counter())
+    c ! Ping {}
 }
 ```
 
 **What happens here:**
+- `message Ping {}` defines a message type
 - `actor counter { ... }` defines an actor named `counter`
-- `state int count = 0` declares the actor's private state
-- `receive(msg) { ... }` is the message handler (called when messages arrive)
-- `spawn_counter()` creates a new counter actor
-- `send_counter(c, 1, 0)` sends a message to the actor
+- `state count = 0` declares the actor's private state
+- `receive { ... }` is the message handler with pattern matching
+- `spawn(counter())` creates a new counter actor
+- `c ! Ping {}` sends a Ping message to the actor
 
 ### Key Concepts
 - **State**: Each actor has private state that only it can access
@@ -98,23 +103,25 @@ main() {
 Actors can have array state:
 
 ```aether
+message Store { value: int }
+
 actor buffer {
     state int[100] data;
     state int count = 0;
 
-    receive(msg) {
-        if (msg.type == 1) {
-            data[count] = msg.payload;
-            count++;
+    receive {
+        Store(value) -> {
+            data[count] = value
+            count = count + 1
         }
     }
 }
 
 main() {
-    buf = spawn_buffer();
+    buf = spawn(buffer())
 
-    for (i = 0; i < 10; i++) {
-        send_buffer(buf, 1, i * 10);
+    for (i = 0; i < 10; i = i + 1) {
+        buf ! Store { value: i * 10 }
     }
 }
 ```
@@ -128,26 +135,27 @@ main() {
 Actors can send messages to each other:
 
 ```aether
-actor worker {
-    state int id;
-    state int work_done = 0;
+message DoWork {}
 
-    receive(msg) {
-        if (msg.type == 1) {
-            work_done++;
-            print(work_done);
+actor worker {
+    state work_done = 0
+
+    receive {
+        DoWork() -> {
+            work_done = work_done + 1
+            print(work_done)
         }
     }
 }
 
 main() {
-    w1 = spawn_worker();
-    w2 = spawn_worker();
-    w3 = spawn_worker();
+    w1 = spawn(worker())
+    w2 = spawn(worker())
+    w3 = spawn(worker())
 
-    send_worker(w1, 1, 0);
-    send_worker(w2, 1, 0);
-    send_worker(w3, 1, 0);
+    w1 ! DoWork {}
+    w2 ! DoWork {}
+    w3 ! DoWork {}
 }
 ```
 
@@ -156,31 +164,23 @@ main() {
 Aether supports standard control structures:
 
 ```aether
+message Increment {}
+message Decrement {}
+message Reset {}
+
 actor processor {
-    state int count = 0;
+    state count = 0
 
-    receive(msg) {
-        switch (msg.type) {
-            case 1:
-                count++;
-                break;
-            case 2:
-                count--;
-                break;
-            case 3:
-                count = 0;
-                break;
-            default:
-                print(0);
+    receive {
+        Increment() -> {
+            count = count + 1
         }
-
-        if (count > 100) {
-            count = 0;
-        } else if (count < 0) {
-            count = 0;
+        Decrement() -> {
+            count = count - 1
         }
-
-        print(count);
+        Reset() -> {
+            count = 0
+        }
     }
 }
 ```
@@ -191,14 +191,14 @@ actor processor {
 main() {
     sum = 0;
 
-    for (i = 0; i < 100; i++) {
+    for (i = 0; i < 100; i = i + 1) {
         sum = sum + i;
     }
 
     j = 0;
     while (j < 10) {
         print(j);
-        j++;
+        j = j + 1;
     }
 
     print(sum);
@@ -214,15 +214,27 @@ main() {
 Aether automatically distributes actors across CPU cores using round-robin assignment:
 
 ```aether
+message DoWork { value: int }
+
+actor worker {
+    state work_done = 0
+
+    receive {
+        DoWork(value) -> {
+            work_done = work_done + 1
+        }
+    }
+}
+
 main() {
     actors = make([]actor worker, 100);
 
-    for (i = 0; i < 100; i++) {
-        actors[i] = spawn_worker();
+    for (i = 0; i < 100; i = i + 1) {
+        actors[i] = spawn(worker())
     }
 
-    for (i = 0; i < 100; i++) {
-        send_worker(actors[i], 1, i);
+    for (i = 0; i < 100; i = i + 1) {
+        actors[i] ! DoWork { value: i }
     }
 }
 ```
@@ -243,61 +255,55 @@ Performance varies based on workload patterns and hardware. The runtime includes
 A complete application demonstrating actors, messaging, and control flow:
 
 ```aether
+message Compute { value: int }
+message PrintCount {}
+
 actor worker {
-    state int id;
     state int[1000] results;
-    state int count = 0;
+    state count = 0
 
-    receive(msg) {
-        switch (msg.type) {
-            case 1:
-                results[count] = msg.payload * msg.payload;
-                count++;
-                break;
-
-            case 2:
-                print(count);
-                break;
-
-            default:
-                print(0);
+    receive {
+        Compute(value) -> {
+            results[count] = value * value
+            count = count + 1
+        }
+        PrintCount() -> {
+            print(count)
         }
     }
 }
 
+message Dispatch { value: int }
+
 actor coordinator {
-    state worker[4] workers;
-    state int next_worker = 0;
+    state next_worker = 0
 
-    receive(msg) {
-        if (msg.type == 1) {
-            w = workers[next_worker];
-            send_worker(w, 1, msg.payload);
-
-            next_worker++;
+    receive {
+        Dispatch(value) -> {
+            // Route work to workers round-robin
+            next_worker = next_worker + 1
             if (next_worker >= 4) {
-                next_worker = 0;
+                next_worker = 0
             }
         }
     }
 }
 
 main() {
-    coord = spawn_coordinator();
+    w1 = spawn(worker())
+    w2 = spawn(worker())
+    w3 = spawn(worker())
+    w4 = spawn(worker())
 
-    w1 = spawn_worker();
-    w2 = spawn_worker();
-    w3 = spawn_worker();
-    w4 = spawn_worker();
-
-    for (i = 0; i < 100; i++) {
-        send_coordinator(coord, 1, i);
+    for (i = 0; i < 100; i = i + 1) {
+        // Distribute work across workers
+        w1 ! Compute { value: i }
     }
 
-    send_worker(w1, 2, 0);
-    send_worker(w2, 2, 0);
-    send_worker(w3, 2, 0);
-    send_worker(w4, 2, 0);
+    w1 ! PrintCount {}
+    w2 ! PrintCount {}
+    w3 ! PrintCount {}
+    w4 ! PrintCount {}
 }
 ```
 
@@ -308,15 +314,11 @@ main() {
 ### Compile and Run
 
 ```bash
-# Compile your Aether program
-./build/aetherc my_program.ae output.c
+# Run directly
+ae run my_program.ae
 
-# Compile the generated C code
-gcc -O3 -march=native output.c -Iruntime runtime/scheduler/multicore_scheduler.c \
-    runtime/actors/aether_send_message.c runtime/aether_numa.c \
-    -o my_program -pthread -lm
-
-# Run
+# Or build an executable
+ae build my_program.ae -o my_program
 ./my_program
 ```
 
@@ -325,7 +327,7 @@ gcc -O3 -march=native output.c -Iruntime runtime/scheduler/multicore_scheduler.c
 1. **Keep actors small**: each actor should have a focused responsibility
 2. **Treat messages as read-only**: do not modify message data after sending
 3. **No shared state**: communicate only through messages
-4. **Handle all cases**: include a `default` case in switch statements
+4. **Use descriptive message names**: `Increment` is clearer than a numeric type code
 
 ### Further Reading
 
@@ -341,7 +343,7 @@ gcc -O3 -march=native output.c -Iruntime runtime/scheduler/multicore_scheduler.c
 This tutorial covered:
 - Actors and message passing
 - Arrays (fixed and dynamic)
-- Control flow (if, for, while, switch)
+- Control flow (if, for, while)
 - Multi-core distribution and migration
 - Building complete applications
 

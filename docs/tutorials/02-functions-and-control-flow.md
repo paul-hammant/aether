@@ -262,6 +262,136 @@ main() {
 
 **Output:** `0 1 1 2 3 5 8 13 21 34`
 
+## Functional Style: Pattern Matching + Recursion
+
+Aether is inspired by Erlang and supports a functional programming style using pattern matching and recursion. This can often lead to cleaner, more expressive code.
+
+### Two Ways to Solve Problems
+
+Here are several examples showing the same problem solved both ways:
+
+#### Sum of List
+
+**Imperative style (for loop):**
+```aether
+sum_loop(nums, len) {
+    total = 0
+    for (i = 0; i < len; i = i + 1) {
+        total = total + nums[i]
+    }
+    return total
+}
+```
+
+**Functional style (recursion + pattern matching):**
+```aether
+sum_recursive(nums) {
+    nums_len = 3  // Array length variable for pattern matching
+    match (nums) {
+        [] -> { return 0 }
+        [h|t] -> { return h + sum_recursive(t) }
+    }
+    return 0
+}
+```
+
+The functional style reads like a definition: "The sum of an empty list is 0; the sum of a list is the head plus the sum of the tail."
+
+#### Factorial
+
+**Imperative style:**
+```aether
+factorial_loop(n) {
+    result = 1
+    for (i = 2; i <= n; i = i + 1) {
+        result = result * i
+    }
+    return result
+}
+```
+
+**Functional style:**
+```aether
+factorial(n) {
+    if (n <= 1) { return 1 }
+    return n * factorial(n - 1)
+}
+```
+
+#### Finding Maximum in List
+
+**Imperative style:**
+```aether
+max_loop(nums, len) {
+    if (len == 0) { return 0 }
+    max_val = nums[0]
+    for (i = 1; i < len; i = i + 1) {
+        if (nums[i] > max_val) {
+            max_val = nums[i]
+        }
+    }
+    return max_val
+}
+```
+
+**Functional style:**
+```aether
+max_recursive(nums) {
+    nums_len = 5  // For pattern matching
+    match (nums) {
+        [] -> { return 0 }
+        [x] -> { return x }
+        [h|t] -> {
+            tail_max = max_recursive(t)
+            if (h > tail_max) { return h }
+            return tail_max
+        }
+    }
+    return 0
+}
+```
+
+### When to Use Each Style
+
+**Use imperative style when:**
+- Performance is critical (loops are often faster)
+- The algorithm naturally involves mutation
+- Working with fixed-size arrays by index
+
+**Use functional style when:**
+- Processing linked data structures
+- The logic follows recursive definitions (trees, etc.)
+- You want self-documenting code
+
+### Erlang Heritage
+
+Aether's pattern matching in receive blocks is inspired by Erlang:
+
+```aether
+actor Calculator {
+    receive {
+        Add(x, y) -> {
+            print("Sum: ")
+            print(x + y)
+            print("\n")
+        }
+        Multiply(a, b) -> {
+            print("Product: ")
+            print(a * b)
+            print("\n")
+        }
+    }
+}
+```
+
+This is similar to Erlang's pattern matching in receive statements:
+```erlang
+receive
+    {add, X, Y} -> X + Y;
+    {multiply, A, B} -> A * B
+end.
+```
+
 ### Example 4: Prime Number Check
 
 ```aether
@@ -393,12 +523,12 @@ main() {
 ### 1. Keep Functions Small
 
 ```aether
-// IMPLEMENTED Good: One clear purpose
+// Good: One clear purpose
 calculate_area(width, height) {
     return width * height
 }
 
-// NOT IMPLEMENTED Bad: Doing too much
+// Bad: Doing too much
 process_everything(a, b, c, d, e) {
     // ... 100 lines of code
 }
@@ -407,11 +537,11 @@ process_everything(a, b, c, d, e) {
 ### 2. Use Meaningful Names
 
 ```aether
-// IMPLEMENTED Good
+// Good
 calculate_average(numbers) { }
 is_valid_email(email) { }
 
-// NOT IMPLEMENTED Bad
+// Bad
 calc(n) { }
 check(e) { }
 ```
@@ -419,7 +549,7 @@ check(e) { }
 ### 3. Avoid Deep Nesting
 
 ```aether
-// NOT IMPLEMENTED Bad: Too nested
+// Bad: Too nested
 if (a) {
     if (b) {
         if (c) {
@@ -430,13 +560,13 @@ if (a) {
     }
 }
 
-// IMPLEMENTED Good: Early returns
+// Good: Early returns
 process(a, b, c, d) {
     if (!a) { return 0 }
     if (!b) { return 0 }
     if (!c) { return 0 }
     if (!d) { return 0 }
-    
+
     // Main logic here
 }
 ```
@@ -444,13 +574,13 @@ process(a, b, c, d) {
 ## Next Steps
 
 You've learned:
-- IMPLEMENTED How to write functions
-- IMPLEMENTED Type inference for functions
-- IMPLEMENTED If/else conditionals
-- IMPLEMENTED While and for loops
-- IMPLEMENTED Recursive functions
+- How to write functions
+- Type inference for functions
+- If/else conditionals
+- While and for loops
+- Recursive functions
 
-**Next Tutorial:** [Structs and Data Modeling](03-structs-and-data.md)
+**Next Tutorial:** [Actor Concurrency](03-actor-concurrency.md)
 
 ## Quick Reference
 

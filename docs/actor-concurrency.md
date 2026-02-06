@@ -57,7 +57,7 @@ Aether implements a lightweight actor model where actors are state machines that
 
 ### Actor Lifecycle
 
-1. **Spawn** - Create actor instance with `spawn_ActorName()`
+1. **Spawn** - Create actor instance with `spawn(ActorName())`
 2. **Send** - Send messages with the `!` operator or generated send functions
 3. **Step** - Scheduler calls the actor's step function to process mailbox messages
 4. **Deactivate** - Actor is marked inactive when its mailbox is empty
@@ -211,6 +211,5 @@ Message payloads are managed by thread-local pools. Payloads are returned to the
 
 - No automatic garbage collection
 - No actor supervision trees
-- No pattern matching in receive blocks
 - Fixed mailbox size (256 messages)
 - Mailbox is not thread-safe; only the owning thread may access it

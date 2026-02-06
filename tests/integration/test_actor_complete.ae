@@ -1,33 +1,27 @@
-message Increment {
-    amount: int
-}
-
+message Increment { amount: int }
 message GetValue {}
 
-message ValueResult {
-    value: int
-}
-
 actor Counter {
-    state count: int = 0
-    
+    state count = 0;
+
     receive {
-        Increment { amount } => {
-            self.count = self.count + amount
+        Increment(amount) -> {
+            count = count + amount;
         }
-        
-        GetValue {} => {
-            reply ValueResult { value: self.count }
+        GetValue() -> {
+            print("Count: ");
+            print(count);
+            print("\n");
         }
     }
 }
 
-fn main() {
-    let counter = spawn Counter()
-    
-    counter ! Increment { amount: 5 }
-    counter ! Increment { amount: 3 }
-    
-    let result = counter ? GetValue {}
-    print result.value
+main() {
+    counter = spawn(Counter());
+
+    counter ! Increment { amount: 5 };
+    counter ! Increment { amount: 3 };
+    counter ! GetValue {};
+
+    print("Actor complete test done\n");
 }

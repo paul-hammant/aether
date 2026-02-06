@@ -1,7 +1,7 @@
 # Tutorial 3: Actor-Based Concurrency
 
-**Time:** 2 hours  
-**Prerequisites:** Tutorials 1 & 2  
+**Time:** 2 hours
+**Prerequisites:** Tutorials 1 & 2
 **Goal:** Learn to write concurrent programs with actors
 
 ## What Are Actors?
@@ -19,11 +19,13 @@ Think of actors like people sending letters to each other - they don't share not
 ### Simple Counter Actor
 
 ```aether
+message Increment {}
+
 actor Counter {
     state count = 0
-    
-    receive(msg) {
-        if (msg.type == 1) {
+
+    receive {
+        Increment() -> {
             count = count + 1
         }
     }
@@ -31,27 +33,23 @@ actor Counter {
 
 main() {
     // Create a counter
-    counter = spawn_Counter()
-    
+    counter = spawn(Counter())
+
     // Send it messages
-    send_Counter(counter, 1, 0)
-    send_Counter(counter, 1, 0)
-    send_Counter(counter, 1, 0)
-    
-    // Process the messages
-    Counter_step(counter)
-    Counter_step(counter)
-    Counter_step(counter)
-    
+    counter ! Increment {}
+    counter ! Increment {}
+    counter ! Increment {}
+
     print("Counter processed 3 messages!\n")
 }
 ```
 
 **What's happening:**
-1. `spawn_Counter()` creates a new counter actor
-2. `send_Counter(counter, 1, 0)` sends a message (type=1, payload=0)
-3. `Counter_step(counter)` processes one message from the mailbox
-4. Each message increments the count
+1. `message Increment {}` defines a message type
+2. `spawn(Counter())` creates a new counter actor instance
+3. `counter ! Increment {}` sends an Increment message to the counter
+4. The `receive` block pattern-matches incoming messages
+5. Each Increment message increments the count
 
 ## Actor Components
 
@@ -60,61 +58,68 @@ main() {
 State persists across messages:
 
 ```aether
+message Deposit { amount: int }
+message Withdraw { amount: int }
+
 actor BankAccount {
     state balance = 1000
     state account_number = 12345
-    
-    receive(msg) {
-        // Can read and modify state
-        if (msg.type == 1) {
-            // Deposit
-            balance = balance + msg.payload_int
+
+    receive {
+        Deposit(amount) -> {
+            balance = balance + amount
         }
-        if (msg.type == 2) {
-            // Withdraw
-            balance = balance - msg.payload_int
+        Withdraw(amount) -> {
+            balance = balance - amount
         }
     }
 }
 ```
 
-### 2. Message Types
+### 2. Message Definitions
 
-Messages have three parts:
-- `msg.type` - Integer message type (1, 2, 3, etc.)
-- `msg.payload_int` - Integer data
-- `msg.sender_id` - Who sent it
+Messages are defined with the `message` keyword and can carry typed fields:
 
 ```aether
+// Empty message (no data)
+message Reset {}
+
+// Message with one field
+message SetValue { value: int }
+
+// Message with multiple fields
+message Transfer { amount: int }
+```
+
+Messages are matched in the `receive` block using pattern syntax:
+
+```aether
+message Add { value: int }
+message Multiply { value: int }
+message Reset {}
+
 actor Processor {
     state total = 0
-    
-    receive(msg) {
-        if (msg.type == 1) {
-            // Add operation
-            total = total + msg.payload_int
+
+    receive {
+        Add(value) -> {
+            total = total + value
         }
-        if (msg.type == 2) {
-            // Multiply operation
-            total = total * msg.payload_int
+        Multiply(value) -> {
+            total = total * value
         }
-        if (msg.type == 3) {
-            // Reset operation
+        Reset() -> {
             total = 0
         }
     }
 }
 
 main() {
-    proc = spawn_Processor()
-    
-    send_Processor(proc, 1, 10)  // Add 10
-    send_Processor(proc, 1, 5)   // Add 5
-    send_Processor(proc, 2, 2)   // Multiply by 2
-    
-    Processor_step(proc)  // total = 10
-    Processor_step(proc)  // total = 15
-    Processor_step(proc)  // total = 30
+    proc = spawn(Processor())
+
+    proc ! Add { value: 10 }       // Add 10
+    proc ! Add { value: 5 }        // Add 5
+    proc ! Multiply { value: 2 }   // Multiply by 2
 }
 ```
 
@@ -123,31 +128,30 @@ main() {
 Messages are processed **one at a time** in the order received:
 
 ```aether
+message LogEvent { level: int }
+
 actor Logger {
     state message_count = 0
-    
-    receive(msg) {
-        message_count = message_count + 1
-        print("Message #")
-        print(message_count)
-        print(": type=")
-        print(msg.type)
-        print("\n")
+
+    receive {
+        LogEvent(level) -> {
+            message_count = message_count + 1
+            print("Message #")
+            print(message_count)
+            print(": level=")
+            print(level)
+            print("\n")
+        }
     }
 }
 
 main() {
-    logger = spawn_Logger()
-    
+    logger = spawn(Logger())
+
     // Send 3 messages
-    send_Logger(logger, 1, 0)
-    send_Logger(logger, 2, 0)
-    send_Logger(logger, 3, 0)
-    
-    // Process them one by one
-    Logger_step(logger)  // Message #1: type=1
-    Logger_step(logger)  // Message #2: type=2
-    Logger_step(logger)  // Message #3: type=3
+    logger ! LogEvent { level: 1 }
+    logger ! LogEvent { level: 2 }
+    logger ! LogEvent { level: 3 }
 }
 ```
 
@@ -156,25 +160,26 @@ main() {
 ### Example 1: Shopping Cart
 
 ```aether
+message AddItem { price: int }
+message RemoveItem { price: int }
+message ClearCart {}
+
 actor ShoppingCart {
     state item_count = 0
     state total_price = 0
-    
-    receive(msg) {
-        if (msg.type == 1) {
-            // Add item
+
+    receive {
+        AddItem(price) -> {
             item_count = item_count + 1
-            total_price = total_price + msg.payload_int
+            total_price = total_price + price
         }
-        if (msg.type == 2) {
-            // Remove item
+        RemoveItem(price) -> {
             if (item_count > 0) {
                 item_count = item_count - 1
-                total_price = total_price - msg.payload_int
+                total_price = total_price - price
             }
         }
-        if (msg.type == 3) {
-            // Clear cart
+        ClearCart() -> {
             item_count = 0
             total_price = 0
         }
@@ -182,17 +187,13 @@ actor ShoppingCart {
 }
 
 main() {
-    cart = spawn_ShoppingCart()
-    
-    // Add items (type=1, price)
-    send_ShoppingCart(cart, 1, 100)  // $100 item
-    send_ShoppingCart(cart, 1, 50)   // $50 item
-    send_ShoppingCart(cart, 1, 75)   // $75 item
-    
-    ShoppingCart_step(cart)  // Process: 1 item, $100
-    ShoppingCart_step(cart)  // Process: 2 items, $150
-    ShoppingCart_step(cart)  // Process: 3 items, $225
-    
+    cart = spawn(ShoppingCart())
+
+    // Add items
+    cart ! AddItem { price: 100 }   // $100 item
+    cart ! AddItem { price: 50 }    // $50 item
+    cart ! AddItem { price: 75 }    // $75 item
+
     print("Shopping cart ready!\n")
 }
 ```
@@ -200,13 +201,15 @@ main() {
 ### Example 2: Traffic Light
 
 ```aether
+message ChangeLight {}
+message Tick {}
+
 actor TrafficLight {
     state current_light = 1  // 1=red, 2=yellow, 3=green
     state duration = 0
-    
-    receive(msg) {
-        if (msg.type == 1) {
-            // Change light
+
+    receive {
+        ChangeLight() -> {
             if (current_light == 1) {
                 current_light = 3  // red -> green
             } else {
@@ -217,62 +220,52 @@ actor TrafficLight {
                 }
             }
         }
-        if (msg.type == 2) {
-            // Update duration
+        Tick() -> {
             duration = duration + 1
         }
     }
 }
 
 main() {
-    light = spawn_TrafficLight()
-    
+    light = spawn(TrafficLight())
+
     // Simulate time passing
-    send_TrafficLight(light, 2, 0)  // tick
-    send_TrafficLight(light, 1, 0)  // change
-    send_TrafficLight(light, 2, 0)  // tick
-    send_TrafficLight(light, 1, 0)  // change
-    
-    TrafficLight_step(light)
-    TrafficLight_step(light)
-    TrafficLight_step(light)
-    TrafficLight_step(light)
+    light ! Tick {}
+    light ! ChangeLight {}
+    light ! Tick {}
+    light ! ChangeLight {}
 }
 ```
 
 ### Example 3: Multiple Actors
 
 ```aether
+message Increment {}
+
 actor Counter {
     state count = 0
-    
-    receive(msg) {
-        count = count + 1
+
+    receive {
+        Increment() -> {
+            count = count + 1
+        }
     }
 }
 
 main() {
     // Create multiple counters
-    counter1 = spawn_Counter()
-    counter2 = spawn_Counter()
-    counter3 = spawn_Counter()
-    
+    counter1 = spawn(Counter())
+    counter2 = spawn(Counter())
+    counter3 = spawn(Counter())
+
     // Send messages to different counters
-    send_Counter(counter1, 1, 0)
-    send_Counter(counter1, 1, 0)
-    send_Counter(counter2, 1, 0)
-    send_Counter(counter3, 1, 0)
-    send_Counter(counter3, 1, 0)
-    send_Counter(counter3, 1, 0)
-    
-    // Each processes independently
-    Counter_step(counter1)
-    Counter_step(counter1)
-    Counter_step(counter2)
-    Counter_step(counter3)
-    Counter_step(counter3)
-    Counter_step(counter3)
-    
+    counter1 ! Increment {}
+    counter1 ! Increment {}
+    counter2 ! Increment {}
+    counter3 ! Increment {}
+    counter3 ! Increment {}
+    counter3 ! Increment {}
+
     print("Multiple actors running!\n")
 }
 ```
@@ -282,17 +275,18 @@ main() {
 ### Pattern 1: Request-Response
 
 ```aether
+message AddTen { value: int }
+message Double { value: int }
+
 actor Calculator {
     state last_result = 0
-    
-    receive(msg) {
-        if (msg.type == 1) {
-            // Add operation
-            last_result = msg.payload_int + 10
+
+    receive {
+        AddTen(value) -> {
+            last_result = value + 10
         }
-        if (msg.type == 2) {
-            // Multiply operation
-            last_result = msg.payload_int * 2
+        Double(value) -> {
+            last_result = value * 2
         }
     }
 }
@@ -301,29 +295,34 @@ actor Calculator {
 ### Pattern 2: State Machine
 
 ```aether
+message TakeDamage { amount: int }
+message Heal { amount: int }
+message LevelUp {}
+
 actor GamePlayer {
     state health = 100
     state alive = 1
     state level = 1
-    
-    receive(msg) {
-        if (alive == 1) {
-            if (msg.type == 1) {
-                // Take damage
-                health = health - msg.payload_int
+
+    receive {
+        TakeDamage(amount) -> {
+            if (alive == 1) {
+                health = health - amount
                 if (health <= 0) {
                     alive = 0
                 }
             }
-            if (msg.type == 2) {
-                // Heal
-                health = health + msg.payload_int
+        }
+        Heal(amount) -> {
+            if (alive == 1) {
+                health = health + amount
                 if (health > 100) {
                     health = 100
                 }
             }
-            if (msg.type == 3) {
-                // Level up
+        }
+        LevelUp() -> {
+            if (alive == 1) {
                 level = level + 1
                 health = 100
             }
@@ -335,19 +334,21 @@ actor GamePlayer {
 ### Pattern 3: Accumulator
 
 ```aether
+message AddValue { value: int }
+
 actor Statistics {
     state total = 0
     state count = 0
     state max = 0
-    
-    receive(msg) {
-        value = msg.payload_int
-        
-        total = total + value
-        count = count + 1
-        
-        if (value > max) {
-            max = value
+
+    receive {
+        AddValue(value) -> {
+            total = total + value
+            count = count + 1
+
+            if (value > max) {
+                max = value
+            }
         }
     }
 }
@@ -360,14 +361,21 @@ actor Statistics {
 Create an actor that tracks temperature readings:
 
 ```aether
+message UpdateTemp { temp: int }
+message Reading {}
+
 actor TempSensor {
     state current_temp = 20
     state readings = 0
-    
-    receive(msg) {
-        // Type 1: Update temperature
-        // Type 2: Count readings
-        // Your code here
+
+    receive {
+        UpdateTemp(temp) -> {
+            current_temp = temp
+            readings = readings + 1
+        }
+        Reading() -> {
+            // Print current temperature
+        }
     }
 }
 ```
@@ -377,16 +385,28 @@ actor TempSensor {
 Create an actor for game inventory:
 
 ```aether
+message AddGold { amount: int }
+message SpendGold { amount: int }
+message AddItem {}
+message RemoveItem {}
+
 actor Inventory {
     state gold = 0
     state items = 0
-    
-    receive(msg) {
-        // Type 1: Add gold
-        // Type 2: Spend gold
-        // Type 3: Add item
-        // Type 4: Remove item
-        // Your code here
+
+    receive {
+        AddGold(amount) -> {
+            gold = gold + amount
+        }
+        SpendGold(amount) -> {
+            gold = gold - amount
+        }
+        AddItem() -> {
+            items = items + 1
+        }
+        RemoveItem() -> {
+            items = items - 1
+        }
     }
 }
 ```
@@ -396,17 +416,29 @@ actor Inventory {
 Create an actor that tracks game scores:
 
 ```aether
+message AddPoints { points: int }
+message SetMultiplier { value: int }
+message ResetScore {}
+
 actor ScoreTracker {
     state score = 0
     state multiplier = 1
     state high_score = 0
-    
-    receive(msg) {
-        // Type 1: Add points (use multiplier)
-        // Type 2: Set multiplier
-        // Type 3: Reset score
-        // Update high_score if current score is higher
-        // Your code here
+
+    receive {
+        AddPoints(points) -> {
+            score = score + points * multiplier
+            if (score > high_score) {
+                high_score = score
+            }
+        }
+        SetMultiplier(value) -> {
+            multiplier = value
+        }
+        ResetScore() -> {
+            score = 0
+            multiplier = 1
+        }
     }
 }
 ```
@@ -422,29 +454,29 @@ actor ScoreTracker {
 
 ### When to Use Actors
 
-- IMPLEMENTED Independent concurrent tasks
-- IMPLEMENTED State machines
-- IMPLEMENTED Event processing
-- IMPLEMENTED Game entities (players, NPCs, items)
-- IMPLEMENTED Microservices patterns
+- Independent concurrent tasks
+- State machines
+- Event processing
+- Game entities (players, NPCs, items)
+- Microservices patterns
 
 ### When NOT to Use Actors
 
-- NOT IMPLEMENTED Simple sequential code
-- NOT IMPLEMENTED High-speed data sharing
-- NOT IMPLEMENTED Tight coupling between components
+- Simple sequential code
+- High-speed data sharing
+- Tight coupling between components
 
 ## Best Practices
 
 ### 1. Keep State Small
 
 ```aether
-// IMPLEMENTED Good: Minimal state
+// Good: Minimal state
 actor Counter {
     state count = 0
 }
 
-// NOT IMPLEMENTED Avoid: Too much state
+// Avoid: Too much state
 actor Everything {
     state count = 0
     state name = ""
@@ -454,79 +486,78 @@ actor Everything {
 }
 ```
 
-### 2. Use Clear Message Types
+### 2. Use Clear Message Names
 
 ```aether
-// Define message types as constants (conceptually)
-// Type 1 = INCREMENT
-// Type 2 = DECREMENT
-// Type 3 = RESET
+// Define descriptive message types
+message Increment {}
+message Decrement {}
+message Reset {}
 
 actor Counter {
     state count = 0
-    
-    receive(msg) {
-        if (msg.type == 1) {  // INCREMENT
+
+    receive {
+        Increment() -> {
             count = count + 1
         }
-        if (msg.type == 2) {  // DECREMENT
+        Decrement() -> {
             count = count - 1
         }
-        if (msg.type == 3) {  // RESET
+        Reset() -> {
             count = 0
         }
     }
 }
 ```
 
-### 3. Process All Messages
+### 3. Send and Forget
+
+The scheduler automatically delivers and processes messages:
 
 ```aether
-// Make sure to call _step() for each message
-send_Counter(c, 1, 0)
-send_Counter(c, 1, 0)
-send_Counter(c, 1, 0)
-
-Counter_step(c)  // Process message 1
-Counter_step(c)  // Process message 2
-Counter_step(c)  // Process message 3
+// Just send - no manual stepping needed
+counter ! Increment {}
+counter ! Increment {}
+counter ! Increment {}
 ```
 
 ## Next Steps
 
 You've learned:
-- IMPLEMENTED What actors are
-- IMPLEMENTED Actor state and messages
-- IMPLEMENTED Spawning and messaging
-- IMPLEMENTED Multiple concurrent actors
-- IMPLEMENTED Actor design patterns
+- What actors are
+- Actor state and messages
+- Spawning and messaging
+- Multiple concurrent actors
+- Actor design patterns
 
 **Next Tutorial:** [Advanced Topics](04-advanced-topics.md)
 
 ## Quick Reference
 
 ```aether
+// Define messages
+message MyMessage { value: int }
+message SimpleMessage {}
+
 // Define actor
 actor MyActor {
     state value = 0
-    
-    receive(msg) {
-        if (msg.type == 1) {
-            // Handle message type 1
+
+    receive {
+        MyMessage(value) -> {
+            // Handle message with data
+        }
+        SimpleMessage() -> {
+            // Handle empty message
         }
     }
 }
 
 // Use actor
-actor = spawn_MyActor()
-send_MyActor(actor, 1, 42)
-MyActor_step(actor)
-
-// Message fields
-msg.type         // Message type (int)
-msg.payload_int  // Integer payload
-msg.sender_id    // Sender ID
+a = spawn(MyActor())
+a ! MyMessage { value: 42 }
+a ! SimpleMessage {}
 ```
 
 Happy concurrent programming!
-

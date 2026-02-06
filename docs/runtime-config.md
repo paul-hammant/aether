@@ -9,37 +9,37 @@
 Thread 1: Lock → Do Work → Unlock
 Thread 2: [WAITING...] Lock → Do Work → Unlock  ← Blocked!
 ```
-One thread blocks others. Like a single bathroom - everyone waits in line.
+One thread blocks others.
 
 **Lock-Free (New):**
 ```
 Thread 1: Do Work (atomic operations)
 Thread 2: Do Work (atomic operations)  ← No blocking!
 ```
-Multiple threads work simultaneously. Like having multiple bathrooms - no waiting.
+Multiple threads work simultaneously.
 
 **Benefits:**
 - **No waiting** - threads never block each other
-- **Faster** - 1.5-2x speedup from eliminating mutex locks
+- **Lower overhead** - eliminates mutex lock/unlock operations
 - **Scalable** - performance improves with more cores
 
 ---
 
-## Full Integration Complete SUPPORTED
+## Integrated Optimizations
 
 ### What Was Implemented
 
-1. **Lock-Free Message Pools** SUPPORTED
+1. **Lock-Free Message Pools**
    - TLS pools have no mutex
    - Zero contention on hot path
    - Automatic per-thread allocation
 
-2. **Lock-Free Mailboxes** SUPPORTED
+2. **Lock-Free Mailboxes**
    - SPSC (Single Producer Single Consumer) atomic queue
    - 64-byte cache line padding
    - Runtime switchable
 
-3. **Runtime Configuration API** SUPPORTED
+3. **Runtime Configuration API**
    - Control optimizations via flags
    - Auto-detect CPU features
    - Best out-of-the-box experience
@@ -62,12 +62,11 @@ int main() {
 }
 ```
 
-**Example result on modern CPU:**
-- Lock-free mailboxes: SUPPORTED ENABLED
-- Lock-free pools: SUPPORTED ENABLED  
-- MWAIT idle: SUPPORTED ENABLED
-- AVX2 SIMD: SUPPORTED ENABLED
-- **Optimal performance configuration**
+**Example output on a modern CPU:**
+- Lock-free mailboxes: active
+- Lock-free pools: active
+- MWAIT idle: active
+- AVX2 SIMD: active
 
 ---
 
@@ -104,8 +103,8 @@ aether_runtime_init(0,
 // ========================================
 // CPU: <detected processor>
 // Active Optimizations:
-//   Lock-free mailbox: ENABLED
-//   Lock-free pools:   ENABLED
+//   Lock-free mailbox: active
+//   Lock-free pools:   active
 //   ...
 ```
 
@@ -133,11 +132,7 @@ aether_runtime_init(8, flags);
 
 ## Performance Expectations
 
-| Configuration | Throughput | Latency | Use Case |
-|--------------|------------|---------|----------|
-| **Maximum** (all optimizations) | 3.1B msg/sec (skynet) | 0.96 cycles/msg | Modern CPUs (2013+) |
-| **High** (TIER 1 + TIER 2) | 418M msg/sec (ring) | 7.18 cycles/msg | AVX2-capable CPUs |
-| **Moderate** (TIER 1 only) | 226M msg/sec (ping-pong) | 13.29 cycles/msg | All platforms |
+Performance varies by hardware and workload. Use the profiling tools to measure throughput on your target platform.
 
 See [benchmarks/cross-language](../benchmarks/cross-language/) for detailed measurements.
 
@@ -196,8 +191,10 @@ if (aether_runtime_has_feature(AETHER_FLAG_ENABLE_MWAIT)) {
 ## Testing
 
 ### Check CPU Features
-```bash
-./build/cpu_info.exe
+
+Use the verbose flag to see detected CPU features at startup:
+```c
+aether_runtime_init(0, AETHER_FLAG_AUTO_DETECT | AETHER_FLAG_VERBOSE);
 ```
 
 ### Run Configuration Example
@@ -263,15 +260,22 @@ if (pool->is_thread_local) {
 
 ## Cross-Platform Support
 
-| Platform | Lock-Free | MWAIT | SIMD | Status |
-|----------|-----------|-------|------|--------|
-| **Intel x86** (2013+) | SUPPORTED | SUPPORTED | AVX2 | Full support |
-| **AMD Ryzen** | SUPPORTED | SUPPORTED | AVX2 | Full support |
-| **Old x86** (pre-2013) | SUPPORTED | NO | SSE4.2 | Partial |
-| **ARM** | SUPPORTED | NO (uses WFE) | NEON | Fallbacks active |
-| **Other** | SUPPORTED | NO | NO | Baseline |
+| Platform | Lock-Free | MWAIT | SIMD | Thread Affinity | Status |
+|----------|-----------|-------|------|-----------------|--------|
+| **Intel x86** (2013+) | Yes | Yes | AVX2 | Hard | Full support |
+| **AMD Ryzen** | Yes | Yes | AVX2 | Hard | Full support |
+| **Apple Silicon** (M1/M2/M3) | Yes | No (WFE) | NEON | Advisory | P-cores only |
+| **Old x86** (pre-2013) | Yes | No | SSE4.2 | Hard | Partial |
+| **ARM Linux** | Yes | No (WFE) | NEON | Hard | Full support |
+| **Windows** | Yes | Yes | AVX2 | Hard | Full support |
 
 Runtime automatically uses best available optimizations for each platform.
+
+**Apple Silicon Notes:**
+- P-cores (Performance) detected via `hw.perflevel0.physicalcpu`
+- E-cores (Efficiency) excluded for consistent throughput
+- QoS hints encourage P-core scheduling
+- Thread affinity is advisory; macOS may migrate threads
 
 ---
 
@@ -285,7 +289,7 @@ aether_runtime_init(0, AETHER_FLAG_AUTO_DETECT | AETHER_FLAG_VERBOSE);
 
 ### Issue: "Performance not as expected"
 **Check:**
-1. CPU actually supports features (`./build/cpu_info.exe`)
+1. CPU actually supports features (use `AETHER_FLAG_VERBOSE` to see detected capabilities)
 2. Flags are set correctly
 3. Actors created after `aether_runtime_init()`
 

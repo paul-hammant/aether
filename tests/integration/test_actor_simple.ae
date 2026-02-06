@@ -6,26 +6,21 @@ message GetValue {
 }
 
 actor Counter {
-    count: int
-
-    state count: int = 0
+    state count = 0
 
     receive {
-        Increment { amount } -> {
+        Increment(amount) -> {
             count = count + amount;
         }
-        GetValue {} -> {
+        GetValue() -> {
             print(count);
         }
     }
 }
 
 main() {
-    counter = spawn Counter;
+    counter = spawn(Counter());
     counter ! Increment { amount: 5 };
     counter ! Increment { amount: 3 };
     counter ! GetValue {};
-    Counter_step(counter);
-    Counter_step(counter);
-    Counter_step(counter);
 }

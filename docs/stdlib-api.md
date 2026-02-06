@@ -4,8 +4,6 @@
 
 Aether provides a runtime library for strings, I/O, math, and actor concurrency. The runtime is automatically linked when you compile Aether programs.
 
-**Note**: This guide documents the currently implemented runtime functions. Additional features are planned for future releases.
-
 ## String Library (`aether_string.h`)
 
 ### Types
@@ -73,7 +71,7 @@ print("Value: %d\n", x)
 print("Float: %f\n", pi)
 ```
 
-### File Operations (IMPLEMENTED Implemented in std/fs/)
+### File Operations
 
 Complete filesystem library with file and directory operations:
 
@@ -100,8 +98,6 @@ bool exists = aether_file_exists("test.txt");
 See [std/fs/README.md](../std/fs/README.md) for complete documentation.
 
 ### Console Input
-
-Console input features (`read_line()`, formatted input) are planned for future releases.
 
 ---
 
@@ -142,14 +138,12 @@ Console input features (`read_line()`, formatted input) are planned for future r
 
 ## Actor Supervision (`aether_supervision.h`)
 
-Actor supervision features are implemented but require integration with the language syntax. The supervision module provides:
+The supervision module provides:
 
 - Supervision tree creation
 - Restart strategies (one-for-one, one-for-all, rest-for-one)
 - Automatic actor restart on failure
 - Crash escalation
-
-Full documentation will be added when the feature is language-integrated.
 
 ---
 
@@ -161,8 +155,6 @@ Message tracing is implemented for debugging actor systems:
 - Enable/disable tracing
 - Trace specific actors or all actors
 - Logs message sends, receives, and processing
-
-Full documentation will be added when the feature is language-integrated.
 
 ---
 
@@ -192,8 +184,6 @@ assert_true(condition)
 assert_eq(expected, actual)
 assert_not_null(ptr)
 ```
-
-A language-integrated testing framework is planned for future releases.
 
 ---
 
@@ -227,29 +217,24 @@ For C interop or custom allocations:
 ## Example: Complete Program
 
 ```aether
+message Increment { amount: int }
+
 actor Counter {
     state count = 0
-    
-    receive(msg) {
-        if (msg.type == 1) {
-            count = count + 1
+
+    receive {
+        Increment(amount) -> {
+            count = count + amount
         }
     }
 }
 
 main() {
     print("Aether Runtime Example\n")
-    
-    // Create and use an actor
-    counter = spawn_Counter()
-    send_Counter(counter, 1, 0)
-    send_Counter(counter, 1, 0)
-    Counter_step(counter)
-    Counter_step(counter)
-    
-    print("Counter processed 2 messages!\n")
+    counter = spawn(Counter())
+    counter ! Increment { amount: 1 }
+    counter ! Increment { amount: 1 }
+    print("Counter processing messages\n")
 }
 ```
-
-This demonstrates actors, spawn, send, and message processing.
 

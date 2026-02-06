@@ -1,0 +1,31 @@
+// Counter - stateful actor that tracks a running count
+
+message Increment { amount: int }
+message GetValue {}
+
+actor Counter {
+    state count = 0;
+
+    receive {
+        Increment(amount) -> {
+            count = count + amount;
+            print("Count is now ");
+            print(count);
+            print("\n");
+        }
+        GetValue() -> {
+            print("Current value: ");
+            print(count);
+            print("\n");
+        }
+    }
+}
+
+main() {
+    c = spawn(Counter());
+    c ! Increment { amount: 5 };
+    c ! Increment { amount: 3 };
+    c ! Increment { amount: 10 };
+    c ! GetValue {};
+    print("Counter done\n");
+}

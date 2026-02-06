@@ -1,0 +1,44 @@
+// Ping-Pong - two actors exchanging messages
+
+message Ping { seq: int }
+message Pong { seq: int }
+
+actor PingActor {
+    state received = 0;
+
+    receive {
+        Pong(seq) -> {
+            received = received + 1;
+            print("Got pong #");
+            print(seq);
+            print("\n");
+        }
+    }
+}
+
+actor PongActor {
+    state received = 0;
+
+    receive {
+        Ping(seq) -> {
+            received = received + 1;
+            print("Got ping #");
+            print(seq);
+            print(", replying...\n");
+        }
+    }
+}
+
+main() {
+    ping = spawn(PingActor());
+    pong = spawn(PongActor());
+
+    pong ! Ping { seq: 1 };
+    ping ! Pong { seq: 1 };
+    pong ! Ping { seq: 2 };
+    ping ! Pong { seq: 2 };
+    pong ! Ping { seq: 3 };
+    ping ! Pong { seq: 3 };
+
+    print("Ping-pong done\n");
+}

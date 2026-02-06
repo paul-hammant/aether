@@ -10,7 +10,7 @@ Aether's type inference can deduce types automatically in most cases.
 
 ### When to Use Type Inference
 
-IMPLEMENTED **Local variables**
+**Local variables**
 ```aether
 // Type inference - clean and concise
 x = 42              // Inferred as int
@@ -18,21 +18,21 @@ name = "Alice"      // Inferred as string
 points = [1, 2, 3]  // Inferred as int array
 ```
 
-IMPLEMENTED **Simple computations**
+**Simple computations**
 ```aether
 sum = a + b
 product = x * y
 result = compute_value()
 ```
 
-IMPLEMENTED **Loop variables**
+**Loop variables**
 ```aether
 for i in 0..10 {
     total = total + i
 }
 ```
 
-IMPLEMENTED **Struct field access**
+**Struct field access**
 ```aether
 point = Point{ x: 5, y: 10 }
 x_value = point.x  // Inferred from struct definition
@@ -44,7 +44,7 @@ Use explicit type annotations when they improve code clarity or are required.
 
 ### When to Use Explicit Types
 
-IMPLEMENTED **Function signatures** (highly recommended)
+**Function signatures** (highly recommended)
 ```aether
 // Function parameters and return types
 func add(int a, int b): int {
@@ -62,7 +62,7 @@ func find_user(int id): User {
 
 **Why**: Makes function contracts clear, improves documentation, helps catch errors at call sites.
 
-IMPLEMENTED **Public APIs and library functions**
+**Public APIs and library functions**
 ```aether
 // Export functions should have explicit types
 export func calculate_distance(Point p1, Point p2): float {
@@ -72,7 +72,7 @@ export func calculate_distance(Point p1, Point p2): float {
 }
 ```
 
-IMPLEMENTED **Complex types or ambiguous cases**
+**Complex types or ambiguous cases**
 ```aether
 // When type inference might fail or be unclear
 HashMap map = HashMap.new()
@@ -82,7 +82,7 @@ Vector[User] users = Vector.new()
 int result = parse_number(input)  // Clarifies we want int, not float
 ```
 
-IMPLEMENTED **Actor state declarations**
+**Actor state declarations**
 ```aether
 actor Counter {
     state count: int           // Explicit for clarity
@@ -94,7 +94,7 @@ actor Counter {
 }
 ```
 
-IMPLEMENTED **Struct field definitions**
+**Struct field definitions**
 ```aether
 struct User {
     int id
@@ -125,7 +125,7 @@ int sum = x + y
 
 **Don't mix** styles randomly:
 ```aether
-// NOT IMPLEMENTED Inconsistent - avoid
+// Inconsistent - avoid
 int x = 10
 y = 20           // Sudden switch to inference
 int sum = x + y  // Back to explicit
@@ -193,33 +193,13 @@ names = ["Alice", "Bob"]   // Inferred as [string]
 // Explicit for complex types
 HashMap[string, User] user_map = HashMap.new()
 Vector[Point] points = Vector.new()
-ActorRef[Counter] counter = spawn Counter()
+ActorRef[Counter] counter = spawn(Counter())
 
 // Inference for simple cases
 map = HashMap.new()
 points = Vector.new()
-counter = spawn Counter()
+counter = spawn(Counter())
 ```
-
-## Deprecated: The `let` Keyword
-
-**Don't use `let`** - it's redundant in Aether:
-
-```aether
-// NOT IMPLEMENTED Deprecated - avoid
-let x = 42
-let name = "Alice"
-
-// IMPLEMENTED Use type inference instead
-x = 42
-name = "Alice"
-
-// IMPLEMENTED Or explicit types
-int x = 42
-string name = "Alice"
-```
-
-The `let` keyword adds no value since Aether has native type inference.
 
 ## Examples
 
@@ -296,23 +276,23 @@ func process_data(string filename): int {
 Sometimes explicit types are **required**:
 
 ```aether
-// NOT IMPLEMENTED This fails - type can't be inferred
+// This fails - type can't be inferred
 x = undefined()
 y = get_value()  // If get_value() return type is unknown
 
-// IMPLEMENTED Solution: Provide explicit type
+// Solution: Provide explicit type
 int x = undefined()
 int y = get_value()
 ```
 
 ```aether
-// NOT IMPLEMENTED Recursive functions need return type
+// Recursive functions need return type
 fibonacci(n) {
     if n <= 1 { return n }
     return fibonacci(n - 1) + fibonacci(n - 2)  // ERROR
 }
 
-// IMPLEMENTED Explicit return type
+// Explicit return type
 func fibonacci(int n): int {
     if n <= 1 { return n }
     return fibonacci(n - 1) + fibonacci(n - 2)
@@ -335,34 +315,13 @@ func fibonacci(int n): int {
 
 **Golden Rule**: Use explicit types when they add **clarity** or are **required**. Use inference when types are **obvious** from context.
 
-## Migration Guide
-
-If you have code using `let`:
-
-```aether
-// Old (with let)
-let x = 42
-let name = "Alice"
-let map = HashMap.new()
-
-// New (inference)
-x = 42
-name = "Alice"
-map = HashMap.new()
-
-// New (explicit types)
-int x = 42
-string name = "Alice"
-HashMap map = HashMap.new()
-```
-
 ## Tooling Support
 
 The Aether LSP provides:
-- IMPLEMENTED Type inference on hover
-- IMPLEMENTED Type error diagnostics
-- PARTIAL Auto-completion for type annotations (planned)
-- PARTIAL "Add type annotation" quick fix (planned)
+- Type inference on hover
+- Type error diagnostics
+- Auto-completion for type annotations (planned)
+- "Add type annotation" quick fix (planned)
 
 ---
 

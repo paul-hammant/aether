@@ -55,87 +55,88 @@ See [benchmarks/cross-language/](benchmarks/cross-language/) for methodology and
 
 ## Quick Start
 
-### Prerequisites
-
-**Required:**
-- GCC 11+ or Clang 14+
-- Make (or mingw32-make on Windows)
-- Git
-
-**Optional:**
-- Docker Desktop (recommended for consistent environment)
-
-### Installation
+### Install
 
 ```bash
 git clone https://github.com/nicolasmd87/aether.git
 cd aether
-
-# Build compiler and CLI tool
-make compiler
-make ae
-
-# Test it works
-./build/ae version
+./install.sh
 ```
 
-**Windows:** Use `mingw32-make` instead of `make`.
+This builds Aether and installs it to `~/.aether`. After restarting your terminal (or running `source ~/.zshrc`), the `ae` command is available system-wide.
+
+To install to a custom location: `./install.sh /usr/local` (requires sudo).
+
+**Prerequisites:** GCC or Clang, Make, Git. The installer checks for these and tells you what's missing.
+
+**Windows:** Use `mingw32-make ae` instead (see [Getting Started](docs/getting-started.md) for Windows setup).
 
 ### Your First Program
 
-Create `hello.ae`:
-
-```aether
-main() {
-    print("Hello from Aether!\\n");
-    print("The answer is: %d\\n", 42);
-}
+```bash
+# Create a new project
+ae init hello
+cd hello
+ae run
 ```
 
-Run it:
+Or run a single file directly:
 
 ```bash
-./build/ae run hello.ae
+ae run examples/basics/hello.ae
 ```
 
-**Docker:**
+### Editor Setup (Optional)
 
+Install syntax highlighting for a better coding experience:
+
+**VS Code / Cursor:**
 ```bash
-# Build container
-docker build -t aether:latest -f docker/Dockerfile .
-
-# Start development shell
-docker run -it -v $(pwd):/aether aether:latest
-
-# Inside container
-make compiler
-make test
+cd editor/vscode
+./install.sh
 ```
 
-See [docker/README.md](docker/README.md) for detailed setup.
+This provides:
+- Syntax highlighting with TextMate grammar
+- Custom "Aether Erlang" dark theme
+- `.ae` file icons
 
-### Common Commands
+### Development Build (without installing)
 
-**Using ae (recommended):**
+If you prefer to build without installing:
 
 ```bash
-./build/ae run hello.ae          # Run a program
-./build/ae build app.ae -o myapp # Build executable
-./build/ae compile lib.ae        # Compile to C only
-./build/ae test                  # Run tests
-./build/ae help                  # Show help
+make ae
+./build/ae version
+./build/ae run examples/basics/hello.ae
 ```
 
-**Using Make:**
+### The `ae` Command
+
+`ae` is the single entry point for everything — like `go` or `cargo`:
 
 ```bash
-make compiler                    # Build compiler
+ae init <name>           # Create a new project
+ae run [file.ae]         # Compile and run (file or project)
+ae build [file.ae]       # Compile to executable
+ae test [file|dir]       # Discover and run tests
+ae add <package>         # Add a dependency
+ae repl                  # Start interactive REPL
+ae version               # Show version
+ae help                  # Show all commands
+```
+
+In a project directory (with `aether.toml`), `ae run` and `ae build` work without arguments.
+
+**Using Make (alternative):**
+
+```bash
+make compiler                    # Build compiler only
 make ae                          # Build ae CLI tool
-make run FILE=hello.ae           # Run a program
-make compile FILE=app.ae         # Build executable
-make test                        # Run tests
+make test                        # Run C test suite (153 tests)
+make examples                    # Build all examples
 make -j8                         # Parallel build
-make help                        # Show all commands
+make help                        # Show all targets
 ```
 
 **Windows:** Use `mingw32-make` instead of `make` and `.\\build\\ae.exe` instead of `./build/ae`.
@@ -145,10 +146,9 @@ make help                        # Show all commands
 ```
 aether/
 ├── compiler/           # Aether compiler (lexer, parser, codegen)
-│   ├── lexer.c/h      # Tokenization
-│   ├── parser.c/h     # AST generation
-│   ├── typechecker.c/h # Type inference and checking
-│   ├── codegen.c/h    # C code generation
+│   ├── frontend/      # Lexer, parser, tokens
+│   ├── analysis/      # Type checker, type inference
+│   ├── backend/       # C code generation, optimizer
 │   └── aetherc.c      # Compiler entry point
 ├── runtime/           # Runtime system
 │   ├── actors/        # Actor implementation and lock-free mailboxes
@@ -156,15 +156,19 @@ aether/
 │   ├── scheduler/     # Multi-core work-stealing scheduler
 │   └── utils/         # CPU detection, SIMD, tracing, profiling
 ├── std/               # Standard library
-│   ├── collections/   # HashMap, Vector, List
-│   ├── io/           # File I/O, streams
-│   ├── net/          # TCP/UDP networking
-│   └── json/         # JSON parser
-├── tests/            # Test suite
+│   ├── collections/   # HashMap, Vector, Set, List
+│   ├── string/       # String operations
+│   ├── net/          # TCP/UDP networking, HTTP
+│   ├── json/         # JSON parser
+│   └── fs/           # File system operations
+├── tools/            # Developer tools
+│   ├── ae.c          # Unified CLI tool (ae command)
+│   └── apkg/         # Package manager, TOML parser
+├── tests/            # Test suite (runtime, syntax, integration)
 ├── examples/         # Example programs (.ae files)
-├── benchmarks/       # Performance benchmarks
-│   ├── aether/       # Aether runtime benchmarks
-│   └── cross-language/ # Comparisons with other languages
+│   ├── basics/       # Hello world, variables, arrays, etc.
+│   ├── actors/       # Actor patterns (ping-pong, pipeline, etc.)
+│   └── applications/ # Complete applications
 ├── docs/            # Documentation
 └── docker/          # Docker configuration
 ```
@@ -182,38 +186,35 @@ actor Counter {
     state count = 0
 
     receive {
-        Increment -> {
-            count = count + 1;
+        Increment() -> {
+            count = count + 1
         }
-
-        Decrement -> {
-            count = count - 1;
+        Decrement() -> {
+            count = count - 1
         }
-
-        GetCount -> {
-            print("Current count: ");
-            print(count);
-            print("\n");
+        GetCount() -> {
+            print("Current count: ")
+            print(count)
+            print("\n")
         }
-
-        Reset -> {
-            count = 0;
+        Reset() -> {
+            count = 0
         }
     }
 }
 
 main() {
     // Spawn counter actor
-    counter = spawn Counter();
+    counter = spawn(Counter())
 
     // Send messages
-    counter ! Increment;
-    counter ! Increment;
-    counter ! GetCount;
-    counter ! Decrement;
-    counter ! GetCount;
-    counter ! Reset;
-    counter ! GetCount;
+    counter ! Increment {}
+    counter ! Increment {}
+    counter ! GetCount {}
+    counter ! Decrement {}
+    counter ! GetCount {}
+    counter ! Reset {}
+    counter ! GetCount {}
 }
 ```
 
@@ -273,6 +274,7 @@ The runtime employs a tiered optimization strategy:
 - [Getting Started Guide](docs/getting-started.md) - Installation and first steps
 - [Language Tutorial](docs/tutorial.md) - Learn Aether syntax and concepts
 - [Language Reference](docs/language-reference.md) - Complete language specification
+- [C Interoperability](docs/c-interop.md) - Using C libraries and the `extern` keyword
 - [Architecture Overview](docs/architecture.md) - Runtime and compiler design
 - [Memory Management](docs/memory-management.md) - Arena GC and pooling strategies
 - [Runtime Optimizations](docs/runtime-optimizations.md) - Performance techniques
@@ -284,13 +286,15 @@ The runtime employs a tiered optimization strategy:
 ### Running Tests
 
 ```bash
-# All tests
+# Runtime test suite (153 tests)
 make test
 
-# Specific test suite
-./build/test_harness compiler    # Compiler tests
-./build/test_harness runtime     # Runtime tests
-./build/test_harness integration # Integration tests
+# Aether syntax and integration tests
+./build/ae test tests/syntax/
+./build/ae test tests/integration/
+
+# Build all examples (24 programs)
+make examples
 ```
 
 ### Running Benchmarks
@@ -351,12 +355,6 @@ The benchmark suite compares Aether against C, C++, Go, Rust, Java, Zig, Erlang,
 - Package management concepts
 - Editor integration experiments
 - Runtime optimization research
-
-### Not Planned
-- Production hardening (requires significant resources)
-- Enterprise support
-- Distributed actors
-- Hot code reloading
 
 ## License
 

@@ -70,9 +70,9 @@ Modified `runtime/scheduler/multicore_scheduler.c`:
 
 ### Expected Benefits on NUMA Systems
 
-- **Reduced latency**: Local memory access is 2-3x faster
+- **Reduced latency**: Local memory access typically has lower latency than remote access
 - **Higher bandwidth**: Avoids contention on remote memory controllers
-- **Better scaling**: Removes NUMA as bottleneck
+- **Better scaling**: NUMA-aware allocation improves scaling on multi-socket systems
 
 ### UMA Systems
 
@@ -81,12 +81,16 @@ Modified `runtime/scheduler/multicore_scheduler.c`:
 
 ### Testing
 
-**NUMA Detection Tool:**
+**Check NUMA Topology:**
+
+On Linux, use `numactl` to check NUMA configuration:
 ```bash
-./build/numa_info.exe
+numactl --hardware
 ```
 
-**Output Example (UMA system):**
+On macOS, NUMA is not supported (single memory domain).
+
+**Example Output (UMA system):**
 ```
 NUMA Topology Detection
 =======================
@@ -116,7 +120,7 @@ CPU to NUMA Node Mapping:
   CPU 13 -> NUMA Node 1
   ...
 
-NUMA-aware allocation is ENABLED in the multicore scheduler.
+NUMA-aware allocation is active in the multicore scheduler.
 ```
 
 ## Build Integration
@@ -183,7 +187,6 @@ All 148 tests pass with NUMA support:
 Multicore benchmark works with NUMA allocation:
 ```bash
 ./build/mc_bench.exe
-# 98M msg/sec on 4 cores
 ```
 
 ## Future Enhancements

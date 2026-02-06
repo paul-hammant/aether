@@ -20,16 +20,16 @@ Aether is a programming language that combines:
 If you haven't installed Aether yet, follow the installation guide:
 
 ```bash
-# Linux/macOS
-curl -sSL https://raw.githubusercontent.com/yourusername/aether/main/install.sh | bash
+git clone https://github.com/nicolasmd87/aether.git
+cd aether
 
-# Windows
-# Download and run install.ps1
+# Build the ae CLI tool (includes compiler)
+make ae
 ```
 
 Verify installation:
 ```bash
-aether version
+./build/ae version
 ```
 
 ## Your First Program
@@ -52,7 +52,7 @@ main() {
 ### Step 2: Run It
 
 ```bash
-aether run hello.ae
+./build/ae run hello.ae
 ```
 
 You should see:
@@ -95,7 +95,7 @@ main() {
 
 **Try it:**
 ```bash
-aether run variables.ae
+./build/ae run variables.ae
 ```
 
 ## Basic Math
@@ -210,12 +210,12 @@ main() {
 ### Mistake 1: Forgetting Parentheses
 
 ```aether
-// NOT IMPLEMENTED Wrong
+// Wrong
 main {
     print("Hello")
 }
 
-// IMPLEMENTED Correct
+// Correct
 main() {
     print("Hello")
 }
@@ -240,12 +240,12 @@ print("World\n")
 ## Next Steps
 
 You've learned:
-- IMPLEMENTED How to run Aether programs
-- IMPLEMENTED Variables and type inference
-- IMPLEMENTED Basic math operations
-- IMPLEMENTED Comments
+- How to run Aether programs
+- Variables and type inference
+- Basic math operations
+- Comments
 
-**Next Tutorial:** [Functions and Type Inference](02-functions-and-types.md)
+**Next Tutorial:** [Functions and Control Flow](02-functions-and-control-flow.md)
 
 ## Quick Reference
 

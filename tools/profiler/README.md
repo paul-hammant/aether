@@ -14,12 +14,8 @@ Web-based profiler dashboard for real-time monitoring of Aether runtime performa
 
 ### Build the Profiler
 
-**Windows (PowerShell):**
-```powershell
-.\build_profiler.ps1
-```
+From the project root:
 
-**Linux/macOS:**
 ```bash
 make profiler
 ```

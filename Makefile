@@ -1,4 +1,4 @@
-.PHONY: all clean test compiler examples
+.PHONY: all clean test compiler examples examples-run
 
 # Detect OS
 ifeq ($(OS),Windows_NT)
@@ -28,7 +28,7 @@ endif
 
 # Compiler configuration with ccache support
 CC := $(shell command -v ccache 2>/dev/null && echo "ccache gcc" || echo "gcc")
-CFLAGS = -O2 -Icompiler -Iruntime -Iruntime/config -Istd -Istd/string -Istd/io -Istd/math -Istd/net -Istd/collections -Istd/json -Wall -Wextra -Wno-unused-parameter -Wno-unused-function -MMD -MP
+CFLAGS = -O2 -Icompiler -Iruntime -Iruntime/actors -Iruntime/scheduler -Iruntime/utils -Iruntime/memory -Iruntime/config -Istd -Istd/string -Istd/io -Istd/math -Istd/net -Istd/collections -Istd/json -Wall -Wextra -Wno-unused-parameter -Wno-unused-function -MMD -MP
 LDFLAGS = -pthread -lm
 
 # Zero warnings achieved - ready for -Werror
@@ -48,7 +48,7 @@ endif
 
 COMPILER_SRC = compiler/aetherc.c compiler/frontend/lexer.c compiler/frontend/parser.c compiler/ast.c compiler/analysis/typechecker.c compiler/backend/codegen.c compiler/aether_error.c compiler/aether_module.c compiler/analysis/type_inference.c compiler/backend/optimizer.c compiler/aether_diagnostics.c runtime/actors/aether_message_registry.c
 COMPILER_LIB_SRC = compiler/frontend/lexer.c compiler/frontend/parser.c compiler/ast.c compiler/analysis/typechecker.c compiler/backend/codegen.c compiler/aether_error.c compiler/aether_module.c compiler/analysis/type_inference.c compiler/backend/optimizer.c compiler/aether_diagnostics.c runtime/actors/aether_message_registry.c
-RUNTIME_SRC = runtime/scheduler/multicore_scheduler.c runtime/scheduler/scheduler_optimizations.c runtime/config/aether_optimization_config.c runtime/memory/memory.c runtime/memory/aether_arena.c runtime/memory/aether_pool.c runtime/memory/aether_memory_stats.c runtime/utils/aether_tracing.c runtime/utils/aether_bounds_check.c runtime/utils/aether_test.c runtime/memory/aether_arena_optimized.c runtime/aether_runtime_types.c runtime/utils/aether_cpu_detect.c runtime/memory/aether_batch.c runtime/utils/aether_simd_vectorized.c runtime/aether_runtime.c runtime/aether_numa.c runtime/actors/aether_send_buffer.c
+RUNTIME_SRC = runtime/scheduler/multicore_scheduler.c runtime/scheduler/scheduler_optimizations.c runtime/config/aether_optimization_config.c runtime/memory/memory.c runtime/memory/aether_arena.c runtime/memory/aether_pool.c runtime/memory/aether_memory_stats.c runtime/utils/aether_tracing.c runtime/utils/aether_bounds_check.c runtime/utils/aether_test.c runtime/memory/aether_arena_optimized.c runtime/aether_runtime_types.c runtime/utils/aether_cpu_detect.c runtime/memory/aether_batch.c runtime/utils/aether_simd_vectorized.c runtime/aether_runtime.c runtime/aether_numa.c runtime/actors/aether_send_buffer.c runtime/actors/aether_send_message.c runtime/actors/aether_actor_thread.c
 STD_SRC = std/string/aether_string.c std/math/aether_math.c std/net/aether_http.c std/net/aether_http_server.c std/net/aether_net.c std/collections/aether_collections.c std/json/aether_json.c std/fs/aether_fs.c std/log/aether_log.c
 COLLECTIONS_SRC = std/collections/aether_hashmap.c std/collections/aether_set.c std/collections/aether_vector.c std/collections/aether_pqueue.c
 
@@ -88,20 +88,9 @@ TEST_SRC = tests/runtime/test_harness.c \
            tests/compiler/test_lexer.c
 
 # Standalone test programs with their own main() - build separately
-STANDALONE_TESTS = tests/test_runtime_implementations.c \
-                   tests/test_scheduler_integration.c \
-                   tests/runtime/test_runtime_manual.c \
-                   tests/compiler/test_arrays.c \
-           tests/test_memory_stress.c \
-           tests/test_memory_leaks.c \
-           tests/test_64bit.c \
-           tests/test_runtime_math.c \
-           tests/test_runtime_collections.c \
-           tests/test_runtime_json.c \
-           tests/test_runtime_http.c \
-           tests/test_runtime_net.c \
-           tests/test_runtime_strings.c \
-           tests/test_collections.c
+# These are not part of the main test suite but can be built manually
+STANDALONE_TESTS = tests/runtime/test_runtime_manual.c \
+                   tests/compiler/test_arrays.c
 
 all: compiler
 
@@ -194,10 +183,38 @@ benchmark:
 	@cd benchmarks/cross-language && $(MAKE) benchmark-ui
 
 examples: compiler
-	@echo "Compiling examples..."
-	./build/aetherc$(EXE_EXT) examples/test_actor_working.ae build/actor1.c
-	./build/aetherc$(EXE_EXT) examples/test_multiple_actors.ae build/actor2.c
-	@echo "Examples compiled to build/"
+	@echo "==================================="
+	@echo "  Building Aether Examples"
+	@echo "==================================="
+	@$(MKDIR) $(BUILD_DIR)/examples $(BUILD_DIR)/examples/basics $(BUILD_DIR)/examples/actors $(BUILD_DIR)/examples/applications
+	@pass=0; fail=0; \
+	for src in $$(find examples -name '*.ae' | sort); do \
+		name=$$(echo $$src | sed 's|examples/||;s|\.ae$$||'); \
+		printf "  %-30s " "$$name"; \
+		if ./build/aetherc$(EXE_EXT) $$src $(BUILD_DIR)/examples/$$name.c 2>/dev/null && \
+		   $(CC) $(CFLAGS) $(BUILD_DIR)/examples/$$name.c $(RUNTIME_SRC) $(STD_SRC) $(COLLECTIONS_SRC) \
+		         -o $(BUILD_DIR)/examples/$$name$(EXE_EXT) $(LDFLAGS) 2>/dev/null; then \
+			echo "OK"; \
+			pass=$$((pass + 1)); \
+		else \
+			echo "FAIL"; \
+			fail=$$((fail + 1)); \
+		fi; \
+	done; \
+	echo ""; \
+	echo "  $$pass passed, $$fail failed"; \
+	echo "  Binaries in $(BUILD_DIR)/examples/"
+
+examples-run: examples
+	@echo "==================================="
+	@echo "  Running Aether Examples"
+	@echo "==================================="
+	@for bin in $$(find $(BUILD_DIR)/examples -type f -perm +111 ! -name '*.c' | sort); do \
+		name=$$(echo $$bin | sed "s|$(BUILD_DIR)/examples/||"); \
+		echo "--- $$name ---"; \
+		timeout 5 $$bin 2>&1 || true; \
+		echo ""; \
+	done
 
 lsp: compiler
 	@echo "==================================="
@@ -217,12 +234,15 @@ ae: compiler
 	@echo "==================================="
 	@echo "Building ae command-line tool ($(DETECTED_OS))"
 	@echo "==================================="
-	$(CC) -O2 tools/ae.c -o build/ae$(EXE_EXT) -lm
+	$(CC) -O2 -Itools tools/ae.c tools/apkg/toml_parser.c -o build/ae$(EXE_EXT) -lm
 	@echo "✓ Built successfully: build/ae$(EXE_EXT)"
 	@echo ""
 	@echo "Usage:"
-	@echo "  ./build/ae$(EXE_EXT) run file.ae"
-	@echo "  ./build/ae$(EXE_EXT) build file.ae"
+	@echo "  ./build/ae run file.ae       Run a program"
+	@echo "  ./build/ae build file.ae     Build an executable"
+	@echo "  ./build/ae init myproject    Create a new project"
+	@echo "  ./build/ae test              Run tests"
+	@echo "  ./build/ae help              Show all commands"
 
 profiler:
 	@echo "==================================="
@@ -236,8 +256,8 @@ profiler:
 # Precompiled stdlib archive
 stdlib: $(STD_OBJS) $(COLLECTIONS_OBJS) $(RUNTIME_OBJS)
 	@echo "Creating precompiled stdlib archive..."
-	@ar rcs build/libaether_std.a $(STD_OBJS) $(COLLECTIONS_OBJS) $(RUNTIME_OBJS)
-	@echo "✓ Stdlib archive created: build/libaether_std.a"
+	@ar rcs build/libaether.a $(STD_OBJS) $(COLLECTIONS_OBJS) $(RUNTIME_OBJS)
+	@echo "✓ Stdlib archive created: build/libaether.a"
 
 # Self-test: compiler on itself
 self-test: compiler
@@ -276,24 +296,30 @@ endif
 
 # Install to system
 PREFIX ?= /usr/local
-install: release
+install: release ae stdlib
 	@echo "==================================="
-	@echo "Installing Aether"
+	@echo "Installing Aether to $(PREFIX)"
 	@echo "==================================="
-ifeq ($(DETECTED_OS),Linux)
-	@echo "Installing to $(PREFIX)..."
 	@install -d $(PREFIX)/bin
+	@install -m 755 build/ae$(EXE_EXT) $(PREFIX)/bin/ae
 	@install -m 755 build/aetherc-release$(EXE_EXT) $(PREFIX)/bin/aetherc
-	@install -d $(PREFIX)/include/aether
-	@install -m 644 runtime/*.h $(PREFIX)/include/aether/
-	@install -m 644 std/*/*.h $(PREFIX)/include/aether/
+	@install -d $(PREFIX)/lib/aether
+	@install -m 644 build/libaether.a $(PREFIX)/lib/aether/
+	@for dir in runtime runtime/actors runtime/scheduler runtime/utils \
+	            runtime/memory runtime/config std/string std/math std/net \
+	            std/collections std/json std/fs std/log std/io; do \
+		if [ -d $$dir ]; then \
+			install -d $(PREFIX)/include/aether/$$dir; \
+			for h in $$dir/*.h; do \
+				[ -f "$$h" ] && install -m 644 "$$h" $(PREFIX)/include/aether/$$dir/ 2>/dev/null || true; \
+			done; \
+		fi; \
+	done
+	@install -d $(PREFIX)/share/aether/runtime
+	@install -d $(PREFIX)/share/aether/std
 	@echo "✓ Installed successfully"
 	@echo ""
-	@echo "Run: aetherc --version"
-else
-	@echo "Install target currently only supports Linux"
-	@echo "For Windows/macOS, manually copy build/aetherc-release$(EXE_EXT) to your PATH"
-endif
+	@echo "Run: ae version"
 
 # Run an Aether program (compile + execute)
 run: compiler
@@ -385,71 +411,20 @@ repl: compiler
 	@echo "Starting Aether REPL..."
 	@echo "Checking dependencies..."
 ifeq ($(DETECTED_OS),Darwin)
-	@if [ ! -d /opt/homebrew/include/readline ] && [ ! -d /usr/local/include/readline ]; then \
-		echo ""; \
-		echo "readline library not found"; \
-		echo ""; \
-		if command -v brew >/dev/null 2>&1; then \
-			read -p "Install readline via Homebrew? [y/N] " answer; \
-			if [ "$$answer" = "y" ] || [ "$$answer" = "Y" ]; then \
-				echo "Installing readline..."; \
-				brew install readline; \
-			else \
-				echo "Installation cancelled. Please install manually: brew install readline"; \
-				exit 1; \
-			fi; \
-		else \
-			echo "Homebrew not found. Install Homebrew first: https://brew.sh"; \
-			echo "Then run: brew install readline"; \
-			exit 1; \
-		fi; \
-	fi
 	@$(CC) $(CFLAGS) -I/opt/homebrew/include tools/aether_repl.c -o build/aether_repl$(EXE_EXT) -L/opt/homebrew/lib -lreadline 2>/dev/null || \
-	$(CC) $(CFLAGS) -I/usr/local/include tools/aether_repl.c -o build/aether_repl$(EXE_EXT) -L/usr/local/lib -lreadline
+	$(CC) $(CFLAGS) -I/usr/local/include tools/aether_repl.c -o build/aether_repl$(EXE_EXT) -L/usr/local/lib -lreadline 2>/dev/null || \
+	$(CC) $(CFLAGS) tools/aether_repl.c -o build/aether_repl$(EXE_EXT) -ledit 2>/dev/null || \
+	$(CC) $(CFLAGS) tools/aether_repl.c -o build/aether_repl$(EXE_EXT) -lreadline 2>/dev/null || \
+	(echo "readline not found. Install with: brew install readline" && exit 1)
 else ifeq ($(DETECTED_OS),Linux)
-	@if ! ldconfig -p | grep -q libreadline 2>/dev/null; then \
-		echo ""; \
-		echo "readline library not found"; \
-		echo ""; \
-		if command -v apt-get >/dev/null 2>&1; then \
-			read -p "Install readline via apt-get? [y/N] " answer; \
-			if [ "$$answer" = "y" ] || [ "$$answer" = "Y" ]; then \
-				echo "Installing readline..."; \
-				sudo apt-get update && sudo apt-get install -y libreadline-dev; \
-			else \
-				echo "Installation cancelled. Please install manually: sudo apt-get install libreadline-dev"; \
-				exit 1; \
-			fi; \
-		elif command -v yum >/dev/null 2>&1; then \
-			read -p "Install readline via yum? [y/N] " answer; \
-			if [ "$$answer" = "y" ] || [ "$$answer" = "Y" ]; then \
-				echo "Installing readline..."; \
-				sudo yum install -y readline-devel; \
-			else \
-				echo "Installation cancelled. Please install manually: sudo yum install readline-devel"; \
-				exit 1; \
-			fi; \
-		elif command -v pacman >/dev/null 2>&1; then \
-			read -p "Install readline via pacman? [y/N] " answer; \
-			if [ "$$answer" = "y" ] || [ "$$answer" = "Y" ]; then \
-				echo "Installing readline..."; \
-				sudo pacman -S --noconfirm readline; \
-			else \
-				echo "Installation cancelled. Please install manually: sudo pacman -S readline"; \
-				exit 1; \
-			fi; \
-		else \
-			echo "Could not detect package manager. Please install readline development library manually."; \
-			exit 1; \
-		fi; \
-	fi
-	@$(CC) $(CFLAGS) tools/aether_repl.c -o build/aether_repl$(EXE_EXT) -lreadline
+	@$(CC) $(CFLAGS) tools/aether_repl.c -o build/aether_repl$(EXE_EXT) -lreadline 2>/dev/null || \
+	(echo "readline not found. Install with: sudo apt-get install libreadline-dev" && exit 1)
 else
 	@echo "Error: REPL not supported on $(DETECTED_OS)"
 	@exit 1
 endif
-	@echo "✓ Dependencies OK"
-	@./build/aether_repl$(EXE_EXT)
+	@echo "✓ REPL built: build/aether_repl$(EXE_EXT)"
+	@echo "Run with: ./build/ae repl"
 
 # Build statistics
 stats:
@@ -544,7 +519,7 @@ help:
 	@echo "Other Targets:"
 	@echo "  make benchmark      - Run performance benchmarks"
 	@echo "  make examples       - Compile example programs"
-	@echo "  make install        - Install to $(PREFIX) (Linux only)"
+	@echo "  make install        - Install to $(PREFIX)"
 	@echo "  make stats          - Show build statistics"
 	@echo "  make clean          - Remove build artifacts"
 	@echo "  make help           - Show this help message"

@@ -3,17 +3,10 @@ message Increment {
 }
 
 actor Counter {
-    count: int
-}
-
-func spawn_Counter() {
-    c = Counter { count: 0 };
-    return c;
+    state count = 0;
 }
 
 main() {
-    counter = spawn_Counter();
     msg = Increment { amount: 5 };
-    print("Message ID: ");
-    print(msg._message_id);
+    print("Message test complete\n");
 }

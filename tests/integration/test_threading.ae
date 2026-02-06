@@ -3,8 +3,10 @@ message Increment {
 }
 
 actor Counter {
-    receive(msg) {
-        print(msg.type);
+    receive {
+        Increment(amount) -> {
+            print(amount);
+        }
     }
 }
 
