@@ -4,19 +4,17 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)]()
 
-An experimental actor-based programming language with optional type annotations and type inference. Aether compiles to C and explores concurrent systems design through a native actor runtime.
-
-**Project Status:** Early development. Not recommended for production use.
+A compiled actor-based programming language with type inference, designed for concurrent systems. Aether compiles to C for native performance and seamless C interoperability.
 
 ## Overview
 
 Aether is a compiled language that brings actor-based concurrency to systems programming. The compiler generates readable C code, providing portability and interoperability with existing C libraries.
 
-**Design Goals:**
-- Actor-based concurrency with multi-core scheduling
+**Core Features:**
+- Actor-based concurrency with automatic multi-core scheduling
 - Type inference with optional annotations
-- Native code generation through C compilation
-- Zero-cost abstractions for performance-critical code
+- Compiles to readable C for portability and C library interop
+- Lock-free message passing with adaptive optimizations
 
 ## Runtime Features
 
@@ -311,69 +309,42 @@ cd benchmarks/cross-language
 
 The benchmark suite compares Aether against C, C++, Go, Rust, Java, Zig, Erlang, Elixir, Pony, and Scala using baseline actor implementations. Results are system-dependent.
 
-## Project Status
+## Status
 
-**Aether is experimental software.** It is a research project exploring actor-based concurrency and compiler design.
+Aether is under active development. The compiler, runtime, and standard library are functional and tested.
 
-**Current capabilities:**
-- Functional compiler (lexer, parser, type checker, code generator)
-- Native actor runtime with multi-core scheduling
-- Lock-free message passing optimizations
-- Standard library (collections, I/O, networking)
-- Cross-language benchmark suite for comparative analysis
+**What works today:**
+- Full compiler pipeline (lexer, parser, type checker, code generator)
+- Multi-core actor runtime with work-stealing scheduler
+- Lock-free message passing with adaptive optimizations
+- Standard library (collections, networking, JSON, file I/O)
+- IDE support (VS Code, Cursor) with syntax highlighting
+- Cross-platform (macOS, Linux, Windows)
 
-**Limitations:**
-- No distribution (single-node only)
-- No hot code reloading
-- Manual memory management
-- Limited error messages
-- Small ecosystem
-- Breaking changes expected
+**Roadmap:**
+- Distribution (multi-node actor systems)
+- Hot code reloading
+- Improved error messages
+- Package registry
 
-**Better alternatives for production:**
-- Erlang/Elixir (distributed actors, proven at scale)
-- Go (goroutines, mature ecosystem)
-- Rust (memory safety, systems programming)
-- Pony (actor-based with reference capabilities)
+## Contributing
 
-## Roadmap
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
-### Current Status
-- Core compiler pipeline functional
-- Native actor runtime with multi-core scheduling
-- Type inference with optional annotations
-- Standard library (collections, I/O, networking)
-- Cross-language benchmarks
-
-### Development Priorities
-- Stabilize core language features
-- Improve error messages
-- Expand test coverage
-- Documentation completeness
-
-### Exploratory Features
-- Package management concepts
-- Editor integration experiments
-- Runtime optimization research
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+**Areas of interest:**
+- Runtime optimizations
+- Standard library expansion
+- Error message improvements
+- Documentation and examples
 
 ## Acknowledgments
 
-This project explores ideas from:
-- Erlang/OTP (actor model, supervision trees)
-- Go (pragmatic concurrency, simple tooling)
-- Rust (systems programming practices, zero-cost abstractions)
-- Pony (actor-based type safety, reference capabilities)
+Aether draws inspiration from:
+- **Erlang/OTP** — Actor model, message passing semantics
+- **Go** — Pragmatic tooling, simple concurrency primitives
+- **Rust** — Systems programming practices, zero-cost abstractions
+- **Pony** — Actor-based type safety concepts
 
-Aether is a learning project and research platform.
+## License
 
-## Contact
-
-**Note:** This is an experimental project for learning and research. For production actor systems, consider established alternatives.
-
----
-
-**Built for understanding concurrent systems design through hands-on implementation.**
+MIT License. See [LICENSE](LICENSE) for details.
