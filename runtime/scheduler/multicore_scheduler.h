@@ -68,14 +68,20 @@ typedef struct {
     atomic_int steal_attempts;  // Statistics
     atomic_int idle_cycles;     // Track how long core has been idle
     OptimizedSpinlock actor_lock;  // Protects actors array during work stealing
-    
+
+    // Per-core message counters (no atomics needed - core-local!)
+    // This is the Linux kernel's per-CPU counter pattern for scalability
+    uint64_t messages_sent;      // Messages sent FROM this core
+    uint64_t messages_processed; // Messages processed ON this core
+    char counter_padding[48];    // Cache line padding to prevent false sharing
+
     // Message coalescing buffer for 15x throughput improvement
     struct {
         void* actors[COALESCE_THRESHOLD];
         Message messages[COALESCE_THRESHOLD];
         int count;
     } coalesce_buffer;
-    
+
     // Integrated optimizations (pointers to avoid bloating struct)
     ActorPool* actor_pool;            // Actor pooling (1.81x speedup)
     AdaptiveBatchState batch_state;   // Adaptive batching (small, embedded)

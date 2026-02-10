@@ -255,6 +255,40 @@ Detection uses `sysctlbyname("hw.perflevel0.physicalcpu")` to query the P-core c
 
 Note: macOS does not support hard core pinning by design. Thread placement is advisory, which may cause occasional variance in microbenchmarks.
 
+### Per-Core Message Counters
+
+**Implementation:** `runtime/scheduler/multicore_scheduler.c`, `runtime/scheduler/multicore_scheduler.h`
+
+Idle detection uses per-core counters instead of a global atomic counter. This eliminates cache line contention on the message-passing hot path.
+
+```c
+typedef struct {
+    // ...
+    uint64_t messages_sent;      // Messages sent FROM this core
+    uint64_t messages_processed; // Messages processed ON this core
+    char counter_padding[48];    // Cache line padding
+    // ...
+} Scheduler;
+```
+
+Each scheduler core increments its local counters without atomic operations. The `wait_for_idle()` function sums across all cores to determine when all in-flight messages have been processed.
+
+```c
+// Hot path: no atomic contention
+if (current_core_id >= 0) {
+    schedulers[current_core_id].messages_sent++;
+}
+
+// wait_for_idle: sum across cores (rare operation)
+uint64_t total_sent = 0, total_processed = 0;
+for (int i = 0; i < num_cores; i++) {
+    total_sent += schedulers[i].messages_sent;
+    total_processed += schedulers[i].messages_processed;
+}
+```
+
+Messages sent from the main thread (before scheduler threads start) use a separate atomic counter, but this path is infrequent. The pattern follows the Linux kernel's per-CPU counter design for scalable counting.
+
 ## Rejected Optimizations
 
 ### Manual Prefetching

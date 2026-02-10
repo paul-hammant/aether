@@ -546,6 +546,16 @@ void generate_expression(CodeGenerator* gen, ASTNode* expr) {
                         fprintf(gen->output, ")");
                     }
                 }
+                // Built-in: wait_for_idle() - waits until all actors are idle
+                else if (strcmp(func_name, "wait_for_idle") == 0) {
+                    fprintf(gen->output, "scheduler_wait()");
+                }
+                // Built-in: sleep(ms) - sleep for milliseconds
+                else if (strcmp(func_name, "sleep") == 0 && expr->child_count == 1) {
+                    fprintf(gen->output, "usleep(1000 * (");
+                    generate_expression(gen, expr->children[0]);
+                    fprintf(gen->output, "))");
+                }
                 else {
                     // Regular function call: func_name(arg1, arg2, ...)
                     fprintf(gen->output, "%s(", func_name);
@@ -557,7 +567,7 @@ void generate_expression(CodeGenerator* gen, ASTNode* expr) {
                 }
             }
             break;
-            
+
         case AST_ACTOR_REF:
             if (strcmp(expr->value, "self") == 0) {
                 fprintf(gen->output, "aether_self()");
@@ -1983,7 +1993,6 @@ void generate_main_function(CodeGenerator* gen, ASTNode* main) {
     if (gen->actor_count > 0) {
         print_line(gen, "");
         print_line(gen, "// Wait for actors to complete and clean up");
-        print_line(gen, "scheduler_stop();");
         print_line(gen, "scheduler_wait();");
         print_line(gen, "");
         print_line(gen, "// Output benchmark results");
@@ -2049,6 +2058,7 @@ void generate_program(CodeGenerator* gen, ASTNode* program) {
     print_line(gen, "#include <string.h>");
     print_line(gen, "#include <stdbool.h>");
     print_line(gen, "#include <stdatomic.h>");
+    print_line(gen, "#include <unistd.h>");
     print_line(gen, "");
     // Declare runtime args function (avoid full header to prevent conflicts with actor runtime)
     print_line(gen, "void aether_args_init(int argc, char** argv);");

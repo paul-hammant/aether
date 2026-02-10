@@ -177,6 +177,28 @@ The multi-core scheduler uses fixed core partitioning:
 - Actors assigned to cores via round-robin (`actor_id % num_cores`)
 - Cross-core messages use lock-free queues with batch dequeue/enqueue
 
+### Synchronization
+
+The `wait_for_idle()` function blocks until all actors have finished processing their messages. This is the recommended way to synchronize the main thread with actor completion:
+
+```aether
+main() {
+    ping = spawn(PingActor())
+    pong = spawn(PongActor())
+
+    // Send initial message
+    ping ! Start {}
+
+    // Wait for all messages to be processed
+    wait_for_idle()
+
+    // Actors are now idle, safe to read state
+    print(ping.result)
+}
+```
+
+The implementation uses per-core message counters to detect idle state with minimal overhead on the message-passing hot path. Each scheduler core tracks messages sent and processed locally, and `wait_for_idle()` sums across cores to determine when all in-flight messages have been handled.
+
 ### Initialization
 
 ```c

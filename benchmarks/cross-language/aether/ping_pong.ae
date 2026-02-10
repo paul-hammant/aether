@@ -71,18 +71,8 @@ main() {
     // Start with count=0
     pong ! Ping { count: 0 };
 
-    // Wait for completion - poll until ping actor signals done
-    // NOTE: Loop must not be optimized away - ping.completed is modified by actor thread
-    int is_complete = 0;
-    int iterations = 0;
-    while (is_complete == 0) {
-        is_complete = ping.completed;
-        iterations = iterations + 1;
-        // Prevent compiler optimization by checking iterations periodically
-        if (iterations == 10000000) {
-            iterations = 0;
-        }
-    }
+    // Wait for all actors to finish processing messages
+    wait_for_idle();
 
     // Report validation results
     int error_count = ping.errors;

@@ -18,9 +18,8 @@ for (int i = 0; i < 10000; i++) {
     scheduler_send_remote(actor, msg, current_core_id);
 }
 
-// Stop gracefully
-scheduler_stop();
-scheduler_wait();
+// Wait for all messages to be processed, then stop
+scheduler_wait();  // Blocks until idle, then stops and joins threads
 ```
 
 ## Actor Allocation
@@ -77,6 +76,23 @@ sender -> scheduler_send_local -> mailbox (direct) -> actor step
 ```c
 #define QUEUE_SIZE 16384  // In lockfree_queue.h
 ```
+
+## Idle Detection
+
+`scheduler_wait()` blocks until all messages have been processed. It uses per-core counters to detect idle state without atomic contention on the message-passing hot path:
+
+```c
+// Per-core counters in Scheduler struct
+uint64_t messages_sent;      // Incremented on send (no atomic)
+uint64_t messages_processed; // Incremented on process (no atomic)
+
+// scheduler_wait() sums across cores
+while (total_sent != total_processed) {
+    // spin-wait
+}
+```
+
+Messages sent from the main thread (before scheduler threads start) use a separate atomic counter. This path is infrequent.
 
 ## Core Assignment and Migration
 

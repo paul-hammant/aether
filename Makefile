@@ -26,9 +26,12 @@ else
     RM_DIR := rm -rf
 endif
 
+# Version from VERSION file (single source of truth)
+VERSION := $(shell cat VERSION 2>/dev/null || echo "0.0.0")
+
 # Compiler configuration with ccache support
 CC := $(shell command -v ccache 2>/dev/null && echo "ccache gcc" || echo "gcc")
-CFLAGS = -O2 -Icompiler -Iruntime -Iruntime/actors -Iruntime/scheduler -Iruntime/utils -Iruntime/memory -Iruntime/config -Istd -Istd/string -Istd/io -Istd/math -Istd/net -Istd/collections -Istd/json -Wall -Wextra -Wno-unused-parameter -Wno-unused-function -MMD -MP
+CFLAGS = -O2 -Icompiler -Iruntime -Iruntime/actors -Iruntime/scheduler -Iruntime/utils -Iruntime/memory -Iruntime/config -Istd -Istd/string -Istd/io -Istd/math -Istd/net -Istd/collections -Istd/json -Wall -Wextra -Wno-unused-parameter -Wno-unused-function -MMD -MP -DAETHER_VERSION=\"$(VERSION)\"
 LDFLAGS = -pthread -lm
 
 # Zero warnings achieved - ready for -Werror
@@ -232,9 +235,9 @@ apkg:
 
 ae: compiler
 	@echo "==================================="
-	@echo "Building ae command-line tool ($(DETECTED_OS))"
+	@echo "Building ae command-line tool ($(DETECTED_OS)) v$(VERSION)"
 	@echo "==================================="
-	$(CC) -O2 -Itools tools/ae.c tools/apkg/toml_parser.c -o build/ae$(EXE_EXT) -lm
+	$(CC) -O2 -DAETHER_VERSION=\"$(VERSION)\" -Itools tools/ae.c tools/apkg/toml_parser.c -o build/ae$(EXE_EXT) -lm
 	@echo "✓ Built successfully: build/ae$(EXE_EXT)"
 	@echo ""
 	@echo "Usage:"

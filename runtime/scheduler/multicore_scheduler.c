@@ -13,6 +13,7 @@
 #include <pthread.h>
 #include <sched.h>
 #include <errno.h>
+#include <unistd.h>
 #include "multicore_scheduler.h"
 #include "../utils/aether_cpu_detect.h"
 #include "../config/aether_optimization_config.h"
@@ -45,6 +46,11 @@
 Scheduler schedulers[MAX_CORES];
 int num_cores = 0;
 atomic_int next_actor_id = 1;
+
+// Per-core message tracking for wait_for_idle() - no atomic contention!
+// Messages sent from main thread (non-scheduler threads) use this atomic counter
+// This is rare (just initial messages), so the atomic overhead is negligible
+static atomic_uint_fast64_t main_thread_sent = 0;
 
 __thread int current_core_id = -1;
 
@@ -145,6 +151,7 @@ void* __attribute__((hot)) scheduler_thread(void* arg) {
                 int drained = 0;
                 while (actor->mailbox.count > 0 && drained < 128) {
                     if (actor->step) actor->step(actor);
+                    sched->messages_processed++;  // Per-core counter - no atomic!
                     drained++;
                 }
             }
@@ -198,6 +205,7 @@ void* __attribute__((hot)) scheduler_thread(void* arg) {
                     int processed = 0;
                     while (actor->mailbox.count > 0 && processed < 64) {
                         actor->step(actor);
+                        sched->messages_processed++;  // Per-core counter - no atomic!
                         processed++;
                     }
                     if (processed > 0 && actor->mailbox.count == 0) {
@@ -349,7 +357,11 @@ void scheduler_init(int cores) {
         atomic_store(&schedulers[i].steal_attempts, 0);
         atomic_store(&schedulers[i].idle_cycles, 0);
         spinlock_init(&schedulers[i].actor_lock);
-        
+
+        // Per-core message counters (no atomics needed - core-local)
+        schedulers[i].messages_sent = 0;
+        schedulers[i].messages_processed = 0;
+
         // TIER 1 ALWAYS ON: Initialize actor pool with NUMA-aware allocation
         schedulers[i].actor_pool = aether_numa_alloc(sizeof(ActorPool), numa_node);
         if (schedulers[i].actor_pool) {
@@ -392,47 +404,76 @@ void scheduler_stop() {
     }
 }
 
-void scheduler_wait() {
-    // First, drain all queues until empty and no actors are active
-    int max_wait_iterations = 10000;  // Prevent infinite loop
-    int iteration = 0;
-
-    while (iteration < max_wait_iterations) {
-        int all_idle = 1;
-
-        // Check all cores for pending work
-        for (int i = 0; i < num_cores; i++) {
-            Scheduler* core = &schedulers[i];
-
-            // Check if incoming queue has messages
-            if (queue_size(&core->incoming_queue) > 0) {
-                all_idle = 0;
-                break;
+// Count total pending messages across all queues, SPSC queues, and mailboxes
+static inline int count_pending_messages(void) {
+    int total = 0;
+    for (int i = 0; i < num_cores; i++) {
+        Scheduler* core = &schedulers[i];
+        total += queue_size(&core->incoming_queue);
+        for (int j = 0; j < core->actor_count; j++) {
+            ActorBase* actor = core->actors[j];
+            if (actor) {
+                total += actor->mailbox.count;
+                total += spsc_count(&actor->spsc_queue);
             }
-
-            // Check if any actors are active (have pending messages)
-            for (int j = 0; j < core->actor_count; j++) {
-                ActorBase* actor = core->actors[j];
-                if (actor && actor->active && actor->mailbox.count > 0) {
-                    all_idle = 0;
-                    break;
-                }
-            }
-
-            if (!all_idle) break;
         }
+    }
+    return total;
+}
 
-        if (all_idle) {
-            // All queues drained and no active actors - we're done
+void scheduler_wait() {
+    // Check if scheduler is still running
+    int still_running = 0;
+    for (int i = 0; i < num_cores; i++) {
+        if (atomic_load_explicit(&schedulers[i].running, memory_order_acquire)) {
+            still_running = 1;
             break;
         }
-
-        // Yield to let scheduler threads process
-        sched_yield();
-        iteration++;
     }
 
-    // Now stop and join threads
+    // If still running, wait for all messages to be processed first
+    if (still_running) {
+        // Uses per-core counters (Linux kernel's per-CPU counter pattern)
+        // No atomic contention on the hot path - only sum on read
+        int stable_count = 0;
+        while (stable_count < 5) {  // Require 5 consecutive stable reads
+            // Memory barrier to ensure we see latest values from other cores
+            atomic_thread_fence(memory_order_acquire);
+
+            // Sum all sent counters
+            uint64_t total_sent = atomic_load_explicit(&main_thread_sent, memory_order_relaxed);
+            for (int i = 0; i < num_cores; i++) {
+                total_sent += schedulers[i].messages_sent;
+            }
+
+            // Sum all processed counters
+            uint64_t total_processed = 0;
+            for (int i = 0; i < num_cores; i++) {
+                total_processed += schedulers[i].messages_processed;
+            }
+
+            if (total_sent == total_processed) {
+                stable_count++;
+                // Small delay between stability checks to avoid false positives
+                if (total_sent > 0) {
+                    usleep(100);  // 100 microseconds
+                }
+            } else {
+                stable_count = 0;
+                // Spin-wait when not yet idle
+                #if defined(__x86_64__) || defined(_M_X64)
+                __asm__ __volatile__("pause" ::: "memory");
+                #elif defined(__aarch64__)
+                __asm__ __volatile__("yield" ::: "memory");
+                #endif
+            }
+        }
+
+        // Signal threads to stop
+        scheduler_stop();
+    }
+
+    // Join threads
     for (int i = 0; i < num_cores; i++) {
         int result = pthread_join(schedulers[i].thread, NULL);
         (void)result;  // Suppress unused warning
@@ -505,6 +546,13 @@ int scheduler_register_actor(ActorBase* actor, int preferred_core) {
 }
 
 void scheduler_send_local(ActorBase* actor, Message msg) {
+    // Per-core sent counter - no atomic contention on hot path!
+    if (likely(current_core_id >= 0)) {
+        schedulers[current_core_id].messages_sent++;
+    } else {
+        // Main thread (rare) - use atomic
+        atomic_fetch_add_explicit(&main_thread_sent, 1, memory_order_relaxed);
+    }
     // auto_process actors own their mailbox; deliver via thread-safe SPSC.
     if (unlikely(actor->auto_process)) {
         spsc_enqueue(&actor->spsc_queue, msg);
@@ -515,6 +563,13 @@ void scheduler_send_local(ActorBase* actor, Message msg) {
 }
 
 void scheduler_send_remote(ActorBase* actor, Message msg, int from_core) {
+    // Per-core sent counter - no atomic contention on hot path!
+    if (likely(current_core_id >= 0)) {
+        schedulers[current_core_id].messages_sent++;
+    } else {
+        // Main thread (rare) - use atomic
+        atomic_fetch_add_explicit(&main_thread_sent, 1, memory_order_relaxed);
+    }
     int target_core = actor->assigned_core;
 
     // Guard against uninitialized or invalid assigned_core

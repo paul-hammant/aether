@@ -356,14 +356,22 @@ int typecheck_program(ASTNode* program) {
     SymbolTable* global_table = create_symbol_table(NULL);
     
     // Add builtin functions
+    // Signature: add_symbol(table, name, type, is_actor, is_function, is_state)
     Type* typeof_type = create_type(TYPE_STRING);
-    add_symbol(global_table, "typeof", typeof_type, 1, 0, 1);  // is_function=1
-    
+    add_symbol(global_table, "typeof", typeof_type, 0, 1, 0);
+
     Type* is_type_type = create_type(TYPE_BOOL);
-    add_symbol(global_table, "is_type", is_type_type, 1, 0, 1);
-    
+    add_symbol(global_table, "is_type", is_type_type, 0, 1, 0);
+
     Type* convert_type_type = create_type(TYPE_UNKNOWN);  // Returns any type
-    add_symbol(global_table, "convert_type", convert_type_type, 1, 0, 1);
+    add_symbol(global_table, "convert_type", convert_type_type, 0, 1, 0);
+
+    // Scheduler/concurrency builtins
+    Type* wait_idle_type = create_type(TYPE_VOID);
+    add_symbol(global_table, "wait_for_idle", wait_idle_type, 0, 1, 0);
+
+    Type* sleep_type = create_type(TYPE_VOID);
+    add_symbol(global_table, "sleep", sleep_type, 0, 1, 0);
     
     // First pass: collect all declarations
     for (int i = 0; i < program->child_count; i++) {
@@ -1034,7 +1042,7 @@ int typecheck_binary_expression(ASTNode* expr, SymbolTable* table) {
 
 int typecheck_function_call(ASTNode* call, SymbolTable* table) {
     if (!call || call->type != AST_FUNCTION_CALL) return 0;
-    
+
     Symbol* symbol = lookup_symbol(table, call->value);
     if (!symbol || !symbol->is_function) {
         type_error("Undefined function", call->line, call->column);
