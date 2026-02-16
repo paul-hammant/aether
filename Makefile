@@ -178,12 +178,16 @@ test-manual-runtime: compiler
 	@echo "Running manual runtime test..."
 	./build/test_runtime_manual$(EXE_EXT)
 
+# Benchmark presets: full (10M), medium (1M), low (100K), stress (100M)
+BENCHMARK_PRESET ?= low
+
 benchmark:
 	@echo "============================================"
 	@echo "  Running Cross-Language Benchmark Suite"
+	@echo "  Preset: $(BENCHMARK_PRESET)"
 	@echo "============================================"
 	@echo ""
-	@cd benchmarks/cross-language && $(MAKE) benchmark-ui
+	@cd benchmarks/cross-language && BENCHMARK_PRESET=$(BENCHMARK_PRESET) $(MAKE) benchmark-ui
 
 examples: compiler
 	@echo "==================================="

@@ -337,9 +337,10 @@ static const char* get_link_flags(void) {
 // Build GCC command for linking an Aether-compiled C file
 static void build_gcc_cmd(char* cmd, size_t size,
                           const char* c_file, const char* out_file,
-                          bool optimize) {
+                          bool optimize, const char* extra_files) {
     const char* opt = optimize ? "-O2" : "-O0 -g";
     const char* link_flags = get_link_flags();
+    const char* extra = extra_files ? extra_files : "";
 
     if (tc.has_lib) {
         char lib_dir[1024];
@@ -349,12 +350,12 @@ static void build_gcc_cmd(char* cmd, size_t size,
         if (slash) *slash = '\0';
 
         snprintf(cmd, size,
-            "gcc %s %s %s -L%s -laether -o %s -pthread -lm %s",
-            opt, tc.include_flags, c_file, lib_dir, out_file, link_flags);
+            "gcc %s %s %s %s -L%s -laether -o %s -pthread -lm %s",
+            opt, tc.include_flags, c_file, extra, lib_dir, out_file, link_flags);
     } else {
         snprintf(cmd, size,
-            "gcc %s %s %s %s -o %s -pthread -lm %s",
-            opt, tc.include_flags, c_file, tc.runtime_srcs, out_file, link_flags);
+            "gcc %s %s %s %s %s -o %s -pthread -lm %s",
+            opt, tc.include_flags, c_file, extra, tc.runtime_srcs, out_file, link_flags);
     }
 }
 
@@ -410,13 +411,13 @@ static int cmd_run(int argc, char** argv) {
     }
 
     // Step 2: Compile .c to executable with runtime
-    build_gcc_cmd(cmd, sizeof(cmd), c_file, exe_file, true);
+    build_gcc_cmd(cmd, sizeof(cmd), c_file, exe_file, true, NULL);
     if (!tc.verbose) {
         strncat(cmd, " >/dev/null 2>&1", sizeof(cmd) - strlen(cmd) - 1);
     }
     if (run_cmd(cmd) != 0) {
         // Re-run with output for error diagnosis
-        build_gcc_cmd(cmd, sizeof(cmd), c_file, exe_file, true);
+        build_gcc_cmd(cmd, sizeof(cmd), c_file, exe_file, true, NULL);
         run_cmd(cmd);
         fprintf(stderr, "Build failed.\n");
         return 1;
@@ -436,10 +437,15 @@ static int cmd_run(int argc, char** argv) {
 static int cmd_build(int argc, char** argv) {
     const char* file = NULL;
     const char* output_name = NULL;
+    char extra_files[2048] = "";
 
     for (int i = 0; i < argc; i++) {
         if (strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
             output_name = argv[++i];
+        } else if (strcmp(argv[i], "--extra") == 0 && i + 1 < argc) {
+            // Append extra C files (space-separated)
+            if (extra_files[0]) strncat(extra_files, " ", sizeof(extra_files) - strlen(extra_files) - 1);
+            strncat(extra_files, argv[++i], sizeof(extra_files) - strlen(extra_files) - 1);
         } else if (argv[i][0] != '-') {
             file = argv[i];
         }
@@ -452,7 +458,7 @@ static int cmd_build(int argc, char** argv) {
 
     if (!file) {
         fprintf(stderr, "Error: No input file specified.\n");
-        fprintf(stderr, "Usage: ae build <file.ae> [-o output]\n");
+        fprintf(stderr, "Usage: ae build <file.ae> [-o output] [--extra file.c]\n");
         return 1;
     }
 
@@ -495,12 +501,13 @@ static int cmd_build(int argc, char** argv) {
     }
 
     // Step 2: .c to executable with runtime
-    build_gcc_cmd(cmd, sizeof(cmd), c_file, exe_file, true);
+    const char* extra = extra_files[0] ? extra_files : NULL;
+    build_gcc_cmd(cmd, sizeof(cmd), c_file, exe_file, true, extra);
     if (!tc.verbose) {
         strncat(cmd, " >/dev/null 2>&1", sizeof(cmd) - strlen(cmd) - 1);
     }
     if (run_cmd(cmd) != 0) {
-        build_gcc_cmd(cmd, sizeof(cmd), c_file, exe_file, true);
+        build_gcc_cmd(cmd, sizeof(cmd), c_file, exe_file, true, extra);
         run_cmd(cmd);
         fprintf(stderr, "Build failed.\n");
         return 1;
@@ -672,7 +679,7 @@ static int cmd_test(int argc, char** argv) {
         }
 
         // Compile .c to executable
-        build_gcc_cmd(cmd, sizeof(cmd), c_file, exe_file, false);
+        build_gcc_cmd(cmd, sizeof(cmd), c_file, exe_file, false, NULL);
         char full_cmd[8192];
         snprintf(full_cmd, sizeof(full_cmd), "%s >/dev/null 2>&1", cmd);
         if (run_cmd(full_cmd) != 0) {
