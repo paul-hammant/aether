@@ -6,6 +6,56 @@ The Aether runtime implements several performance optimizations targeting messag
 
 ## Active Optimizations
 
+### Main Thread Actor Mode
+
+**Implementation:** `runtime/actors/aether_send_message.c`, `runtime/scheduler/multicore_scheduler.c`, `runtime/config/aether_optimization_config.h`
+
+Single-actor programs bypass the scheduler entirely. When only one actor exists, message processing occurs synchronously on the main thread with zero-copy message delivery.
+
+**Activation:**
+- Automatic: Enabled when the first actor spawns, disabled if a second actor spawns
+- Manual disable: Set `AETHER_NO_INLINE=1` environment variable
+
+**Mechanism:**
+
+When main thread mode is active:
+1. `aether_send_message` calls `aether_send_message_sync` instead of routing through scheduler
+2. The sync path passes the caller's stack pointer directly (no malloc, no memcpy)
+3. `actor->step()` is called synchronously in the sender's context
+4. A TLS flag (`g_skip_free`) prevents the handler from freeing the stack pointer
+
+```c
+static inline void aether_send_message_sync(ActorBase* actor, void* message_data, size_t message_size) {
+    Message msg;
+    msg.type = *(int*)message_data;
+    msg.payload_ptr = message_data;  // Direct pointer to caller's stack
+
+    mailbox_send(&actor->mailbox, msg);
+
+    g_skip_free = 1;
+    actor->step(actor);
+    g_skip_free = 0;
+}
+```
+
+**Per-actor flag:**
+
+The `main_thread_only` field on `ActorBase` signals scheduler threads to skip processing this actor. When a second actor spawns, the flag is cleared on the first actor so scheduler threads can process both normally.
+
+```c
+typedef struct {
+    // ...
+    int main_thread_only;  // If set, scheduler threads skip this actor
+    // ...
+} ActorBase;
+```
+
+**Scheduler integration:**
+
+- `scheduler_start()` returns immediately if main thread mode is active
+- `scheduler_wait()` returns immediately if main thread mode is active
+- Scheduler threads check `actor->main_thread_only` before processing
+
 ### Thread-Local Message Payload Pools
 
 **Implementation:** `runtime/actors/aether_send_message.c`
@@ -299,16 +349,24 @@ Benchmarks showed hardware prefetchers handle sequential ring buffer access more
 
 Message processing is memory-bound. Vectorization overhead exceeded benefits for typical message sizes.
 
-## Inactive Headers
+## Opt-In Features
 
-The following headers exist in the source tree but are not called from the scheduler or message delivery paths:
+The following optimizations are available but disabled by default. Enable them via runtime configuration flags when appropriate for your workload.
 
-- `runtime/actors/aether_direct_send.h` - Direct send logic (functionality integrated into `scheduler_send_remote` instead)
-- `runtime/actors/aether_message_dedup.h` - Message deduplication
-- `runtime/actors/aether_message_specialize.h` - Compile-time message specialization
-- `runtime/actors/aether_simd_batch.h` - SIMD batch processing
+**Message Deduplication** (`runtime/actors/aether_message_dedup.h`)
+- Filters duplicate messages using a sliding window of message fingerprints
+- Enable via `AETHER_OPT_MESSAGE_DEDUP` flag
+- Trade-off: adds overhead, changes message delivery semantics
 
-These headers define interfaces that may be integrated in a future release.
+**Lock-Free Mailbox** (`runtime/actors/lockfree_mailbox.h`)
+- SPSC atomic queue replacing standard ring buffer
+- Enable via `AETHER_OPT_LOCKFREE_MAILBOX` flag
+- Trade-off: slower for single-threaded workloads, faster under heavy contention
+
+**SIMD Batch Processing** (`runtime/actors/aether_simd_batch.h`)
+- Vectorized message processing using AVX2 or NEON
+- Auto-detected based on hardware capabilities
+- Trade-off: overhead exceeds benefit for small message batches
 
 ## Benchmarking
 

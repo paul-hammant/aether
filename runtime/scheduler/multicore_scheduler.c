@@ -97,7 +97,7 @@ void* __attribute__((hot)) scheduler_thread(void* arg) {
 
     while (atomic_load_explicit(&sched->running, memory_order_acquire)) {
         int work_done = 0;
-        
+
         // TIER 1 ALWAYS ON: Adaptive batch sizing
         int batch_size = sched->batch_state.current_batch_size;
         if (batch_size > COALESCE_THRESHOLD) batch_size = COALESCE_THRESHOLD;
@@ -145,6 +145,13 @@ void* __attribute__((hot)) scheduler_thread(void* arg) {
                 continue;
             }
 
+            // For actors processed on main thread, just deliver to mailbox (don't process)
+            if (unlikely(actor->main_thread_only)) {
+                mailbox_send(&actor->mailbox, msg);
+                work_done = 1;
+                continue;
+            }
+
             // Drain actor mailbox aggressively BEFORE trying to add new message
             if (actor->mailbox.count > MAILBOX_SIZE / 2) {
                 // Mailbox getting full - drain it NOW
@@ -181,6 +188,9 @@ void* __attribute__((hot)) scheduler_thread(void* arg) {
             }
 
             if (unlikely(!actor)) continue;
+
+            // Skip actors processed on main thread
+            if (unlikely(actor->main_thread_only)) continue;
 
             // auto_process actors own their mailbox and SPSC from their
             // own thread.  Skip entirely — touching either here would
@@ -330,6 +340,9 @@ void scheduler_init(int cores) {
     // TIER 2: Auto-detect hardware capabilities first
     aether_detect_hardware();
 
+    // Initialize profile and inline mode from env vars
+    aether_init_from_env();
+
     // Initialize NUMA topology detection
     (void)aether_numa_init();  // NUMA topology initialized for future use
     
@@ -380,6 +393,12 @@ void scheduler_init_with_opts(int cores, AetherOptFlags opts) {
 }
 
 void scheduler_start() {
+    // MAIN THREAD MODE: Single-actor programs don't need scheduler threads
+    // All message processing happens synchronously on the main thread
+    if (aether_main_thread_mode_active()) {
+        return;  // No threads to start
+    }
+
     for (int i = 0; i < num_cores; i++) {
         atomic_store_explicit(&schedulers[i].running, 1, memory_order_release);
         int rc = pthread_create(&schedulers[i].thread, NULL, scheduler_thread, &schedulers[i]);
@@ -423,6 +442,12 @@ static inline int count_pending_messages(void) {
 }
 
 void scheduler_wait() {
+    // MAIN THREAD MODE: All messages processed synchronously, nothing to wait for
+    // This is the fastest path for single-actor programs (counting benchmark)
+    if (aether_main_thread_mode_active()) {
+        return;  // No scheduler threads, no waiting needed
+    }
+
     // Check if scheduler is still running
     int still_running = 0;
     for (int i = 0; i < num_cores; i++) {
@@ -546,7 +571,19 @@ int scheduler_register_actor(ActorBase* actor, int preferred_core) {
     return preferred_core;
 }
 
+// Thread-local recursion guard for work inlining (prevent stack overflow)
+static __thread int inline_depth = 0;
+#define MAX_INLINE_DEPTH 16  // Limit recursion to prevent stack overflow
+
 void scheduler_send_local(ActorBase* actor, Message msg) {
+    // NOTE: Inline mode optimization is handled by the existing WORK INLINING
+    // code below (lines 590+), which is safe because it checks for scheduler
+    // thread context (current_core_id >= 0 && actor->assigned_core == current_core_id).
+    //
+    // The profile-based inline mode (aether_inline_mode_active) is NOT used here
+    // because it would cause races when main thread sends to actors being
+    // processed by scheduler threads.
+
     // Per-core sent counter - no atomic contention on hot path!
     if (likely(current_core_id >= 0)) {
         schedulers[current_core_id].messages_sent++;
@@ -561,9 +598,30 @@ void scheduler_send_local(ActorBase* actor, Message msg) {
         mailbox_send(&actor->mailbox, msg);
     }
     actor->active = 1;
+
+    // WORK INLINING: If actor is idle and we're not too deep, run it immediately.
+    // This eliminates scheduler loop overhead for tight request-response patterns.
+    if (likely(current_core_id >= 0) &&
+        inline_depth < MAX_INLINE_DEPTH &&
+        actor->assigned_core == current_core_id &&
+        actor->mailbox.count == 1) {  // Just this message, actor was idle
+        inline_depth++;
+        actor->step(actor);
+        schedulers[current_core_id].messages_processed++;
+        if (actor->mailbox.count == 0) {
+            actor->active = 0;
+        }
+        inline_depth--;
+    }
 }
 
 void scheduler_send_remote(ActorBase* actor, Message msg, int from_core) {
+    // INLINE MODE: For single-actor programs, redirect to local send
+    // which will process the message synchronously.
+    // NOTE: Profile-based inline mode disabled here - it's unsafe when
+    // main thread sends to actors being processed by scheduler threads.
+    // The existing same-core optimizations below handle the safe cases.
+
     // Per-core sent counter - no atomic contention on hot path!
     if (likely(current_core_id >= 0)) {
         schedulers[current_core_id].messages_sent++;
@@ -594,13 +652,16 @@ void scheduler_send_remote(ActorBase* actor, Message msg, int from_core) {
         return;
     }
 
-    // Cross-core send: set affinity hint so the scheduler thread that owns
-    // this actor will migrate it to from_core.  Only set the hint when
-    // the caller is actually running on the stated core (i.e. is a
-    // scheduler thread or actor thread), not from the main thread or
-    // external callers that pass arbitrary from_core values.
+    // Cross-core send: set affinity hint so communicating actors converge.
+    // STABLE CONVERGENCE: Always migrate to the LOWER core ID to prevent oscillation.
+    // This ensures ping-pong actors eventually end up on the same core.
     if (from_core >= 0 && from_core == current_core_id && !actor->auto_process) {
-        actor->migrate_to = from_core;
+        int target_migrate = (from_core < target_core) ? from_core : target_core;
+        // Only set if it would move the actor to a lower core (stable direction)
+        if (target_migrate < actor->assigned_core &&
+            (actor->migrate_to < 0 || target_migrate < actor->migrate_to)) {
+            actor->migrate_to = target_migrate;
+        }
     }
 
     // Enqueue to target core's incoming queue
@@ -646,6 +707,24 @@ ActorBase* scheduler_spawn_pooled(int preferred_core, void (*step)(void*), size_
     actor->auto_process = 0;
     actor->assigned_core = preferred_core;
     actor->migrate_to = -1;
+    actor->main_thread_only = 0;
+
+    // Track actor count for inline mode auto-detection
+    // Get previous count and main_actor BEFORE aether_on_actor_spawn modifies them
+    int prev_count = atomic_load_explicit(&g_aether_config.actor_count, memory_order_relaxed);
+    ActorBase* prev_main_actor = (ActorBase*)g_aether_config.main_actor;
+    aether_on_actor_spawn();
+
+    // MAIN THREAD MODE handling
+    if (prev_count == 0 && !atomic_load(&g_aether_config.inline_mode_disabled)) {
+        // First actor: enable main thread mode for synchronous processing
+        aether_enable_main_thread_mode(actor);
+        actor->main_thread_only = 1;
+    } else if (prev_count == 1 && prev_main_actor != NULL) {
+        // Second actor: disable main thread mode on the first actor
+        // so scheduler threads can process both actors normally
+        prev_main_actor->main_thread_only = 0;
+    }
 
     scheduler_register_actor(actor, preferred_core);
 
@@ -655,7 +734,10 @@ ActorBase* scheduler_spawn_pooled(int preferred_core, void (*step)(void*), size_
 // TIER 1 ALWAYS ON: Release actor back to pool
 void scheduler_release_pooled(ActorBase* actor) {
     if (!actor) return;
-    
+
+    // Track actor count for inline mode auto-detection
+    aether_on_actor_terminate();
+
     int core = actor->assigned_core;
     if (core >= 0 && core < num_cores && schedulers[core].actor_pool) {
         PooledActor* pooled = (PooledActor*)actor;

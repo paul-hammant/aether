@@ -29,6 +29,13 @@ The actor runtime includes several performance optimizations applied automatical
 
 ### Active Optimizations
 
+**Main Thread Actor Mode:**
+- Single-actor programs bypass the scheduler entirely
+- Messages processed synchronously in the sender's context
+- Zero-copy: caller's stack pointer passed directly
+- Activated automatically when only one actor exists
+- Disabled by `AETHER_NO_INLINE=1` environment variable
+
 **Message Coalescing:**
 - Batch dequeue drains multiple messages in a single atomic operation
 - Configurable threshold (COALESCE_THRESHOLD = 512)
@@ -76,6 +83,7 @@ typedef struct {
     int auto_process;
     int assigned_core;
     int migrate_to;
+    int main_thread_only;  // If set, scheduler threads skip this actor
     SPSCQueue spsc_queue;
     // User state fields follow
 } ActorBase;

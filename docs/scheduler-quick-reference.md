@@ -1,5 +1,24 @@
 # Aether Scheduler - Quick Reference
 
+## Main Thread Mode
+
+Single-actor programs bypass the scheduler entirely. When only one actor exists and all messages originate from the main thread, the runtime processes messages synchronously without spawning scheduler threads.
+
+**Activation:**
+- Automatic: Enabled when the first actor spawns, disabled when a second actor spawns
+- Manual disable: Set `AETHER_NO_INLINE=1` environment variable
+
+**Mechanism:**
+- `scheduler_start()` returns immediately
+- `scheduler_wait()` returns immediately
+- `aether_send_message` processes synchronously via `aether_send_message_sync`
+- Zero-copy: message data passed directly from caller's stack
+
+**Per-actor flag:**
+The `main_thread_only` field on `ActorBase` signals scheduler threads to skip processing this actor. When a second actor spawns, the flag is cleared on the first actor.
+
+---
+
 ## Scheduler Usage
 
 ```c

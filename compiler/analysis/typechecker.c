@@ -372,7 +372,18 @@ int typecheck_program(ASTNode* program) {
 
     Type* sleep_type = create_type(TYPE_VOID);
     add_symbol(global_table, "sleep", sleep_type, 0, 1, 0);
-    
+
+    // Environment variable builtins
+    Type* getenv_type = create_type(TYPE_STRING);  // Returns string (or null)
+    add_symbol(global_table, "getenv", getenv_type, 0, 1, 0);
+
+    Type* atoi_type = create_type(TYPE_INT);  // Returns int
+    add_symbol(global_table, "atoi", atoi_type, 0, 1, 0);
+
+    // Timing builtin
+    Type* clock_ns_type = create_type(TYPE_INT);  // Returns nanoseconds as int
+    add_symbol(global_table, "clock_ns", clock_ns_type, 0, 1, 0);
+
     // First pass: collect all declarations
     for (int i = 0; i < program->child_count; i++) {
         ASTNode* child = program->children[i];
