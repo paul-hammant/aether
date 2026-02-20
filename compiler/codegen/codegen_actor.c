@@ -301,9 +301,9 @@ void generate_actor_definition(CodeGenerator* gen, ASTNode* actor) {
                             unindent(gen);
                             print_line(gen, "} else {");
                             indent(gen);
-                            print_line(gen, "%s _inline = { ._message_id = msg.type, .%s = msg.payload_int };",
+                            print_line(gen, "%s _msg_val = { ._message_id = msg.type, .%s = msg.payload_int };",
                                       pattern->value, single_int);
-                            print_line(gen, "%s_handle_%s(self, &_inline);", actor->value, pattern->value);
+                            print_line(gen, "%s_handle_%s(self, &_msg_val);", actor->value, pattern->value);
                             unindent(gen);
                             print_line(gen, "}");
                         } else {
@@ -332,7 +332,7 @@ void generate_actor_definition(CodeGenerator* gen, ASTNode* actor) {
     print_line(gen, "if (!actor) {");
     indent(gen);
     print_line(gen, "// Fallback to aligned allocation if pool exhausted");
-    print_line(gen, "actor = aligned_alloc(64, sizeof(%s));", actor->value);
+    print_line(gen, "actor = aether_aligned_alloc(64, sizeof(%s));", actor->value);
     print_line(gen, "if (!actor) return NULL;");
     print_line(gen, "actor->id = atomic_fetch_add(&next_actor_id, 1);");
     print_line(gen, "actor->assigned_core = -1;");
