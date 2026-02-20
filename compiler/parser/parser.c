@@ -199,7 +199,7 @@ static ASTNode* parse_interp_string_expr(const char* raw) {
             }
             size_t expr_len = (size_t)(p - expr_start);
             char* expr_src = malloc(expr_len + 1);
-            strncpy(expr_src, expr_start, expr_len);
+            memcpy(expr_src, expr_start, expr_len);
             expr_src[expr_len] = '\0';
             if (*p == '}') p++; // skip }
 
@@ -1678,7 +1678,7 @@ ASTNode* parse_actor_definition(Parser* parser) {
                 // If we can't parse a statement, advance to avoid infinite loop
                 Token* tok = peek_token(parser);
                 fprintf(stderr, "Warning: Skipping unexpected token in actor body: %s (type=%d)\n",
-                        tok ? tok->value : "NULL", tok ? tok->type : -1);
+                        tok ? tok->value : "NULL", tok ? (int)tok->type : -1);
                 advance_token(parser);
             }
         }

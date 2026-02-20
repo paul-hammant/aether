@@ -22,6 +22,7 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <direct.h>
+#include <process.h>   // getpid() / _getpid() on MinGW and MSVC
 #define PATH_SEP "\\"
 #define EXE_EXT ".exe"
 #define mkdir_p(path) _mkdir(path)
@@ -29,6 +30,10 @@
 #ifndef popen
 #  define popen  _popen
 #  define pclose _pclose
+#endif
+// MinGW exposes getpid() in <process.h>; MSVC only has _getpid()
+#ifndef getpid
+#  define getpid _getpid
 #endif
 #else
 #include <unistd.h>

@@ -89,14 +89,19 @@ jobs:
       run: |
         :: Compile each portable header as a standalone translation unit.
         :: This catches any GCC-isms that slipped through the guards.
-        cl /nologo /W3 /std:c11 /Zc:preprocessor ^
-           /I runtime /I runtime/utils /I runtime/actors ^
-           /I runtime/scheduler /I runtime/memory /I runtime/config ^
-           /c /TC nul ^
-           /FI runtime/utils/aether_compiler.h && echo "aether_compiler.h OK" || exit 1
+        :: Note: cl.exe cannot open 'nul' as a source file — use a real empty file.
+        echo. > _probe.c
 
         cl /nologo /W3 /std:c11 /Zc:preprocessor ^
            /I runtime /I runtime/utils /I runtime/actors ^
            /I runtime/scheduler /I runtime/memory /I runtime/config ^
-           /c /TC nul ^
-           /FI runtime/utils/aether_thread.h && echo "aether_thread.h OK" || exit 1
+           /FI runtime/utils/aether_compiler.h /c _probe.c ^
+           && echo "aether_compiler.h OK" || exit 1
+
+        cl /nologo /W3 /std:c11 /Zc:preprocessor ^
+           /I runtime /I runtime/utils /I runtime/actors ^
+           /I runtime/scheduler /I runtime/memory /I runtime/config ^
+           /FI runtime/utils/aether_thread.h /c _probe.c ^
+           && echo "aether_thread.h OK" || exit 1
+
+        del _probe.c _probe.obj 2>nul
