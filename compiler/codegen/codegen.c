@@ -790,7 +790,18 @@ void generate_program(CodeGenerator* gen, ASTNode* program) {
     print_line(gen, "#include <stdbool.h>");
     print_line(gen, "#include <stdatomic.h>");
     print_line(gen, "#include <stdint.h>");
+    print_line(gen, "#ifndef _WIN32");
     print_line(gen, "#include <unistd.h>");
+    print_line(gen, "#endif");
+    print_line(gen, "#ifndef likely");
+    print_line(gen, "#  if defined(__GNUC__) || defined(__clang__)");
+    print_line(gen, "#    define likely(x)   __builtin_expect(!!(x), 1)");
+    print_line(gen, "#    define unlikely(x) __builtin_expect(!!(x), 0)");
+    print_line(gen, "#  else");
+    print_line(gen, "#    define likely(x)   (x)");
+    print_line(gen, "#    define unlikely(x) (x)");
+    print_line(gen, "#  endif");
+    print_line(gen, "#endif");
     print_line(gen, "");
     // Declare runtime args function (avoid full header to prevent conflicts with actor runtime)
     print_line(gen, "void aether_args_init(int argc, char** argv);");

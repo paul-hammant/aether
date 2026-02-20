@@ -61,10 +61,24 @@ apk add build-base
 ```
 
 **Windows:**
-- Install [MinGW-w64](https://www.mingw-w64.org/) (GCC 11.0+)
-- Add MinGW `bin` directory to your PATH
-- MSVC is not supported — Aether requires GCC
-- Use `mingw32-make ae` instead of the install script
+
+The easiest way is to download the pre-built release binary — no MSYS2, no manual toolchain required:
+
+1. Download `aether-*-windows-x86_64.zip` from [GitHub Releases](https://github.com/nicolasmd87/aether/releases)
+2. Extract to any folder — e.g. `C:\aether`
+3. Add `C:\aether\bin` to your PATH (System Settings → Environment Variables → Path)
+4. Open any terminal (PowerShell or CMD):
+
+```powershell
+ae version
+ae run examples\basics\hello.ae
+```
+
+**GCC is downloaded automatically on the first `ae run`** (~80 MB, one-time). No MSYS2, no separate installer needed.
+
+> **Windows Defender tip:** The first build may trigger a scan. Adding `C:\aether` to Windows Security exclusions speeds things up.
+
+> **Building from source / contributors:** Install [MSYS2](https://www.msys2.org/), open "MSYS2 MinGW 64-bit", then `pacman -S mingw-w64-x86_64-gcc make git` and `make ae`.
 
 ### Development Build (without installing)
 
@@ -346,18 +360,33 @@ main() {
 - Explore [Standard Library Documentation](stdlib-reference.md)
 - See [Architecture](architecture.md) for compiler and runtime internals
 - See [Runtime Optimizations](runtime-optimizations.md) for performance details
+- Use `ae version list` to see available releases and `ae version install <v>` to switch versions
+
+## Version Management
+
+Switch between Aether releases without reinstalling:
+
+```bash
+ae version              # Show current version
+ae version list         # List all available releases (marks installed/active)
+ae version install v0.6.0   # Download and install a specific version
+ae version use v0.6.0       # Switch to an installed version
+```
+
+Versions are stored in `~/.aether/versions/`. The active version is symlinked to `~/.aether/current` (Linux/macOS) or copied to `~/.aether/bin/` (Windows).
 
 ## Troubleshooting
 
 ### Build Failures
 
 **"gcc: command not found" (Windows)**
-- Ensure MinGW bin directory is in PATH
-- Verify: `gcc --version`
+- This should not happen with the pre-built binary — `ae` auto-downloads GCC (~80 MB) on first run
+- If you built from source via MSYS2, open the "MSYS2 MinGW 64-bit" shell, not plain PowerShell
+- Verify: `gcc --version` — should show MinGW-w64 GCC
 
 **"pthread.h: No such file or directory"**
 - Linux: `sudo apt-get install libpthread-stubs0-dev`
-- MinGW includes pthread by default
+- Windows: The Aether runtime uses Win32 threads natively — no pthread library needed
 
 **Test failures**
 - Run specific test category: `./build/test_runner --category=compiler`
@@ -366,9 +395,8 @@ main() {
 ### Common Pitfalls
 
 1. Forgetting to rebuild after changes: run `make clean && make`
-2. Using MSVC on Windows: Aether requires GCC (MinGW)
-3. Missing `-lpthread` flag when compiling manually
-4. Actor structs missing the `migrate_to` field (causes struct layout mismatch)
+2. Actor structs missing the `migrate_to` field (causes struct layout mismatch)
+3. On Windows, running `ae` from a directory without write permission (GCC download needs `~\.aether\`)
 
 ### Platform-Specific Notes
 
@@ -384,6 +412,9 @@ main() {
 - Full thread affinity support for deterministic performance
 
 **Windows:**
-- Use PowerShell, not CMD
-- Forward slashes in paths work: `./build/ae`
-- Full thread affinity support via SetThreadAffinityMask
+- Pre-built binaries work in any terminal (PowerShell, CMD, Windows Terminal)
+- GCC is auto-downloaded on first `ae run` — no MSYS2 or manual setup required
+- The runtime uses Win32 threads natively — no pthreads library required
+- Full thread affinity support via `SetThreadAffinityMask`
+- P-core detection via `GetSystemCpuSetInformation` (Windows 10 1903+)
+- **Building from source:** Use MSYS2 MinGW 64-bit shell with `make ae`

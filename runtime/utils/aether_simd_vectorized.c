@@ -49,7 +49,7 @@ void extract_message_ids_avx2(const void** msg_data, int32_t* msg_ids, int count
         
         // Prefetch next batch
         if (i + 16 < count) {
-            __builtin_prefetch(msg_data[i+16], 0, 1);
+            AETHER_PREFETCH(msg_data[i+16], 0, 1);
         }
     }
     
@@ -111,7 +111,7 @@ void increment_counters_avx2(int32_t* counters, const int32_t* increments, int c
         
         // Prefetch next batch
         if (i + 16 < count) {
-            __builtin_prefetch(&counters[i+16], 1, 1);
+            AETHER_PREFETCH(&counters[i+16], 1, 1);
         }
     }
     
@@ -137,7 +137,7 @@ int count_active_actors_avx2(const uint8_t* active_flags, int count) {
         int mask = _mm256_movemask_epi8(cmp);
         
         // Count zeros, subtract from 32
-        total += 32 - __builtin_popcount((unsigned)mask);
+        total += 32 - AETHER_POPCOUNT(mask);
     }
     
     // Scalar tail

@@ -1,6 +1,7 @@
 # Aether Programming Language
 
 [![CI](https://github.com/nicolasmd87/aether/actions/workflows/ci.yml/badge.svg)](https://github.com/nicolasmd87/aether/actions/workflows/ci.yml)
+[![Windows](https://github.com/nicolasmd87/aether/actions/workflows/windows.yml/badge.svg)](https://github.com/nicolasmd87/aether/actions/workflows/windows.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)]()
 
@@ -55,19 +56,32 @@ See [benchmarks/cross-language/](benchmarks/cross-language/) for methodology and
 
 ### Install
 
+**Linux / macOS — one-line install:**
+
 ```bash
 git clone https://github.com/nicolasmd87/aether.git
 cd aether
 ./install.sh
 ```
 
-This builds Aether and installs it to `~/.aether`. After restarting your terminal (or running `source ~/.zshrc`), the `ae` command is available system-wide.
+Installs to `~/.aether` and adds `ae` to your PATH. Restart your terminal or run `source ~/.zshrc` (or `~/.bash_profile`).
 
-To install to a custom location: `./install.sh /usr/local` (requires sudo).
+**Windows — download and run:**
 
-**Prerequisites:** GCC or Clang, Make, Git. The installer checks for these and tells you what's missing.
+1. Download `aether-*-windows-x86_64.zip` from [Releases](https://github.com/nicolasmd87/aether/releases)
+2. Extract to any folder (e.g. `C:\aether`)
+3. Add `C:\aether\bin` to your PATH
+4. Open any terminal (PowerShell or CMD) and run `ae run hello.ae`
 
-**Windows:** Use `mingw32-make ae` instead (see [Getting Started](docs/getting-started.md) for Windows setup).
+GCC is downloaded automatically the first time you run a program — no MSYS2 or manual toolchain setup required.
+
+**All platforms — manage versions with `ae version`:**
+
+```bash
+ae version list              # see all available releases
+ae version install v0.6.0    # download and install a specific version
+ae version use v0.6.0        # switch to that version
+```
 
 ### Your First Program
 
@@ -119,8 +133,11 @@ ae run [file.ae]         # Compile and run (file or project)
 ae build [file.ae]       # Compile to executable
 ae test [file|dir]       # Discover and run tests
 ae add <package>         # Add a dependency
-ae repl                  # Start interactive REPL (compile-and-run loop)
-ae version               # Show version
+ae repl                  # Start interactive REPL
+ae version               # Show current version
+ae version list          # List all available releases
+ae version install <v>   # Install a specific version
+ae version use <v>       # Switch to an installed version
 ae help                  # Show all commands
 ```
 
@@ -139,7 +156,7 @@ make -j8                         # Parallel build
 make help                        # Show all targets
 ```
 
-**Windows:** Use `mingw32-make` instead of `make` and `.\\build\\ae.exe` instead of `./build/ae`.
+**Windows:** Use the [release binary](https://github.com/nicolasmd87/aether/releases) — no MSYS2 needed. To build from source, use MSYS2 MinGW 64-bit shell with `make ae`.
 
 ## Project Structure
 

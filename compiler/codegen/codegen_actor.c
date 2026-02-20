@@ -201,7 +201,7 @@ void generate_actor_definition(CodeGenerator* gen, ASTNode* actor) {
     print_line(gen, "Message msg;");
     print_line(gen, "");
     print_line(gen, "// Likely path: mailbox has message");
-    print_line(gen, "if (__builtin_expect(!mailbox_receive(&self->mailbox, &msg), 0)) {");
+    print_line(gen, "if (unlikely(!mailbox_receive(&self->mailbox, &msg))) {");
     indent(gen);
     print_line(gen, "self->active = 0;");
     print_line(gen, "return;");
@@ -255,7 +255,7 @@ void generate_actor_definition(CodeGenerator* gen, ASTNode* actor) {
         print_line(gen, "};");
         print_line(gen, "");
         print_line(gen, "// Bounds check with likely hint (message IDs are usually valid)");
-        print_line(gen, "if (__builtin_expect(_msg_id >= 0 && _msg_id < 256 && dispatch_table[_msg_id], 1)) {");
+        print_line(gen, "if (likely(_msg_id >= 0 && _msg_id < 256 && dispatch_table[_msg_id])) {");
         indent(gen);
         print_line(gen, "goto *dispatch_table[_msg_id];  // Direct jump - zero overhead");
         unindent(gen);

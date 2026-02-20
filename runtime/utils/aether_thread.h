@@ -197,6 +197,14 @@ static inline void* pthread_getspecific(pthread_key_t key) {
     return FlsGetValue(key);
 }
 
+// ---- sched_yield compat --------------------------------------------------
+// On POSIX, sched_yield() lives in <sched.h>.
+// On Windows the equivalent is SwitchToThread() from <windows.h>.
+static inline int sched_yield(void) {
+    SwitchToThread();
+    return 0;
+}
+
 #endif // _WIN32
 
 #endif // AETHER_THREAD_H

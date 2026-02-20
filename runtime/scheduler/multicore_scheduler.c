@@ -11,9 +11,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include "../utils/aether_thread.h"
+#ifndef _WIN32
 #include <sched.h>
-#include <errno.h>
 #include <unistd.h>
+#endif
+#include <errno.h>
 #include <time.h>
 #include "multicore_scheduler.h"
 #include "../utils/aether_cpu_detect.h"
@@ -56,6 +58,11 @@ atomic_int next_actor_id = 1;
 // Messages sent from main thread (non-scheduler threads) use this atomic counter
 // This is rare (just initial messages), so the atomic overhead is negligible
 static atomic_uint_fast64_t main_thread_sent = 0;
+
+// Guard: scheduler_wait() joins threads exactly once even if called multiple times.
+// Without this, calling wait_for_idle() followed by the shutdown sequence would
+// pthread_join already-joined threads — undefined behaviour (crash on Linux glibc).
+static atomic_int g_threads_joined = 0;
 
 AETHER_TLS int current_core_id = -1;
 
@@ -341,6 +348,9 @@ void* AETHER_HOT scheduler_thread(void* arg) {
 }
 
 void scheduler_init(int cores) {
+    // Reset join guard so the scheduler can be restarted (e.g. in tests).
+    atomic_store_explicit(&g_threads_joined, 0, memory_order_relaxed);
+
     // TIER 2: Auto-detect hardware capabilities first
     aether_detect_hardware();
 
@@ -503,14 +513,18 @@ void scheduler_wait() {
         scheduler_stop();
     }
 
-    // Join threads
-    for (int i = 0; i < num_cores; i++) {
-        int result = pthread_join(schedulers[i].thread, NULL);
-        (void)result;  // Suppress unused warning
-    }
+    // Join threads — but only once. If wait_for_idle() already joined them,
+    // a second call (from the generated shutdown sequence) must be a no-op.
+    // pthread_join on an already-joined thread is undefined behaviour (crash on Linux).
+    if (atomic_exchange_explicit(&g_threads_joined, 1, memory_order_acq_rel) == 0) {
+        for (int i = 0; i < num_cores; i++) {
+            int result = pthread_join(schedulers[i].thread, NULL);
+            (void)result;  // Suppress unused warning
+        }
 
-    // Cleanup NUMA resources
-    aether_numa_cleanup();
+        // Cleanup NUMA resources
+        aether_numa_cleanup();
+    }
 }
 
 void scheduler_cleanup() {

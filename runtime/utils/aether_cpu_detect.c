@@ -4,7 +4,9 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 
 #if defined(__APPLE__) || defined(__MACOS__)
 #include <sys/sysctl.h>
