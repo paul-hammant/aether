@@ -26,6 +26,9 @@ else
     RM_DIR := rm -rf
 endif
 
+# Parallel job count (override with: make test-ae NPROC=8)
+NPROC ?= $(shell sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null || echo 4)
+
 # Version from VERSION file (single source of truth)
 VERSION := $(shell cat VERSION 2>/dev/null || echo "0.0.0")
 
@@ -180,30 +183,32 @@ test-manual-runtime: compiler
 	./build/test_runtime_manual$(EXE_EXT)
 
 # Test .ae source files - compiles and runs each test file
-test-ae: compiler ae
+test-ae: compiler ae stdlib
 	@echo "==================================="
 	@echo "  Running Aether Source Tests (.ae)"
+	@echo "  Parallel: $(NPROC) jobs"
 	@echo "==================================="
-	@passed=0; failed=0; total=0; \
-	for test_file in tests/syntax/*.ae tests/compiler/*.ae tests/integration/*.ae; do \
-		if [ -f "$$test_file" ]; then \
-			total=$$((total + 1)); \
-			name=$$(basename "$$test_file" .ae); \
-			echo -n "  Testing $$name... "; \
-			if ./build/ae build "$$test_file" -o build/test_$$name 2>/dev/null; then \
-				if ./build/test_$$name >/dev/null 2>&1; then \
-					echo "[PASS]"; \
-					passed=$$((passed + 1)); \
-				else \
-					echo "[FAIL] (runtime error)"; \
-					failed=$$((failed + 1)); \
-				fi; \
-			else \
-				echo "[FAIL] (compile error)"; \
-				failed=$$((failed + 1)); \
-			fi; \
-		fi; \
-	done; \
+	@tmpdir=$$(mktemp -d); \
+	script="$$tmpdir/run_test.sh"; \
+	printf '#!/bin/sh\n'                                                                        > "$$script"; \
+	printf 'f="$$1"; tmpdir="$$2"\n'                                                           >> "$$script"; \
+	printf 'name=$$(echo "$$f" | sed "s|tests/||;s|/|_|g;s|\\.ae$$||")\n'                    >> "$$script"; \
+	printf 'if ./build/ae build "$$f" -o "build/test_$$name" 2>/dev/null; then\n'              >> "$$script"; \
+	printf '  if "./build/test_$$name" >/dev/null 2>&1; then\n'                                >> "$$script"; \
+	printf '    echo "  [PASS] $$name"; touch "$$tmpdir/PASS_$$name"\n'                        >> "$$script"; \
+	printf '  else\n'                                                                          >> "$$script"; \
+	printf '    echo "  [FAIL] $$name (runtime error)"; touch "$$tmpdir/FAIL_$$name"\n'        >> "$$script"; \
+	printf '  fi\n'                                                                            >> "$$script"; \
+	printf 'else\n'                                                                            >> "$$script"; \
+	printf '  echo "  [FAIL] $$name (compile error)"; touch "$$tmpdir/FAIL_$$name"\n'          >> "$$script"; \
+	printf 'fi\n'                                                                              >> "$$script"; \
+	chmod +x "$$script"; \
+	find tests/syntax tests/compiler tests/integration -name '*.ae' 2>/dev/null | sort | \
+	xargs -P $(NPROC) -I{} "$$script" "{}" "$$tmpdir"; \
+	passed=$$(ls "$$tmpdir"/PASS_* 2>/dev/null | wc -l | tr -d ' '); \
+	failed=$$(ls "$$tmpdir"/FAIL_* 2>/dev/null | wc -l | tr -d ' '); \
+	total=$$((passed + failed)); \
+	rm -rf "$$tmpdir"; \
 	echo ""; \
 	echo "Aether Tests: $$passed passed, $$failed failed, $$total total"
 

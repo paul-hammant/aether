@@ -5,6 +5,7 @@
 #include "../compiler/parser/lexer.h"
 #include "../compiler/parser/parser.h"
 #include "../compiler/ast.h"
+#include "../runtime/utils/aether_compiler.h"
 
 /* Extract a JSON string value for a given key from raw JSON content.
    Returns a newly allocated string or NULL. Caller must free. */
@@ -326,10 +327,13 @@ void lsp_publish_diagnostics(LSPServer* server, const char* uri) {
         /* Redirect stderr to capture parser errors */
         FILE* old_stderr = stderr;
         char parse_errors[4096] = {0};
-        FILE* err_capture = fmemopen(parse_errors, sizeof(parse_errors), "w");
+        FILE* err_capture = NULL;
+#if AETHER_HAS_FMEMOPEN
+        err_capture = fmemopen(parse_errors, sizeof(parse_errors), "w");
         if (err_capture) {
             stderr = err_capture;
         }
+#endif
 
         Parser* parser = create_parser(tokens, token_count);
         ASTNode* ast = parse_program(parser);

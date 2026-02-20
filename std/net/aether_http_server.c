@@ -19,6 +19,23 @@
     #include <fcntl.h>
 #endif
 
+// Portable case-insensitive substring search (strcasestr is a GNU extension)
+static const char* http_strcasestr(const char* haystack, const char* needle) {
+    if (!needle || !*needle) return haystack;
+    size_t nlen = strlen(needle);
+    for (; *haystack; haystack++) {
+        if (tolower((unsigned char)*haystack) == tolower((unsigned char)*needle)) {
+            size_t i;
+            for (i = 1; i < nlen; i++) {
+                if (tolower((unsigned char)haystack[i]) != tolower((unsigned char)needle[i]))
+                    break;
+            }
+            if (i == nlen) return haystack;
+        }
+    }
+    return NULL;
+}
+
 static int http_server_initialized = 0;
 
 static void http_server_init() {
@@ -336,26 +353,28 @@ void http_response_json(HttpServerResponse* res, const char* json) {
     http_response_set_body(res, json);
 }
 
-const char* http_response_serialize(HttpServerResponse* res) {
-    static char buffer[65536];  // Increased from 8KB to 64KB for larger responses
-    
-    int offset = snprintf(buffer, sizeof(buffer), 
-                         "HTTP/1.1 %d %s\r\n",
-                         res->status_code, res->status_text);
-    
-    for (int i = 0; i < res->header_count; i++) {
-        offset += snprintf(buffer + offset, sizeof(buffer) - offset,
-                          "%s: %s\r\n",
-                          res->header_keys[i], res->header_values[i]);
-    }
-    
-    offset += snprintf(buffer + offset, sizeof(buffer) - offset, "\r\n");
-    
-    if (res->body) {
-        snprintf(buffer + offset, sizeof(buffer) - offset, "%s", res->body);
-    }
-    
-    return buffer;
+// Returns a heap-allocated string; caller must free() it.
+char* http_response_serialize(HttpServerResponse* res) {
+    // Compute required size: status line + headers + blank line + body
+    size_t needed = 64;  // status line headroom
+    for (int i = 0; i < res->header_count; i++)
+        needed += strlen(res->header_keys[i]) + strlen(res->header_values[i]) + 4;
+    needed += 2;  // blank line
+    if (res->body) needed += res->body_length + 1;
+
+    char* buf = malloc(needed);
+    if (!buf) return NULL;
+
+    int off = snprintf(buf, needed, "HTTP/1.1 %d %s\r\n",
+                       res->status_code, res->status_text);
+    for (int i = 0; i < res->header_count; i++)
+        off += snprintf(buf + off, needed - off, "%s: %s\r\n",
+                        res->header_keys[i], res->header_values[i]);
+    off += snprintf(buf + off, needed - off, "\r\n");
+    if (res->body)
+        memcpy(buf + off, res->body, res->body_length + 1);
+
+    return buf;
 }
 
 void http_server_response_free(HttpServerResponse* res) {
@@ -486,18 +505,53 @@ int http_route_matches(const char* pattern, const char* path, HttpRequest* req) 
 
 // Handle a single client connection
 static void handle_client_connection(HttpServer* server, int client_fd) {
-    char buffer[8192];
-    int bytes_read = recv(client_fd, buffer, sizeof(buffer) - 1, 0);
+    // Read headers first (up to 8KB), then read body up to Content-Length
+    int capacity = 8192;
+    char* buffer = malloc(capacity);
+    if (!buffer) { close(client_fd); return; }
 
-    if (bytes_read <= 0) {
-        close(client_fd);
-        return;
+    int total = 0;
+    // Read until we see the header/body separator \r\n\r\n
+    while (total < capacity - 1) {
+        int n = recv(client_fd, buffer + total, capacity - 1 - total, 0);
+        if (n <= 0) break;
+        total += n;
+        buffer[total] = '\0';
+        if (strstr(buffer, "\r\n\r\n")) break;
     }
+    if (total <= 0) { free(buffer); close(client_fd); return; }
+    buffer[total] = '\0';
 
-    buffer[bytes_read] = '\0';
+    // Find Content-Length header if present and read remaining body
+    const char* cl_hdr = http_strcasestr(buffer, "Content-Length:");
+    if (cl_hdr) {
+        long content_length = strtol(cl_hdr + 15, NULL, 10);
+        const char* header_end = strstr(buffer, "\r\n\r\n");
+        if (header_end && content_length > 0) {
+            int header_size = (int)(header_end - buffer) + 4;
+            int body_received = total - header_size;
+            long body_needed = content_length - body_received;
+            if (body_needed > 0) {
+                // Grow buffer to fit full body
+                int new_cap = header_size + (int)content_length + 1;
+                char* nb = realloc(buffer, new_cap);
+                if (nb) {
+                    buffer = nb;
+                    while (body_needed > 0) {
+                        int n = recv(client_fd, buffer + total, (int)body_needed, 0);
+                        if (n <= 0) break;
+                        total += n;
+                        body_needed -= n;
+                    }
+                    buffer[total] = '\0';
+                }
+            }
+        }
+    }
 
     // Parse request
     HttpRequest* req = http_parse_request(buffer);
+    free(buffer);
     if (!req) {
         close(client_fd);
         return;
@@ -517,8 +571,8 @@ static void handle_client_connection(HttpServer* server, int client_fd) {
 
     // If middleware blocked, send response and return
     if (!should_continue) {
-        const char* response_str = http_response_serialize(res);
-        send(client_fd, response_str, strlen(response_str), 0);
+        char* response_str = http_response_serialize(res);
+        if (response_str) { send(client_fd, response_str, strlen(response_str), 0); free(response_str); }
         close(client_fd);
         http_request_free(req);
         http_server_response_free(res);
@@ -548,8 +602,8 @@ static void handle_client_connection(HttpServer* server, int client_fd) {
     }
 
     // Send response
-    const char* response_str = http_response_serialize(res);
-    send(client_fd, response_str, strlen(response_str), 0);
+    char* response_str = http_response_serialize(res);
+    if (response_str) { send(client_fd, response_str, strlen(response_str), 0); free(response_str); }
 
     // Cleanup
     close(client_fd);

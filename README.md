@@ -21,8 +21,8 @@ Aether is a compiled language that brings actor-based concurrency to systems pro
 The Aether runtime implements a native actor system with optimized message passing:
 
 ### Concurrency Model
-- **Multi-core scheduler** with per-core actor queues
-- **Work-stealing** for dynamic load balancing
+- **Multi-core partitioned scheduler** with per-core actor queues
+- **Work-stealing fallback** for idle core balancing (primary strategy is partitioned assignment)
 - **Lock-free SPSC queues** for same-core messaging
 - **Cross-core messaging** with lock-free mailboxes
 
@@ -153,7 +153,7 @@ aether/
 ├── runtime/           # Runtime system
 │   ├── actors/        # Actor implementation and lock-free mailboxes
 │   ├── memory/        # Arena allocators, memory pools, batch allocation
-│   ├── scheduler/     # Multi-core work-stealing scheduler
+│   ├── scheduler/     # Multi-core partitioned scheduler with work-stealing fallback
 │   └── utils/         # CPU detection, SIMD, tracing, profiling
 ├── std/               # Standard library
 │   ├── collections/   # HashMap, Vector, Set, List
@@ -193,9 +193,7 @@ actor Counter {
             count = count - 1
         }
         GetCount() -> {
-            print("Current count: ")
-            print(count)
-            print("\n")
+            println("Current count: ${count}")
         }
         Reset() -> {
             count = 0
@@ -276,7 +274,7 @@ The runtime employs a tiered optimization strategy:
 - [Language Reference](docs/language-reference.md) - Complete language specification
 - [C Interoperability](docs/c-interop.md) - Using C libraries and the `extern` keyword
 - [Architecture Overview](docs/architecture.md) - Runtime and compiler design
-- [Memory Management](docs/memory-management.md) - Arena GC and pooling strategies
+- [Memory Management](docs/memory-management.md) - Arena allocators and pooling strategies
 - [Runtime Optimizations](docs/runtime-optimizations.md) - Performance techniques
 - [Cross-Language Benchmarks](benchmarks/cross-language/README.md) - Comparative performance analysis
 - [Docker Setup](docker/README.md) - Container development environment
@@ -319,11 +317,17 @@ Aether is under active development. The compiler, runtime, and standard library 
 
 **What works today:**
 - Full compiler pipeline (lexer, parser, type checker, code generator)
-- Multi-core actor runtime with work-stealing scheduler
+- Multi-core actor runtime with partitioned scheduler and work-stealing fallback
 - Lock-free message passing with adaptive optimizations
 - Standard library (collections, networking, JSON, file I/O)
 - IDE support (VS Code, Cursor) with syntax highlighting
 - Cross-platform (macOS, Linux, Windows)
+
+**Known Limitations:**
+- HTTP server is single-threaded (one connection at a time)
+- No generics or parameterized types
+- Module system is nascent (imports resolve to C includes; no versioned packages yet)
+- Error messages are basic (line/column only, no suggestions)
 
 **Roadmap:**
 - Distribution (multi-node actor systems)

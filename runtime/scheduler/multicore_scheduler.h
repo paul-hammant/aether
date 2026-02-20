@@ -1,7 +1,7 @@
 #ifndef MULTICORE_SCHEDULER_H
 #define MULTICORE_SCHEDULER_H
 
-#include <pthread.h>
+#include "../utils/aether_thread.h"
 #include <stdatomic.h>
 #include "../actors/actor_state_machine.h"
 #include "../actors/aether_actor_pool.h"
@@ -44,11 +44,7 @@ static inline void spinlock_init(OptimizedSpinlock* lock) {
 
 static inline void spinlock_lock(OptimizedSpinlock* lock) {
     while (atomic_flag_test_and_set_explicit(&lock->lock, memory_order_acquire)) {
-        #if defined(__x86_64__) || defined(_M_X64)
-        __asm__ __volatile__("pause" ::: "memory");
-        #elif defined(__aarch64__)
-        __asm__ __volatile__("yield" ::: "memory");
-        #endif
+        AETHER_CPU_PAUSE();
     }
 }
 
@@ -65,9 +61,9 @@ typedef struct {
     int auto_process;
     int assigned_core;
     int migrate_to;           // Affinity hint: core to migrate to (-1 = none)
-    int main_thread_only;     // If set, scheduler threads must not process this actor
-    SPSCQueue spsc_queue;     // Lock-free same-core messaging
-    ActorReplySlot* reply_slot; // Non-NULL only while an ask/reply is in flight
+    atomic_int main_thread_only;         // If set, scheduler threads must not process this actor
+    SPSCQueue spsc_queue;                // Lock-free same-core messaging
+    _Atomic(ActorReplySlot*) reply_slot; // Non-NULL only while an ask/reply is in flight
 } ActorBase;
 
 typedef struct {

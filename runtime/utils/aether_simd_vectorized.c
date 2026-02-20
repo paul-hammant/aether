@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
+#include "aether_compiler.h"
 
 #ifdef __AVX2__
 #include <immintrin.h>
@@ -26,7 +27,7 @@ int cpu_supports_avx2() {
 
 #ifdef __AVX2__
 // AVX2: Vectorized message ID extraction (8 messages at once)
-__attribute__((hot))
+AETHER_HOT
 void extract_message_ids_avx2(const void** msg_data, int32_t* msg_ids, int count) {
     int i;
     // Process 8 messages at a time
@@ -59,7 +60,7 @@ void extract_message_ids_avx2(const void** msg_data, int32_t* msg_ids, int count
 }
 
 // AVX2: Vectorized message filtering (8 messages at once)
-__attribute__((hot))
+AETHER_HOT
 int filter_messages_by_type_avx2(const int32_t* msg_ids, int count, int32_t target_type, int* indices) {
     int matched = 0;
     int i;
@@ -95,7 +96,7 @@ int filter_messages_by_type_avx2(const int32_t* msg_ids, int count, int32_t targ
 }
 
 // AVX2: Vectorized counter increments (8 actors at once)
-__attribute__((hot))
+AETHER_HOT
 void increment_counters_avx2(int32_t* counters, const int32_t* increments, int count) {
     int i;
     
@@ -121,7 +122,7 @@ void increment_counters_avx2(int32_t* counters, const int32_t* increments, int c
 }
 
 // AVX2: Vectorized active flag checks (32 flags at once)
-__attribute__((hot))
+AETHER_HOT
 int count_active_actors_avx2(const uint8_t* active_flags, int count) {
     int total = 0;
     int i;

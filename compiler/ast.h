@@ -68,7 +68,8 @@ typedef enum {
     AST_ARRAY_ACCESS,
     AST_MEMBER_ACCESS,
     AST_STRUCT_LITERAL,
-    
+    AST_STRING_INTERP,      // interpolated string "Hello ${expr}"
+
     // Types
     AST_TYPE_ANNOTATION,
     AST_ACTOR_REF_TYPE,

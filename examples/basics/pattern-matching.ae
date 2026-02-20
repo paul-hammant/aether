@@ -17,9 +17,9 @@ fib(1) -> 1
 fib(n) when n > 1 -> fib(n - 1) + fib(n - 2)
 
 // Classify numbers using guards
-classify(x) when x < 0 -> print("negative\n")
-classify(x) when x == 0 -> print("zero\n")
-classify(x) when x > 0 -> print("positive\n")
+classify(x) when x < 0 -> println("negative")
+classify(x) when x == 0 -> println("zero")
+classify(x) when x > 0 -> println("positive")
 
 // Sign function with guards
 sign(n) when n < 0 -> -1
@@ -27,11 +27,11 @@ sign(n) when n == 0 -> 0
 sign(n) when n > 0 -> 1
 
 // Grade calculation with multiple guard ranges
-grade(score) when score >= 90 -> print("A\n")
-grade(score) when score >= 80 -> print("B\n")
-grade(score) when score >= 70 -> print("C\n")
-grade(score) when score >= 60 -> print("D\n")
-grade(score) when score < 60 -> print("F\n")
+grade(score) when score >= 90 -> println("A")
+grade(score) when score >= 80 -> println("B")
+grade(score) when score >= 70 -> println("C")
+grade(score) when score >= 60 -> println("D")
+grade(score) when score < 60 -> println("F")
 
 // Absolute value using guards
 abs_val(x) when x < 0 -> 0 - x
@@ -57,82 +57,60 @@ gcd(a, 0) -> a
 gcd(a, b) when b > 0 -> gcd(b, a - (a / b) * b)
 
 main() {
-    print("=== Pattern Matching Examples ===\n\n");
+    println("=== Pattern Matching Examples ===\n");
 
     // Factorial
-    print("Factorial:\n");
-    print("  factorial(5) = ");
-    print(factorial(5));
-    print("\n");
-    print("  factorial(10) = ");
-    print(factorial(10));
-    print("\n\n");
+    println("Factorial:");
+    println("  factorial(5) = ${factorial(5)}");
+    println("  factorial(10) = ${factorial(10)}\n");
 
     // Fibonacci
-    print("Fibonacci:\n");
-    print("  fib(10) = ");
-    print(fib(10));
-    print("\n");
+    println("Fibonacci:");
+    println("  fib(10) = ${fib(10)}");
     print("  First 10: ");
     for (i = 0; i < 10; i = i + 1) {
         print(fib(i));
         print(" ");
     }
-    print("\n\n");
+    println("\n");
 
     // Classification with guards
-    print("Classification:\n");
+    println("Classification:");
     print("  -5: ");
     classify(-5);
     print("  0: ");
     classify(0);
     print("  42: ");
     classify(42);
-    print("\n");
+    println("");
 
     // Grade calculation
-    print("Grades:\n");
+    println("Grades:");
     print("  95: ");
     grade(95);
     print("  85: ");
     grade(85);
     print("  55: ");
     grade(55);
-    print("\n");
+    println("");
 
     // Absolute value
-    print("Absolute value:\n");
-    print("  abs(-42) = ");
-    print(abs_val(-42));
-    print("\n");
-    print("  abs(42) = ");
-    print(abs_val(42));
-    print("\n\n");
+    println("Absolute value:");
+    println("  abs(-42) = ${abs_val(-42)}");
+    println("  abs(42) = ${abs_val(42)}\n");
 
     // Max/Min
-    print("Max/Min:\n");
-    print("  max(7, 12) = ");
-    print(max_of(7, 12));
-    print("\n");
-    print("  min(7, 12) = ");
-    print(min_of(7, 12));
-    print("\n\n");
+    println("Max/Min:");
+    println("  max(7, 12) = ${max_of(7, 12)}");
+    println("  min(7, 12) = ${min_of(7, 12)}\n");
 
     // Even/Odd
-    print("Even/Odd:\n");
-    print("  is_even(8) = ");
-    print(is_even(8));
-    print("\n");
-    print("  is_even(7) = ");
-    print(is_even(7));
-    print("\n\n");
+    println("Even/Odd:");
+    println("  is_even(8) = ${is_even(8)}");
+    println("  is_even(7) = ${is_even(7)}\n");
 
     // GCD
-    print("GCD:\n");
-    print("  gcd(48, 18) = ");
-    print(gcd(48, 18));
-    print("\n");
-    print("  gcd(100, 35) = ");
-    print(gcd(100, 35));
-    print("\n");
+    println("GCD:");
+    println("  gcd(48, 18) = ${gcd(48, 18)}");
+    println("  gcd(100, 35) = ${gcd(100, 35)}");
 }

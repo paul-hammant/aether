@@ -27,12 +27,15 @@
 #define mkdir_p(path) _mkdir(path)
 #else
 #include <unistd.h>
+#include <fcntl.h>
 #include <sys/wait.h>
+#include <spawn.h>
 #include <libgen.h>
 #include <dirent.h>
 #define PATH_SEP "/"
 #define EXE_EXT ""
 #define mkdir_p(path) mkdir(path, 0755)
+extern char** environ;
 #endif
 
 #ifdef __APPLE__
@@ -65,12 +68,124 @@ typedef struct {
 static Toolchain tc = {0};
 
 // --------------------------------------------------------------------------
+// Cache infrastructure
+// --------------------------------------------------------------------------
+
+static void mkdirs(const char* path);  // forward declaration
+
+static char s_cache_dir[512] = "";
+
+static void init_cache_dir(void) {
+    if (s_cache_dir[0]) return;
+    const char* home = getenv("HOME");
+    snprintf(s_cache_dir, sizeof(s_cache_dir), "%s/.aether/cache", home ? home : "/tmp");
+    mkdirs(s_cache_dir);
+}
+
+// FNV-64 hash of a string
+static unsigned long long fnv64_str(const char* s) {
+    unsigned long long h = 14695981039346656037ULL;
+    while (*s) { h ^= (unsigned char)*s++; h *= 1099511628211ULL; }
+    return h;
+}
+
+// FNV-64 hash of a file's contents
+static unsigned long long fnv64_file(const char* path) {
+    FILE* f = fopen(path, "rb");
+    if (!f) return 0;
+    unsigned long long h = 14695981039346656037ULL;
+    unsigned char buf[4096];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), f)) > 0) {
+        for (size_t i = 0; i < n; i++) { h ^= buf[i]; h *= 1099511628211ULL; }
+    }
+    fclose(f);
+    return h;
+}
+
+// Compute a cache key from: source content + compiler mtime + lib mtime + flags
+// Returns 0 if source cannot be read (caching disabled)
+static unsigned long long compute_cache_key(const char* ae_file, const char* flags) {
+    unsigned long long src_hash = fnv64_file(ae_file);
+    if (src_hash == 0) return 0;
+
+    char key_buf[1024];
+    int pos = 0;
+    pos += snprintf(key_buf + pos, sizeof(key_buf) - pos, "%016llx", src_hash);
+
+    struct stat st;
+    if (stat(tc.compiler, &st) == 0)
+        pos += snprintf(key_buf + pos, sizeof(key_buf) - pos, ":%lld", (long long)st.st_mtime);
+    if (tc.has_lib && stat(tc.lib, &st) == 0)
+        pos += snprintf(key_buf + pos, sizeof(key_buf) - pos, ":%lld", (long long)st.st_mtime);
+    snprintf(key_buf + pos, sizeof(key_buf) - pos, ":%s:O0", flags ? flags : "");
+
+    unsigned long long h = fnv64_str(key_buf);
+    return h ? h : 1ULL;
+}
+
+// --------------------------------------------------------------------------
 // Utility functions
 // --------------------------------------------------------------------------
 
+#ifndef _WIN32
+// Run a command via posix_spawnp (faster than system() — no /bin/sh overhead)
+// Space-splits the command string into argv (no shell quoting supported,
+// but our controlled commands never need it).
+static int posix_run(const char* cmd_str, bool quiet) {
+    if (tc.verbose) fprintf(stderr, "[cmd] %s\n", cmd_str);
+    char buf[8192];
+    strncpy(buf, cmd_str, sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = '\0';
+
+    char* toks[512];
+    int n = 0;
+    for (char* p = buf; *p && n < 511; ) {
+        while (*p == ' ') p++;
+        if (!*p) break;
+        toks[n++] = p;
+        while (*p && *p != ' ') p++;
+        if (*p) *p++ = '\0';
+    }
+    toks[n] = NULL;
+    if (n == 0) return 0;
+
+    posix_spawn_file_actions_t fa;
+    posix_spawn_file_actions_init(&fa);
+    if (quiet) {
+        posix_spawn_file_actions_addopen(&fa, STDOUT_FILENO, "/dev/null", O_WRONLY, 0);
+        posix_spawn_file_actions_addopen(&fa, STDERR_FILENO, "/dev/null", O_WRONLY, 0);
+    }
+
+    pid_t pid;
+    int ret = posix_spawnp(&pid, toks[0], &fa, NULL, toks, environ);
+    posix_spawn_file_actions_destroy(&fa);
+    if (ret != 0) return -1;
+
+    int status = 0;
+    waitpid(pid, &status, 0);
+    return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+}
+#endif
+
 static int run_cmd(const char* cmd) {
+#ifndef _WIN32
+    return posix_run(cmd, false);
+#else
     if (tc.verbose) fprintf(stderr, "[cmd] %s\n", cmd);
     return system(cmd);
+#endif
+}
+
+// Run a command, suppressing all output (quiet mode)
+static int run_cmd_quiet(const char* cmd) {
+#ifndef _WIN32
+    return posix_run(cmd, true);
+#else
+    char full[8192 + 16];
+    snprintf(full, sizeof(full), "%s >nul 2>&1", cmd);
+    return system(full);
+#endif
 }
 
 static bool path_exists(const char* path) {
@@ -361,7 +476,7 @@ static const char* get_link_flags(void) {
 static void build_gcc_cmd(char* cmd, size_t size,
                           const char* c_file, const char* out_file,
                           bool optimize, const char* extra_files) {
-    const char* opt = optimize ? "-O2" : "-O0 -g";
+    const char* opt = optimize ? "-O2 -pipe" : "-O0 -pipe";
     const char* link_flags = get_link_flags();
     const char* extra = extra_files ? extra_files : "";
 
@@ -430,49 +545,78 @@ static int cmd_run(int argc, char** argv) {
     }
 
     char c_file[1024], exe_file[1024], cmd[8192];
+    const char* mem_flag = run_no_auto_free ? "--no-auto-free" : get_memory_flag();
 
+    // --- Cache check ---
+    // ae run uses -O0 (fast dev builds). Check if we have a cached exe for
+    // this exact source + compiler + flags combination.
+    bool using_cache = false;
+    char cached_exe[512] = "";
+    unsigned long long cache_key = compute_cache_key(file, mem_flag);
+    if (cache_key != 0) {
+        init_cache_dir();
+        snprintf(cached_exe, sizeof(cached_exe), "%s/%016llx" EXE_EXT, s_cache_dir, cache_key);
+        if (path_exists(cached_exe)) {
+            if (tc.verbose) fprintf(stderr, "[cache] hit: %016llx\n", cache_key);
+            snprintf(cmd, sizeof(cmd), "%s", cached_exe);
+            return run_cmd(cmd);
+        }
+        if (tc.verbose) fprintf(stderr, "[cache] miss: %016llx\n", cache_key);
+        using_cache = true;
+    }
+
+    // Determine temp .c file path and exe path
+    // If caching: write exe directly to cache slot (no extra copy needed)
     if (tc.dev_mode) {
         snprintf(c_file, sizeof(c_file), "%s/build/_ae_tmp.c", tc.root);
-        snprintf(exe_file, sizeof(exe_file), "%s/build/_ae_tmp" EXE_EXT, tc.root);
     } else {
         snprintf(c_file, sizeof(c_file), "/tmp/_ae_tmp.c");
+    }
+    if (using_cache) {
+        strncpy(exe_file, cached_exe, sizeof(exe_file) - 1);
+    } else if (tc.dev_mode) {
+        snprintf(exe_file, sizeof(exe_file), "%s/build/_ae_tmp" EXE_EXT, tc.root);
+    } else {
         snprintf(exe_file, sizeof(exe_file), "/tmp/_ae_tmp" EXE_EXT);
     }
 
     // Step 1: Compile .ae to .c
     if (tc.verbose) printf("Compiling %s...\n", file);
-    const char* mem_flag = run_no_auto_free ? "--no-auto-free" : get_memory_flag();
-    snprintf(cmd, sizeof(cmd), "%s %s %s %s %s",
-        tc.compiler, mem_flag, file, c_file,
-        tc.verbose ? "" : ">/dev/null 2>&1");
-    if (run_cmd(cmd) != 0) {
+    if (mem_flag[0])
+        snprintf(cmd, sizeof(cmd), "%s %s %s %s", tc.compiler, mem_flag, file, c_file);
+    else
+        snprintf(cmd, sizeof(cmd), "%s %s %s", tc.compiler, file, c_file);
+
+    int aetherc_ret = tc.verbose ? run_cmd(cmd) : run_cmd_quiet(cmd);
+    if (aetherc_ret != 0) {
         // Re-run with output visible so user can see the error
-        snprintf(cmd, sizeof(cmd), "%s %s %s %s 2>&1", tc.compiler, mem_flag, file, c_file);
+        snprintf(cmd, sizeof(cmd), "%s %s %s", tc.compiler, file, c_file);
         run_cmd(cmd);
         fprintf(stderr, "Compilation failed.\n");
         return 1;
     }
 
-    // Step 2: Compile .c to executable with runtime
-    build_gcc_cmd(cmd, sizeof(cmd), c_file, exe_file, true, NULL);
-    if (!tc.verbose) {
-        strncat(cmd, " >/dev/null 2>&1", sizeof(cmd) - strlen(cmd) - 1);
-    }
-    if (run_cmd(cmd) != 0) {
+    // Step 2: Compile .c to executable with runtime (-O0 for fast dev builds)
+    build_gcc_cmd(cmd, sizeof(cmd), c_file, exe_file, false, NULL);
+    int gcc_ret = tc.verbose ? run_cmd(cmd) : run_cmd_quiet(cmd);
+    if (gcc_ret != 0) {
         // Re-run with output for error diagnosis
-        build_gcc_cmd(cmd, sizeof(cmd), c_file, exe_file, true, NULL);
+        build_gcc_cmd(cmd, sizeof(cmd), c_file, exe_file, false, NULL);
         run_cmd(cmd);
         fprintf(stderr, "Build failed.\n");
+        remove(c_file);
         return 1;
     }
+
+    // Clean up temp .c file (exe stays in cache if caching, else clean up too)
+    remove(c_file);
 
     // Step 3: Run
     snprintf(cmd, sizeof(cmd), "%s", exe_file);
     int rc = run_cmd(cmd);
 
-    // Clean up
-    remove(c_file);
-    remove(exe_file);
+    // If not cached, remove the temp exe
+    if (!using_cache) remove(exe_file);
 
     return rc;
 }
@@ -554,23 +698,24 @@ static int cmd_build(int argc, char** argv) {
 
     // Step 1: .ae to .c
     const char* build_mem_flag = build_no_auto_free ? "--no-auto-free" : get_memory_flag();
-    snprintf(cmd, sizeof(cmd), "%s %s %s %s %s",
-        tc.compiler, build_mem_flag, file, c_file,
-        tc.verbose ? "" : ">/dev/null 2>&1");
-    if (run_cmd(cmd) != 0) {
-        snprintf(cmd, sizeof(cmd), "%s %s %s %s 2>&1", tc.compiler, build_mem_flag, file, c_file);
+    if (build_mem_flag[0])
+        snprintf(cmd, sizeof(cmd), "%s %s %s %s", tc.compiler, build_mem_flag, file, c_file);
+    else
+        snprintf(cmd, sizeof(cmd), "%s %s %s", tc.compiler, file, c_file);
+
+    int aetherc_ret = tc.verbose ? run_cmd(cmd) : run_cmd_quiet(cmd);
+    if (aetherc_ret != 0) {
+        snprintf(cmd, sizeof(cmd), "%s %s %s", tc.compiler, file, c_file);
         run_cmd(cmd);
         fprintf(stderr, "Compilation failed.\n");
         return 1;
     }
 
-    // Step 2: .c to executable with runtime
+    // Step 2: .c to executable with runtime (-O2 for release builds)
     const char* extra = extra_files[0] ? extra_files : NULL;
     build_gcc_cmd(cmd, sizeof(cmd), c_file, exe_file, true, extra);
-    if (!tc.verbose) {
-        strncat(cmd, " >/dev/null 2>&1", sizeof(cmd) - strlen(cmd) - 1);
-    }
-    if (run_cmd(cmd) != 0) {
+    int gcc_ret = tc.verbose ? run_cmd(cmd) : run_cmd_quiet(cmd);
+    if (gcc_ret != 0) {
         build_gcc_cmd(cmd, sizeof(cmd), c_file, exe_file, true, extra);
         run_cmd(cmd);
         fprintf(stderr, "Build failed.\n");
@@ -739,8 +884,8 @@ static int cmd_test(int argc, char** argv) {
         }
 
         // Compile .ae to .c
-        snprintf(cmd, sizeof(cmd), "%s %s %s >/dev/null 2>&1", tc.compiler, test, c_file);
-        if (run_cmd(cmd) != 0) {
+        snprintf(cmd, sizeof(cmd), "%s %s %s", tc.compiler, test, c_file);
+        if (run_cmd_quiet(cmd) != 0) {
             printf("FAIL (compile)\n");
             failed++;
             continue;
@@ -748,9 +893,7 @@ static int cmd_test(int argc, char** argv) {
 
         // Compile .c to executable
         build_gcc_cmd(cmd, sizeof(cmd), c_file, exe_file, false, NULL);
-        char full_cmd[8192];
-        snprintf(full_cmd, sizeof(full_cmd), "%s >/dev/null 2>&1", cmd);
-        if (run_cmd(full_cmd) != 0) {
+        if (run_cmd_quiet(cmd) != 0) {
             printf("FAIL (build)\n");
             failed++;
             remove(c_file);
@@ -758,8 +901,8 @@ static int cmd_test(int argc, char** argv) {
         }
 
         // Run
-        snprintf(cmd, sizeof(cmd), "%s >/dev/null 2>&1", exe_file);
-        int rc = run_cmd(cmd);
+        snprintf(cmd, sizeof(cmd), "%s", exe_file);
+        int rc = run_cmd_quiet(cmd);
         if (rc == 0) {
             printf("PASS\n");
             passed++;
@@ -906,18 +1049,16 @@ static int cmd_repl(void) {
                 fclose(f);
 
                 char cmd[8192];
-                snprintf(cmd, sizeof(cmd), "%s %s %s >/dev/null 2>&1", tc.compiler, ae_file, c_file);
-                if (run_cmd(cmd) != 0) {
-                    snprintf(cmd, sizeof(cmd), "%s %s %s 2>&1", tc.compiler, ae_file, c_file);
-                    run_cmd(cmd);
+                snprintf(cmd, sizeof(cmd), "%s %s %s", tc.compiler, ae_file, c_file);
+                if (run_cmd_quiet(cmd) != 0) {
+                    run_cmd(cmd);  // show error
                 } else {
                     build_gcc_cmd(cmd, sizeof(cmd), c_file, exe_file, false, NULL);
-                    strncat(cmd, " >/dev/null 2>&1", sizeof(cmd) - strlen(cmd) - 1);
-                    if (run_cmd(cmd) == 0) {
+                    if (run_cmd_quiet(cmd) == 0) {
                         run_cmd(exe_file);
                     } else {
                         build_gcc_cmd(cmd, sizeof(cmd), c_file, exe_file, false, NULL);
-                        run_cmd(cmd);
+                        run_cmd(cmd);  // show build error
                     }
                 }
                 remove(c_file);
@@ -1072,6 +1213,61 @@ static int cmd_release(int argc, char** argv) {
 }
 
 // --------------------------------------------------------------------------
+// Cache management command
+// --------------------------------------------------------------------------
+
+static int cmd_cache(int argc, char** argv) {
+    const char* sub = argc > 0 ? argv[0] : "info";
+
+    const char* home = getenv("HOME");
+    char cache_path[512];
+    snprintf(cache_path, sizeof(cache_path), "%s/.aether/cache", home ? home : "/tmp");
+
+    if (strcmp(sub, "clear") == 0) {
+        // Count and remove all files in cache dir
+        DIR* d = opendir(cache_path);
+        if (!d) {
+            printf("Cache is empty (no cache directory).\n");
+            return 0;
+        }
+        int count = 0;
+        struct dirent* entry;
+        while ((entry = readdir(d)) != NULL) {
+            if (entry->d_name[0] == '.') continue;
+            char full[1024];
+            snprintf(full, sizeof(full), "%s/%s", cache_path, entry->d_name);
+            remove(full);
+            count++;
+        }
+        closedir(d);
+        printf("Cleared %d cached build(s) from %s\n", count, cache_path);
+        return 0;
+    }
+
+    // Default: show cache info
+    DIR* d = opendir(cache_path);
+    if (!d) {
+        printf("Cache: empty\nLocation: %s\n", cache_path);
+        return 0;
+    }
+    int count = 0;
+    long long total_bytes = 0;
+    struct dirent* entry;
+    while ((entry = readdir(d)) != NULL) {
+        if (entry->d_name[0] == '.') continue;
+        char full[1024];
+        snprintf(full, sizeof(full), "%s/%s", cache_path, entry->d_name);
+        struct stat st;
+        if (stat(full, &st) == 0) { total_bytes += st.st_size; count++; }
+    }
+    closedir(d);
+    printf("Cache: %d build(s), %.1f MB\nLocation: %s\n",
+           count, (double)total_bytes / (1024.0 * 1024.0), cache_path);
+    printf("Use 'ae cache clear' to free space.\n");
+    return 0;
+}
+
+// --------------------------------------------------------------------------
 // Help and main
 // --------------------------------------------------------------------------
 
@@ -1085,6 +1281,7 @@ static void print_usage(void) {
     printf("  build [file.ae]      Compile to executable\n");
     printf("  test [file|dir]      Discover and run tests\n");
     printf("  add <package>        Add a dependency\n");
+    printf("  cache [clear]        Show or clear build cache\n");
     printf("  repl                 Start interactive REPL\n");
     printf("  fmt [file]           Format source code\n");
     printf("  release <type>       Bump version (major|minor|patch)\n");
@@ -1159,6 +1356,7 @@ int main(int argc, char** argv) {
     if (strcmp(cmd, "build") == 0)   return cmd_build(sub_argc, sub_argv);
     if (strcmp(cmd, "test") == 0)    return cmd_test(sub_argc, sub_argv);
     if (strcmp(cmd, "add") == 0)     return cmd_add(sub_argc, sub_argv);
+    if (strcmp(cmd, "cache") == 0)   return cmd_cache(sub_argc, sub_argv);
     if (strcmp(cmd, "repl") == 0)    return cmd_repl();
 
     fprintf(stderr, "Unknown command '%s'. Run 'ae help' for usage.\n", cmd);

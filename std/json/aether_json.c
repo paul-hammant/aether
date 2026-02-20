@@ -54,10 +54,19 @@ static JsonValue* parse_string(const char** json) {
     if (**json != '"') return NULL;
     (*json)++;
 
-    char buffer[4096];
+    int capacity = 256;
+    char* buffer = malloc(capacity);
+    if (!buffer) return NULL;
     int i = 0;
 
-    while (**json && **json != '"' && i < 4095) {
+    while (**json && **json != '"') {
+        // Grow buffer if needed (leave room for null terminator)
+        if (i >= capacity - 2) {
+            capacity *= 2;
+            char* nb = realloc(buffer, capacity);
+            if (!nb) { free(buffer); return NULL; }
+            buffer = nb;
+        }
         if (**json == '\\') {
             (*json)++;
             switch (**json) {
@@ -78,11 +87,10 @@ static JsonValue* parse_string(const char** json) {
     if (**json == '"') (*json)++;
     buffer[i] = '\0';
 
-    // Create JsonValue directly without extra retain
     JsonValue* value = (JsonValue*)malloc(sizeof(JsonValue));
     value->type = JSON_STRING;
     value->data.string_value = string_new(buffer);
-    // String starts with refcount=1, JsonValue owns it
+    free(buffer);
     return value;
 }
 

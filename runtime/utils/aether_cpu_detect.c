@@ -60,7 +60,8 @@ static void cpuid(uint32_t leaf, uint32_t subleaf, uint32_t* eax, uint32_t* ebx,
 void cpu_detect_features(CPUInfo* info) {
 #if defined(__aarch64__) || defined(__arm64__) || defined(__arm__)
     // ARM architecture - use OS APIs for detection
-    strcpy(info->cpu_brand, "ARM Processor");
+    strncpy(info->cpu_brand, "ARM Processor", sizeof(info->cpu_brand) - 1);
+    info->cpu_brand[sizeof(info->cpu_brand) - 1] = '\0';
 
     // Get core count via OS
 #if defined(__APPLE__)
@@ -141,7 +142,8 @@ void cpu_detect_features(CPUInfo* info) {
         cpuid(0x80000004, 0, &brand[8], &brand[9], &brand[10], &brand[11]);
         info->cpu_brand[48] = '\0';
     } else {
-        strcpy(info->cpu_brand, "Unknown CPU");
+        strncpy(info->cpu_brand, "Unknown CPU", sizeof(info->cpu_brand) - 1);
+        info->cpu_brand[sizeof(info->cpu_brand) - 1] = '\0';
     }
 
     // Check CPUID feature flags

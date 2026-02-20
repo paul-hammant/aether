@@ -2,7 +2,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <stdbool.h>
 #include "tokens.h"
+#include "lexer.h"
 
 #define MAX_IDENTIFIER_LENGTH 256
 
@@ -18,6 +20,22 @@ void lexer_init(const char* src) {
     current_pos = 0;
     current_line = 1;
     current_column = 1;
+}
+
+void lexer_save(LexerState* out) {
+    out->source        = source;
+    out->source_length = source_length;
+    out->current_pos   = current_pos;
+    out->current_line  = current_line;
+    out->current_column = current_column;
+}
+
+void lexer_restore(const LexerState* in) {
+    source        = in->source;
+    source_length = in->source_length;
+    current_pos   = in->current_pos;
+    current_line  = in->current_line;
+    current_column = in->current_column;
 }
 
 char peek() {
@@ -79,36 +97,50 @@ Token* read_string() {
     int capacity = MAX_IDENTIFIER_LENGTH;
     char* buffer = malloc(capacity);
     int i = 0;
-    
+    bool has_interp = false;
+
     while (current_pos < source_length && peek() != '"') {
-        if (i >= capacity - 2) {
+        if (i >= capacity - 3) {
             capacity *= 2;
             char* new_buf = realloc(buffer, capacity);
             if (!new_buf) { free(buffer); return create_token(TOKEN_ERROR, "out of memory", current_line, current_column); }
             buffer = new_buf;
         }
-        if (peek() == '\\') {
-            advance(); // skip backslash
-            char c = advance();
-            switch (c) {
-                case 'n': buffer[i++] = '\n'; break;
-                case 't': buffer[i++] = '\t'; break;
-                case 'r': buffer[i++] = '\r'; break;
-                case '\\': buffer[i++] = '\\'; break;
-                case '"': buffer[i++] = '"'; break;
-                default: buffer[i++] = c; break;
+        if (peek() == '$' && current_pos + 1 < source_length && source[current_pos + 1] == '{') {
+            has_interp = true;
+            // Store raw ${...} content without escape processing
+            buffer[i++] = advance(); // $
+            buffer[i++] = advance(); // {
+        } else if (peek() == '\\') {
+            if (has_interp) {
+                // In interpolated strings, keep escape sequences raw so parser can handle them
+                buffer[i++] = advance(); // backslash
+                if (current_pos < source_length)
+                    buffer[i++] = advance(); // escaped char
+            } else {
+                advance(); // skip backslash
+                char c = advance();
+                switch (c) {
+                    case 'n': buffer[i++] = '\n'; break;
+                    case 't': buffer[i++] = '\t'; break;
+                    case 'r': buffer[i++] = '\r'; break;
+                    case '\\': buffer[i++] = '\\'; break;
+                    case '"': buffer[i++] = '"'; break;
+                    default: buffer[i++] = c; break;
+                }
             }
         } else {
             buffer[i++] = advance();
         }
     }
-    
+
     if (peek() == '"') {
         advance(); // skip closing quote
     }
-    
+
     buffer[i] = '\0';
-    Token* token = create_token(TOKEN_STRING_LITERAL, buffer, current_line, current_column);
+    AeTokenType tok_type = has_interp ? TOKEN_INTERP_STRING : TOKEN_STRING_LITERAL;
+    Token* token = create_token(tok_type, buffer, current_line, current_column);
     free(buffer);
     return token;
 }

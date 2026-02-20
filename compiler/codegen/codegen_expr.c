@@ -139,6 +139,10 @@ void generate_expression(CodeGenerator* gen, ASTNode* expr) {
                     fprintf(gen->output, ")");
                 }
                 else if (strcmp(func_name, "print") == 0) {
+                    if (expr->child_count == 1 && expr->children[0]->type == AST_STRING_INTERP) {
+                        // print("Hello ${name}!") — delegate to AST_STRING_INTERP codegen
+                        generate_expression(gen, expr->children[0]);
+                    } else
                     if (expr->child_count == 1 && expr->children[0]->node_type) {
                         ASTNode* arg = expr->children[0];
                         Type* arg_type = arg->node_type;
@@ -182,6 +186,60 @@ void generate_expression(CodeGenerator* gen, ASTNode* expr) {
                             generate_expression(gen, expr->children[i]);
                         }
                         fprintf(gen->output, ")");
+                    }
+                }
+                else if (strcmp(func_name, "println") == 0) {
+                    // println(x) = print(x) then putchar('\n')
+                    // Special case: println("...${expr}...") — generate interp then add \n
+                    if (expr->child_count == 1 && expr->children[0]->type == AST_STRING_INTERP) {
+                        generate_expression(gen, expr->children[0]);
+                        fprintf(gen->output, "; putchar('\\n')");
+                    } else
+                    if (expr->child_count == 1 && expr->children[0]->node_type) {
+                        ASTNode* arg = expr->children[0];
+                        Type* arg_type = arg->node_type;
+                        if (arg_type->kind == TYPE_INT) {
+                            fprintf(gen->output, "printf(\"%%d\\n\", ");
+                            generate_expression(gen, arg);
+                            fprintf(gen->output, ")");
+                        } else if (arg_type->kind == TYPE_FLOAT) {
+                            fprintf(gen->output, "printf(\"%%f\\n\", ");
+                            generate_expression(gen, arg);
+                            fprintf(gen->output, ")");
+                        } else if (arg_type->kind == TYPE_STRING) {
+                            fprintf(gen->output, "printf(\"%%s\\n\", ");
+                            generate_expression(gen, arg);
+                            fprintf(gen->output, ")");
+                        } else if (arg_type->kind == TYPE_BOOL) {
+                            fprintf(gen->output, "printf(\"%%s\\n\", ");
+                            generate_expression(gen, arg);
+                            fprintf(gen->output, " ? \"true\" : \"false\")");
+                        } else {
+                            fprintf(gen->output, "printf(\"%%d\\n\", ");
+                            generate_expression(gen, arg);
+                            fprintf(gen->output, ")");
+                        }
+                    } else if (expr->child_count == 1) {
+                        ASTNode* a = expr->children[0];
+                        if (a->type == AST_LITERAL && a->node_type && a->node_type->kind == TYPE_STRING) {
+                            // println("text") → puts("text") which adds \n automatically
+                            fprintf(gen->output, "puts(");
+                            generate_expression(gen, a);
+                            fprintf(gen->output, ")");
+                        } else {
+                            fprintf(gen->output, "printf(\"%%d\\n\", ");
+                            generate_expression(gen, a);
+                            fprintf(gen->output, ")");
+                        }
+                    } else if (expr->child_count == 0) {
+                        fprintf(gen->output, "putchar('\\n')");
+                    } else {
+                        fprintf(gen->output, "printf(");
+                        for (int i = 0; i < expr->child_count; i++) {
+                            if (i > 0) fprintf(gen->output, ", ");
+                            generate_expression(gen, expr->children[i]);
+                        }
+                        fprintf(gen->output, "); putchar('\\n')");
                     }
                 }
                 else if (strcmp(func_name, "wait_for_idle") == 0) {
@@ -232,6 +290,60 @@ void generate_expression(CodeGenerator* gen, ASTNode* expr) {
                 }
             }
             break;
+
+        case AST_STRING_INTERP: {
+            // Generate a single printf call for "Hello ${name}, count=${n}"
+            // Children alternate: AST_LITERAL (string) and expression nodes.
+            // Build format string, then emit arguments.
+            fprintf(gen->output, "printf(\"");
+            for (int i = 0; i < expr->child_count; i++) {
+                ASTNode* ch = expr->children[i];
+                if (ch->type == AST_LITERAL && ch->node_type && ch->node_type->kind == TYPE_STRING) {
+                    // Literal segment: emit content, re-escaping special chars for C string
+                    const char* s = ch->value ? ch->value : "";
+                    for (; *s; s++) {
+                        switch (*s) {
+                            case '\n': fprintf(gen->output, "\\n");   break;
+                            case '\t': fprintf(gen->output, "\\t");   break;
+                            case '\r': fprintf(gen->output, "\\r");   break;
+                            case '"':  fprintf(gen->output, "\\\"");  break;
+                            case '\\': fprintf(gen->output, "\\\\");  break;
+                            case '%':  fprintf(gen->output, "%%%%");  break;
+                            default:   fputc(*s, gen->output);        break;
+                        }
+                    }
+                } else {
+                    // Expression: pick format specifier based on inferred type
+                    TypeKind tk = (ch->node_type) ? ch->node_type->kind : TYPE_UNKNOWN;
+                    switch (tk) {
+                        case TYPE_INT:    fprintf(gen->output, "%%d");  break;
+                        case TYPE_INT64:  fprintf(gen->output, "%%lld"); break;
+                        case TYPE_UINT64: fprintf(gen->output, "%%llu"); break;
+                        case TYPE_FLOAT:  fprintf(gen->output, "%%g");  break;
+                        case TYPE_BOOL:   fprintf(gen->output, "%%s");  break;
+                        case TYPE_STRING: fprintf(gen->output, "%%s");  break;
+                        default:          fprintf(gen->output, "%%d");  break; // unknown/void: default to int like print()
+                    }
+                }
+            }
+            fprintf(gen->output, "\"");
+            // Emit arguments (expression nodes only, not literals)
+            for (int i = 0; i < expr->child_count; i++) {
+                ASTNode* ch = expr->children[i];
+                if (ch->type == AST_LITERAL && ch->node_type && ch->node_type->kind == TYPE_STRING)
+                    continue;
+                fprintf(gen->output, ", ");
+                TypeKind tk = ch->node_type ? ch->node_type->kind : TYPE_UNKNOWN;
+                if (tk == TYPE_BOOL) {
+                    generate_expression(gen, ch);
+                    fprintf(gen->output, " ? \"true\" : \"false\"");
+                } else {
+                    generate_expression(gen, ch);
+                }
+            }
+            fprintf(gen->output, ")");
+            break;
+        }
 
         case AST_ACTOR_REF:
             if (strcmp(expr->value, "self") == 0) {

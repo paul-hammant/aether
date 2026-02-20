@@ -10,13 +10,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <pthread.h>
+#include "../utils/aether_thread.h"
 #include <sched.h>
 #include <errno.h>
 #include <unistd.h>
 #include <time.h>
 #include "multicore_scheduler.h"
 #include "../utils/aether_cpu_detect.h"
+#include "../utils/aether_compiler.h"
 #include "../config/aether_optimization_config.h"
 #include "../aether_numa.h"
 #include "../actors/aether_send_buffer.h"
@@ -56,7 +57,7 @@ atomic_int next_actor_id = 1;
 // This is rare (just initial messages), so the atomic overhead is negligible
 static atomic_uint_fast64_t main_thread_sent = 0;
 
-__thread int current_core_id = -1;
+AETHER_TLS int current_core_id = -1;
 
 // Pin thread to specific CPU core (NUMA awareness)
 // Full support on Linux, macOS, and Windows
@@ -84,8 +85,8 @@ static void pin_to_core(int core_id) {
 #endif
 }
 
-// Partitioned scheduler thread - NO work stealing
-void* __attribute__((hot)) scheduler_thread(void* arg) {
+// Partitioned scheduler thread with work-stealing fallback for idle cores
+void* AETHER_HOT scheduler_thread(void* arg) {
     Scheduler* sched = (Scheduler*)arg;
     current_core_id = sched->core_id;
 
@@ -150,7 +151,7 @@ void* __attribute__((hot)) scheduler_thread(void* arg) {
             }
 
             // For actors processed on main thread, just deliver to mailbox (don't process)
-            if (unlikely(__atomic_load_n(&actor->main_thread_only, __ATOMIC_ACQUIRE))) {
+            if (unlikely(atomic_load_explicit(&actor->main_thread_only, memory_order_acquire))) {
                 mailbox_send(&actor->mailbox, msg);
                 work_done = 1;
                 continue;
@@ -188,13 +189,13 @@ void* __attribute__((hot)) scheduler_thread(void* arg) {
 
             // Prefetch next actor for better pipeline utilization
             if (i + 1 < sched->actor_count) {
-                __builtin_prefetch(sched->actors[i + 1], 0, 3);
+                AETHER_PREFETCH(sched->actors[i + 1], 0, 3);
             }
 
             if (unlikely(!actor)) continue;
 
             // Skip actors processed on main thread
-            if (unlikely(__atomic_load_n(&actor->main_thread_only, __ATOMIC_ACQUIRE))) continue;
+            if (unlikely(atomic_load_explicit(&actor->main_thread_only, memory_order_acquire))) continue;
 
             // auto_process actors own their mailbox and SPSC from their
             // own thread.  Skip entirely — touching either here would
@@ -266,9 +267,8 @@ void* __attribute__((hot)) scheduler_thread(void* arg) {
             }
         }
         
-        // Partitioned approach: NO work stealing
-        // Actors stay on their assigned core for perfect cache locality
-        // Result: Zero cache thrashing, zero atomic contention
+        // Primary: partitioned assignment (actors stay on assigned core for cache locality)
+        // Fallback: work stealing kicks in after extended idle to balance load
         
         if (!work_done) {
             idle_count++;
@@ -576,7 +576,7 @@ int scheduler_register_actor(ActorBase* actor, int preferred_core) {
 }
 
 // Thread-local recursion guard for work inlining (prevent stack overflow)
-static __thread int inline_depth = 0;
+static AETHER_TLS int inline_depth = 0;
 #define MAX_INLINE_DEPTH 16  // Limit recursion to prevent stack overflow
 
 void scheduler_send_local(ActorBase* actor, Message msg) {
@@ -707,7 +707,7 @@ typedef struct {
     int by_core[MAX_CORES];  // Count per target core for efficient sorting
 } BatchSendBuffer;
 
-static __thread BatchSendBuffer* g_batch_buffer = NULL;
+static AETHER_TLS BatchSendBuffer* g_batch_buffer = NULL;
 
 void scheduler_send_batch_start(void) {
     if (!g_batch_buffer) {
@@ -835,8 +835,8 @@ ActorBase* scheduler_spawn_pooled(int preferred_core, void (*step)(void*), size_
     actor->auto_process = 0;
     actor->assigned_core = preferred_core;
     actor->migrate_to = -1;
-    actor->main_thread_only = 0;
-    actor->reply_slot = NULL;
+    atomic_init(&actor->main_thread_only, 0);
+    atomic_init(&actor->reply_slot, NULL);
 
     // Track actor count for inline mode auto-detection
     // Get previous count and main_actor BEFORE aether_on_actor_spawn modifies them
@@ -848,12 +848,12 @@ ActorBase* scheduler_spawn_pooled(int preferred_core, void (*step)(void*), size_
     if (prev_count == 0 && !atomic_load(&g_aether_config.inline_mode_disabled)) {
         // First actor: enable main thread mode for synchronous processing
         aether_enable_main_thread_mode(actor);
-        __atomic_store_n(&actor->main_thread_only, 1, __ATOMIC_RELEASE);
+        atomic_store_explicit(&actor->main_thread_only, 1, memory_order_release);
     } else if (prev_count == 1 && prev_main_actor != NULL) {
         // Second actor: disable main thread mode on the first actor
         // so scheduler threads can process both actors normally
         // Use atomic store to prevent data race with scheduler thread reads
-        __atomic_store_n(&prev_main_actor->main_thread_only, 0, __ATOMIC_RELEASE);
+        atomic_store_explicit(&prev_main_actor->main_thread_only, 0, memory_order_release);
     }
 
     scheduler_register_actor(actor, preferred_core);
@@ -924,7 +924,7 @@ void* scheduler_ask_message(ActorBase* target, void* msg_data, size_t msg_size, 
     atomic_init(&slot->refcount, 2);
 
     // Publish the slot before sending so the actor can reply immediately.
-    __atomic_store_n(&target->reply_slot, slot, __ATOMIC_SEQ_CST);
+    atomic_store_explicit(&target->reply_slot, slot, memory_order_seq_cst);
 
     // Deliver the ask message using the same path as fire-and-forget.
     aether_send_message((void*)target, msg_data, msg_size);
@@ -953,8 +953,8 @@ void* scheduler_ask_message(ActorBase* target, void* msg_data, size_t msg_size, 
         // If the CAS succeeds:  actor hasn't exchanged yet; we take the actor's ref.
         // If the CAS fails:     actor already owns the slot and will decref its own ref.
         ActorReplySlot* expected = slot;
-        if (__atomic_compare_exchange_n(&target->reply_slot, &expected, NULL,
-                                        0, __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST)) {
+        if (atomic_compare_exchange_strong_explicit(&target->reply_slot, &expected, NULL,
+                                                    memory_order_seq_cst, memory_order_seq_cst)) {
             reply_slot_decref(slot);  // release the actor's ref (actor won't use the slot)
         }
     }
@@ -968,7 +968,7 @@ void* scheduler_ask_message(ActorBase* target, void* msg_data, size_t msg_size, 
 // data/data_size are copied internally; the asker is responsible for freeing the result.
 void scheduler_reply(ActorBase* self, void* data, size_t data_size) {
     // Atomically take the slot so concurrent timeout cannot race with us.
-    ActorReplySlot* slot = __atomic_exchange_n(&self->reply_slot, NULL, __ATOMIC_SEQ_CST);
+    ActorReplySlot* slot = atomic_exchange_explicit(&self->reply_slot, NULL, memory_order_seq_cst);
     if (!slot) return;  // no pending ask, or asker already timed out and cleared it
 
     pthread_mutex_lock(&slot->mutex);

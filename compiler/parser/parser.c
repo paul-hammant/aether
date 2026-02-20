@@ -2,6 +2,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include "parser.h"
+#include "lexer.h"
+
+#define INTERP_MAX_TOKENS 512
 
 Parser* create_parser(Token** tokens, int token_count) {
     Parser* parser = malloc(sizeof(Parser));
@@ -157,16 +160,112 @@ Type* parse_type(Parser* parser) {
     return type;
 }
 
+// Parse an interpolated string literal (TOKEN_INTERP_STRING).
+// The raw value has literal text intermixed with ${expr} segments.
+// Returns AST_STRING_INTERP with alternating children:
+//   - AST_LITERAL (TYPE_STRING) for literal text segments
+//   - expression nodes for ${...} parts
+static ASTNode* parse_interp_string_expr(const char* raw) {
+    ASTNode* interp = create_ast_node(AST_STRING_INTERP, NULL, 0, 0);
+
+    const char* p = raw;
+    int lit_cap = 256;
+    char* lit_buf = malloc(lit_cap);
+    int lit_len = 0;
+
+    // Helper lambda (C-style): flush current literal buffer as a child node
+    #define FLUSH_LIT() do { \
+        lit_buf[lit_len] = '\0'; \
+        ASTNode* _lit = create_ast_node(AST_LITERAL, lit_buf, 0, 0); \
+        Type* _t = malloc(sizeof(Type)); \
+        _t->kind = TYPE_STRING; _t->struct_name = NULL; _t->element_type = NULL; \
+        _lit->node_type = _t; \
+        add_child(interp, _lit); \
+        lit_len = 0; \
+    } while(0)
+
+    while (*p) {
+        if (*p == '$' && p[1] == '{') {
+            FLUSH_LIT();
+            p += 2; // skip ${
+
+            // Collect expression source until matching }
+            int depth = 1;
+            const char* expr_start = p;
+            while (*p && depth > 0) {
+                if (*p == '{') depth++;
+                else if (*p == '}') { if (--depth == 0) break; }
+                p++;
+            }
+            size_t expr_len = (size_t)(p - expr_start);
+            char* expr_src = malloc(expr_len + 1);
+            strncpy(expr_src, expr_start, expr_len);
+            expr_src[expr_len] = '\0';
+            if (*p == '}') p++; // skip }
+
+            // Re-lex the expression (save/restore global lexer state)
+            LexerState saved;
+            lexer_save(&saved);
+            lexer_init(expr_src);
+
+            Token* sub_tokens[INTERP_MAX_TOKENS];
+            int sub_count = 0;
+            while (sub_count < INTERP_MAX_TOKENS - 1) {
+                Token* t = next_token();
+                sub_tokens[sub_count++] = t;
+                if (t->type == TOKEN_EOF || t->type == TOKEN_ERROR) break;
+            }
+            lexer_restore(&saved);
+            free(expr_src);
+
+            // Exclude trailing EOF from token count for sub-parser
+            int n = (sub_count > 0 && sub_tokens[sub_count - 1]->type == TOKEN_EOF)
+                    ? sub_count - 1 : sub_count;
+            Parser* sub = create_parser(sub_tokens, n);
+            ASTNode* expr_node = parse_expression(sub);
+            free(sub); // tokens owned by AST nodes; do not free them here
+
+            if (expr_node) add_child(interp, expr_node);
+        } else if (*p == '\\' && p[1]) {
+            // Escape sequence in literal segment
+            if (lit_len >= lit_cap - 2) { lit_cap *= 2; lit_buf = realloc(lit_buf, lit_cap); }
+            char code = p[1];
+            switch (code) {
+                case 'n':  lit_buf[lit_len++] = '\n'; break;
+                case 't':  lit_buf[lit_len++] = '\t'; break;
+                case 'r':  lit_buf[lit_len++] = '\r'; break;
+                case '\\': lit_buf[lit_len++] = '\\'; break;
+                case '"':  lit_buf[lit_len++] = '"';  break;
+                default:   lit_buf[lit_len++] = code; break;
+            }
+            p += 2;
+        } else {
+            if (lit_len >= lit_cap - 2) { lit_cap *= 2; lit_buf = realloc(lit_buf, lit_cap); }
+            lit_buf[lit_len++] = *p++;
+        }
+    }
+    FLUSH_LIT(); // trailing literal (may be empty string)
+    #undef FLUSH_LIT
+
+    free(lit_buf);
+    return interp;
+}
+
 ASTNode* parse_primary_expression(Parser* parser) {
     Token* token = peek_token(parser);
     if (!token) return NULL;
-    
+
     switch (token->type) {
         case TOKEN_NUMBER:
         case TOKEN_STRING_LITERAL:
         case TOKEN_TRUE:
         case TOKEN_FALSE:
             return create_literal_node(advance_token(parser));
+
+        case TOKEN_INTERP_STRING: {
+            Token* t = advance_token(parser);
+            return parse_interp_string_expr(t->value);
+        }
             
         // Type keywords used as namespace names: string.new(), int.parse(), etc.
         case TOKEN_STRING:

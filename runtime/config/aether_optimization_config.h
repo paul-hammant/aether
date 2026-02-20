@@ -25,6 +25,7 @@
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#include "../utils/aether_compiler.h"
 
 // ============================================================================
 // MEMORY PROFILES (auto-detected or user-specified via AETHER_PROFILE)
@@ -230,7 +231,7 @@ static inline bool aether_has_opt(AetherOptFlags flag) {
 
 // Check if inline mode is currently active (single branch, predicted false)
 static inline bool aether_inline_mode_active(void) {
-    return __builtin_expect(atomic_load_explicit(&g_aether_config.inline_mode_active, memory_order_relaxed), 0);
+    return unlikely(atomic_load_explicit(&g_aether_config.inline_mode_active, memory_order_relaxed));
 }
 
 // Check if main thread actor mode is active (synchronous processing)

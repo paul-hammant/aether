@@ -865,6 +865,13 @@ void generate_statement(CodeGenerator* gen, ASTNode* stmt) {
             if (stmt->child_count > 0) {
                 ASTNode* first_arg = stmt->children[0];
 
+                // Interpolated string: delegate directly to expression codegen (emits printf(...))
+                if (stmt->child_count == 1 && first_arg->type == AST_STRING_INTERP) {
+                    generate_expression(gen, first_arg);
+                    fprintf(gen->output, ";\n");
+                    break;
+                }
+
                 // Check if we have a single typed argument (not a string literal)
                 if (stmt->child_count == 1 && first_arg->node_type &&
                     !(first_arg->type == AST_LITERAL && first_arg->node_type->kind == TYPE_STRING)) {

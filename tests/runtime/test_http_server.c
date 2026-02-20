@@ -60,12 +60,13 @@ TEST(http_server_response_building) {
     http_response_set_header(resp, "Content-Type", "application/json");
     http_response_set_body(resp, "{\"message\":\"Hello\"}");
 
-    const char* raw = http_response_serialize(resp);
+    char* raw = http_response_serialize(resp);
     ASSERT_NOT_NULL(raw);
     ASSERT_TRUE(strstr(raw, "HTTP/1.1 200 OK") != NULL);
     ASSERT_TRUE(strstr(raw, "Content-Type: application/json") != NULL);
     ASSERT_TRUE(strstr(raw, "{\"message\":\"Hello\"}") != NULL);
 
+    free(raw);
     http_server_response_free(resp);
 }
 

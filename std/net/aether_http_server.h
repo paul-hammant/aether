@@ -106,7 +106,7 @@ void http_response_set_status(HttpServerResponse* res, int code);
 void http_response_set_header(HttpServerResponse* res, const char* key, const char* value);
 void http_response_set_body(HttpServerResponse* res, const char* body);
 void http_response_json(HttpServerResponse* res, const char* json);
-const char* http_response_serialize(HttpServerResponse* res);
+char* http_response_serialize(HttpServerResponse* res);  // caller must free()
 void http_server_response_free(HttpServerResponse* res);
 
 // Helpers

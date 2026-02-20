@@ -302,6 +302,42 @@ void type_warning(const char* message, int line, int column) {
     warning_count++;
 }
 
+// Return a human-readable type name (static buffer — for error messages only)
+static const char* type_name(Type* t) {
+    if (!t) return "unknown";
+    switch (t->kind) {
+        case TYPE_INT:      return "int";
+        case TYPE_FLOAT:    return "float";
+        case TYPE_BOOL:     return "bool";
+        case TYPE_STRING:   return "string";
+        case TYPE_VOID:     return "void";
+        case TYPE_PTR:      return "ptr";
+        case TYPE_ACTOR_REF: return "actor_ref";
+        case TYPE_MESSAGE:  return "message";
+        case TYPE_ARRAY:    return "array";
+        case TYPE_STRUCT:   return t->struct_name ? t->struct_name : "struct";
+        case TYPE_UNKNOWN:  return "unknown";
+        default:            return "unknown";
+    }
+}
+
+// Count the number of formal parameters of a function definition node
+static int count_function_params(ASTNode* func) {
+    if (!func || func->child_count == 0) return 0;
+    int count = 0;
+    // Last child is the function body; everything before it may be params or a guard
+    for (int i = 0; i < func->child_count - 1; i++) {
+        ASTNode* child = func->children[i];
+        if (child->type == AST_VARIABLE_DECLARATION ||
+            child->type == AST_PATTERN_VARIABLE ||
+            child->type == AST_PATTERN_LITERAL) {
+            count++;
+        }
+        // AST_GUARD_CLAUSE is skipped (not a parameter)
+    }
+    return count;
+}
+
 // Type compatibility functions
 int is_type_compatible(Type* from, Type* to) {
     if (!from || !to) return 0;
@@ -359,7 +395,10 @@ Type* infer_type(ASTNode* expr, SymbolTable* table) {
     switch (expr->type) {
         case AST_LITERAL:
             return clone_type(expr->node_type);
-            
+
+        case AST_STRING_INTERP:
+            return create_type(TYPE_STRING);
+
         case AST_ARRAY_LITERAL:
             // Return the inferred array type
             return expr->node_type ? clone_type(expr->node_type) : create_type(TYPE_UNKNOWN);
@@ -560,6 +599,10 @@ int typecheck_program(ASTNode* program) {
     Type* clock_ns_type = create_type(TYPE_INT);  // Returns nanoseconds as int
     add_symbol(global_table, "clock_ns", clock_ns_type, 0, 1, 0);
 
+    // Output builtins
+    Type* println_type = create_type(TYPE_VOID);
+    add_symbol(global_table, "println", println_type, 0, 1, 0);
+
     // First pass: collect all declarations
     for (int i = 0; i < program->child_count; i++) {
         ASTNode* child = program->children[i];
@@ -594,6 +637,9 @@ int typecheck_program(ASTNode* program) {
             }
             case AST_FUNCTION_DEFINITION: {
                 add_symbol(global_table, child->value, clone_type(child->node_type), 0, 1, 0);
+                // Store AST node so arity can be verified at call sites
+                Symbol* func_sym = lookup_symbol(global_table, child->value);
+                if (func_sym) func_sym->node = child;
                 break;
             }
             case AST_EXTERN_FUNCTION: {
@@ -964,13 +1010,20 @@ int typecheck_statement(ASTNode* stmt, SymbolTable* table) {
                 
                 Symbol* symbol = lookup_symbol(table, left->value);
                 if (!symbol) {
-                    type_error("Undefined variable", left->line, left->column);
+                    char error_msg[256];
+                    snprintf(error_msg, sizeof(error_msg), "Undefined variable '%s'", left->value ? left->value : "?");
+                    type_error(error_msg, left->line, left->column);
                     return 0;
                 }
-                
+
                 Type* right_type = infer_type(right, table);
                 if (!is_assignable(right_type, symbol->type)) {
-                    type_error("Type mismatch in assignment", stmt->line, stmt->column);
+                    char error_msg[256];
+                    snprintf(error_msg, sizeof(error_msg),
+                             "Type mismatch in assignment to '%s': expected %s, got %s",
+                             left->value ? left->value : "?",
+                             type_name(symbol->type), type_name(right_type));
+                    type_error(error_msg, stmt->line, stmt->column);
                     return 0;
                 }
             }
@@ -1065,7 +1118,11 @@ int typecheck_statement(ASTNode* stmt, SymbolTable* table) {
             }
             return 1;
         }
-        
+
+        case AST_FUNCTION_CALL:
+            // Function call used as a statement (e.g. println(...), user_fn(...))
+            return typecheck_function_call(stmt, table);
+
         case AST_PRINT_STATEMENT: {
             for (int i = 0; i < stmt->child_count; i++) {
                 typecheck_expression(stmt->children[i], table);
@@ -1077,14 +1134,47 @@ int typecheck_statement(ASTNode* stmt, SymbolTable* table) {
             if (stmt->child_count >= 2) {
                 ASTNode* actor_ref = stmt->children[0];
                 ASTNode* message = stmt->children[1];
-                
+
                 Type* actor_type = infer_type(actor_ref, table);
                 if (actor_type->kind != TYPE_ACTOR_REF) {
                     type_error("First argument to send must be an actor reference", actor_ref->line, actor_ref->column);
                     return 0;
                 }
-                
+
                 typecheck_expression(message, table);
+            }
+            return 1;
+        }
+
+        case AST_SEND_FIRE_FORGET: {
+            // actor ! MessageType { fields... }
+            if (stmt->child_count >= 2) {
+                ASTNode* actor_ref = stmt->children[0];
+                ASTNode* message = stmt->children[1];
+
+                // Validate actor reference type
+                typecheck_expression(actor_ref, table);
+                Type* actor_type = infer_type(actor_ref, table);
+                if (actor_type && actor_type->kind != TYPE_ACTOR_REF && actor_type->kind != TYPE_UNKNOWN) {
+                    char error_msg[256];
+                    snprintf(error_msg, sizeof(error_msg),
+                             "Cannot send to '%s': expected an actor reference",
+                             actor_ref->value ? actor_ref->value : "expression");
+                    type_error(error_msg, actor_ref->line, actor_ref->column);
+                    return 0;
+                }
+
+                // Validate that the message type is a registered message definition
+                if (message->type == AST_MESSAGE_CONSTRUCTOR && message->value) {
+                    Symbol* msg_sym = lookup_symbol(table, message->value);
+                    if (!msg_sym || msg_sym->type->kind != TYPE_MESSAGE) {
+                        char error_msg[256];
+                        snprintf(error_msg, sizeof(error_msg),
+                                 "Undefined message type '%s'", message->value);
+                        type_error(error_msg, message->line, message->column);
+                        return 0;
+                    }
+                }
             }
             return 1;
         }
@@ -1189,7 +1279,9 @@ int typecheck_expression(ASTNode* expr, SymbolTable* table) {
         case AST_IDENTIFIER: {
             Symbol* symbol = lookup_symbol(table, expr->value);
             if (!symbol) {
-                type_error("Undefined variable", expr->line, expr->column);
+                char error_msg[256];
+                snprintf(error_msg, sizeof(error_msg), "Undefined variable '%s'", expr->value ? expr->value : "?");
+                type_error(error_msg, expr->line, expr->column);
                 return 0;
             }
             expr->node_type = clone_type(symbol->type);
@@ -1207,6 +1299,14 @@ int typecheck_expression(ASTNode* expr, SymbolTable* table) {
             }
             return 1;
             
+        case AST_STRING_INTERP:
+            // Type check all sub-expressions inside the interpolation
+            for (int i = 0; i < expr->child_count; i++) {
+                typecheck_expression(expr->children[i], table);
+            }
+            expr->node_type = create_type(TYPE_STRING);
+            return 1;
+
         case AST_STRUCT_LITERAL:
             // Type check struct literal field initializers
             for (int i = 0; i < expr->child_count; i++) {
@@ -1223,13 +1323,24 @@ int typecheck_expression(ASTNode* expr, SymbolTable* table) {
             if (expr->child_count > 0) {
                 ASTNode* base = expr->children[0];
                 typecheck_expression(base, table);
-                
+
                 Type* base_type = infer_type(base, table);
-                
+
+                // Reject member access on primitive types — catch the error in Aether, not C
+                if (base_type && (base_type->kind == TYPE_INT || base_type->kind == TYPE_FLOAT ||
+                                  base_type->kind == TYPE_BOOL || base_type->kind == TYPE_STRING)) {
+                    char error_msg[256];
+                    snprintf(error_msg, sizeof(error_msg),
+                             "Type '%s' has no field '%s'",
+                             type_name(base_type), expr->value ? expr->value : "?");
+                    type_error(error_msg, expr->line, expr->column);
+                    return 0;
+                }
+
                 // Handle Message type member access
                 if (base_type && base_type->kind == TYPE_MESSAGE) {
-                    if (strcmp(expr->value, "type") == 0 || 
-                        strcmp(expr->value, "sender_id") == 0 || 
+                    if (strcmp(expr->value, "type") == 0 ||
+                        strcmp(expr->value, "sender_id") == 0 ||
                         strcmp(expr->value, "payload_int") == 0) {
                         expr->node_type = create_type(TYPE_INT);
                     } else if (strcmp(expr->value, "payload_ptr") == 0) {
@@ -1241,14 +1352,24 @@ int typecheck_expression(ASTNode* expr, SymbolTable* table) {
                     Symbol* struct_sym = lookup_symbol(table, base_type->struct_name);
                     if (struct_sym && struct_sym->node) {
                         ASTNode* struct_def = struct_sym->node;
+                        int found = 0;
                         for (int fi = 0; fi < struct_def->child_count; fi++) {
                             ASTNode* field = struct_def->children[fi];
                             if (field && field->value && strcmp(field->value, expr->value) == 0) {
                                 if (field->node_type && field->node_type->kind != TYPE_UNKNOWN) {
                                     expr->node_type = clone_type(field->node_type);
                                 }
+                                found = 1;
                                 break;
                             }
+                        }
+                        if (!found) {
+                            char error_msg[256];
+                            snprintf(error_msg, sizeof(error_msg),
+                                     "Struct '%s' has no field '%s'",
+                                     base_type->struct_name, expr->value ? expr->value : "?");
+                            type_error(error_msg, expr->line, expr->column);
+                            return 0;
                         }
                     }
                     // Fallback to general inference
@@ -1260,6 +1381,30 @@ int typecheck_expression(ASTNode* expr, SymbolTable* table) {
             return 1;
         }
             
+        case AST_SEND_FIRE_FORGET: {
+            // actor ! MessageType { fields... }  — validate both operands
+            if (expr->child_count >= 2) {
+                ASTNode* actor_ref = expr->children[0];
+                ASTNode* message   = expr->children[1];
+
+                typecheck_expression(actor_ref, table);
+
+                // Validate that the message type is a registered message definition
+                if (message->type == AST_MESSAGE_CONSTRUCTOR && message->value) {
+                    Symbol* msg_sym = lookup_symbol(table, message->value);
+                    if (!msg_sym || msg_sym->type->kind != TYPE_MESSAGE) {
+                        char error_msg[256];
+                        snprintf(error_msg, sizeof(error_msg),
+                                 "Undefined message type '%s'", message->value);
+                        type_error(error_msg, message->line, message->column);
+                        return 0;
+                    }
+                }
+            }
+            expr->node_type = create_type(TYPE_VOID);
+            return 1;
+        }
+
         default:
             // Type check all children
             for (int i = 0; i < expr->child_count; i++) {
@@ -1310,15 +1455,31 @@ int typecheck_function_call(ASTNode* call, SymbolTable* table) {
     // Use qualified lookup to handle namespaced calls like string.new -> string_new
     Symbol* symbol = lookup_qualified_symbol(table, call->value);
     if (!symbol || !symbol->is_function) {
-        type_error("Undefined function", call->line, call->column);
+        char error_msg[256];
+        snprintf(error_msg, sizeof(error_msg), "Undefined function '%s'", call->value ? call->value : "?");
+        type_error(error_msg, call->line, call->column);
         return 0;
     }
-    
+
+    // Arity check: user-defined functions have their AST node stored
+    if (symbol->node && symbol->node->type == AST_FUNCTION_DEFINITION) {
+        int expected = count_function_params(symbol->node);
+        int got = call->child_count;
+        if (got != expected) {
+            char error_msg[256];
+            snprintf(error_msg, sizeof(error_msg),
+                     "Function '%s' expects %d argument(s), got %d",
+                     call->value, expected, got);
+            type_error(error_msg, call->line, call->column);
+            return 0;
+        }
+    }
+
     // Type check arguments
     for (int i = 0; i < call->child_count; i++) {
         typecheck_expression(call->children[i], table);
     }
-    
+
     call->node_type = clone_type(symbol->type);
     return 1;
 }
