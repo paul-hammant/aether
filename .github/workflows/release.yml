@@ -66,9 +66,7 @@ jobs:
         echo "version=$NEW"       >> "$GITHUB_OUTPUT"
         echo "Bumped $KIND: $OLD → $NEW (trigger: $MSG)"
 
-    - name: Commit VERSION, push tag, open PR
-      env:
-        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Commit VERSION, push tag
       run: |
         VERSION="${{ steps.v.outputs.version }}"
         TAG="${{ steps.v.outputs.tag }}"
@@ -84,6 +82,15 @@ jobs:
 
         git push origin "$BRANCH"
         git push origin "$TAG"
+
+    - name: Open PR for VERSION bump
+      continue-on-error: true
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        VERSION="${{ steps.v.outputs.version }}"
+        TAG="${{ steps.v.outputs.tag }}"
+        BRANCH="release/${TAG}"
 
         gh pr create \
           --base main \
