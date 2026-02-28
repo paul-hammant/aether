@@ -560,15 +560,22 @@ void report_ambiguous_types(InferenceContext* ctx) {
 }
 
 // Propagate types from function call sites to function definitions
-void propagate_function_call_types(ASTNode* program, SymbolTable* table);
-void propagate_call_types_in_tree(ASTNode* tree, const char* func_name, ASTNode* func_def, int param_count);
+int propagate_function_call_types(ASTNode* program, SymbolTable* table);
+int propagate_call_types_in_tree(ASTNode* tree, const char* func_name, ASTNode* func_def, int param_count);
 
 // Helper to recursively find function calls and propagate types
-void propagate_call_types_in_tree(ASTNode* tree, const char* func_name, ASTNode* func_def, int param_count) {
-    if (!tree || !func_name) return;
-    
-    // Skip function definitions to avoid recursing into parameter lists
-    if (tree->type == AST_FUNCTION_DEFINITION) return;
+int propagate_call_types_in_tree(ASTNode* tree, const char* func_name, ASTNode* func_def, int param_count) {
+    if (!tree || !func_name) return 0;
+    int changed = 0;
+
+    // For function definitions: skip parameter nodes but recurse into the body
+    if (tree->type == AST_FUNCTION_DEFINITION) {
+        int body_idx = tree->child_count - 1;
+        if (body_idx >= 0 && tree->children[body_idx]) {
+            changed += propagate_call_types_in_tree(tree->children[body_idx], func_name, func_def, param_count);
+        }
+        return changed;
+    }
     
     // Check if this is a function call to our target function
     if (tree->type == AST_FUNCTION_CALL && tree->value && strcmp(tree->value, func_name) == 0) {
@@ -577,7 +584,7 @@ void propagate_call_types_in_tree(ASTNode* tree, const char* func_name, ASTNode*
         for (int i = 0; i < arg_count && i < param_count; i++) {
             ASTNode* arg = tree->children[i];
             ASTNode* param = func_def->children[i];
-            
+
             if (arg && param &&
                 (param->type == AST_VARIABLE_DECLARATION || param->type == AST_PATTERN_VARIABLE)) {
                 // If parameter type is unknown and argument type is known, propagate it
@@ -585,40 +592,45 @@ void propagate_call_types_in_tree(ASTNode* tree, const char* func_name, ASTNode*
                     arg->node_type && arg->node_type->kind != TYPE_UNKNOWN) {
                     if (param->node_type) free_type(param->node_type);
                     param->node_type = clone_type(arg->node_type);
+                    changed++;
                 }
             }
         }
     }
-    
-    // Recursively process children (but we already skip function definitions above)
+
+    // Recursively process all children
     for (int i = 0; i < tree->child_count; i++) {
-        propagate_call_types_in_tree(tree->children[i], func_name, func_def, param_count);
+        changed += propagate_call_types_in_tree(tree->children[i], func_name, func_def, param_count);
     }
+    return changed;
 }
 
-// Propagate types from function call sites to function definitions
-void propagate_function_call_types(ASTNode* program, SymbolTable* table) {
+// Propagate types from function call sites to function definitions.
+// Returns the number of type updates made (0 = stable, nothing changed).
+int propagate_function_call_types(ASTNode* program, SymbolTable* table) {
     (void)table;  // Unused for now
-    if (!program) return;
-    
+    if (!program) return 0;
+    int total_changed = 0;
+
     // Find all function calls and match them with definitions
     for (int i = 0; i < program->child_count; i++) {
         ASTNode* node = program->children[i];
         if (!node) continue;
-        
+
         // Look for function definitions
         if (node->type == AST_FUNCTION_DEFINITION && node->value) {
             const char* func_name = node->value;
             int param_count = node->child_count - 1; // Last child is body
-            
-            // Find calls to this function in the program (including main and other functions)
+
+            // Search every other top-level node (including other function bodies)
             for (int j = 0; j < program->child_count; j++) {
-                if (i != j) {  // Don't search within the function definition itself
-                    propagate_call_types_in_tree(program->children[j], func_name, node, param_count);
+                if (i != j) {
+                    total_changed += propagate_call_types_in_tree(program->children[j], func_name, node, param_count);
                 }
             }
         }
     }
+    return total_changed;
 }
 
 // Infer return types for all functions
@@ -657,16 +669,22 @@ int infer_all_types(ASTNode* program, SymbolTable* table) {
     // Phase 2: Solve basic constraints
     int success = solve_constraints(ctx);
     
-    // Phase 3: Propagate types from function calls to function parameters
-    propagate_function_call_types(program, table);
-    
-    // Phase 4: Re-collect constraints now that function parameters have types
-    free_inference_context(ctx);
-    ctx = create_inference_context(table);
-    collect_constraints(program, ctx);
-    
-    // Phase 5: Solve constraints again (now parameters have types, so expressions can be typed)
-    success = solve_constraints(ctx);
+    // Phase 3-5: Interleaved propagation + constraint solving.
+    // Each pass: propagate call-site types into parameter definitions,
+    // then re-collect and re-solve so that identifier references inside
+    // function bodies pick up the newly resolved parameter types.
+    // This handles deep call chains (a->b->c->d) where each level needs
+    // one propagation pass followed by one constraint-solve pass.
+    for (int pass = 0; pass < MAX_INFERENCE_ITERATIONS; pass++) {
+        int changed = propagate_function_call_types(program, table);
+
+        free_inference_context(ctx);
+        ctx = create_inference_context(table);
+        collect_constraints(program, ctx);
+        success = solve_constraints(ctx);
+
+        if (changed == 0) break;
+    }
     
     // Phase 6: Infer function return types (now that return expressions have types)
     infer_function_return_types(program, table);
