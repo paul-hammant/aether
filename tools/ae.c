@@ -595,6 +595,116 @@ fail:
 
 #endif // _WIN32
 
+// Get cflags from aether.toml [build] section (applied only for release/ae-build)
+// Returns empty string if not found or no aether.toml
+static const char* get_cflags(void) {
+    static char flags[512] = "";
+    static bool checked = false;
+
+    if (checked) return flags;
+    checked = true;
+
+    if (!path_exists("aether.toml")) return flags;
+
+    TomlDocument* doc = toml_parse_file("aether.toml");
+    if (!doc) return flags;
+
+    const char* val = toml_get_value(doc, "build", "cflags");
+    if (val) {
+        strncpy(flags, val, sizeof(flags) - 1);
+        flags[sizeof(flags) - 1] = '\0';
+    }
+
+    toml_free_document(doc);
+    return flags;
+}
+
+// Get extra_sources for the [[bin]] entry whose path matches ae_file.
+// Writes space-separated C source paths into out[out_size].
+// Only handles single-line arrays: extra_sources = ["a.c", "b.c"]
+static void get_extra_sources_for_bin(const char* ae_file, char* out, size_t out_size) {
+    out[0] = '\0';
+    if (!ae_file || !path_exists("aether.toml")) return;
+
+    FILE* f = fopen("aether.toml", "r");
+    if (!f) return;
+
+    char line[1024];
+    int in_bin = 0;
+    int matched = 0;
+
+    while (fgets(line, sizeof(line), f)) {
+        char* s = line;
+        while (*s == ' ' || *s == '\t') s++;
+        size_t ln = strlen(s);
+        while (ln > 0 && (s[ln-1] == '\n' || s[ln-1] == '\r' || s[ln-1] == ' ')) s[--ln] = '\0';
+        if (!s[0] || s[0] == '#') continue;
+
+        // [[bin]] section marker
+        if (strncmp(s, "[[bin]]", 7) == 0) {
+            in_bin = 1;
+            matched = 0;
+            continue;
+        }
+
+        // Other section resets context
+        if (s[0] == '[' && s[1] != '[') {
+            in_bin = 0;
+            matched = 0;
+            continue;
+        }
+
+        if (!in_bin) continue;
+
+        // path = "..." — check if this bin entry matches ae_file
+        if (strncmp(s, "path", 4) == 0 && strchr(s, '=')) {
+            char* eq = strchr(s, '=') + 1;
+            while (*eq == ' ') eq++;
+            if (*eq == '"') eq++;
+            char* end = strrchr(eq, '"');
+            if (end) *end = '\0';
+            // Normalize: strip leading "./"
+            const char* aef = ae_file;
+            if (aef[0] == '.' && aef[1] == '/') aef += 2;
+            if (eq[0] == '.' && eq[1] == '/') eq += 2;
+            // Match if equal or ae_file ends with the path value
+            size_t vlen = strlen(eq);
+            size_t alen = strlen(aef);
+            if (strcmp(aef, eq) == 0 ||
+                (alen >= vlen && aef[alen - vlen - 1] == '/' &&
+                 strcmp(aef + alen - vlen, eq) == 0)) {
+                matched = 1;
+            }
+            continue;
+        }
+
+        // extra_sources = ["a.c", "b.c"] in a matched [[bin]]
+        if (matched && strncmp(s, "extra_sources", 13) == 0 && strchr(s, '=')) {
+            char* eq = strchr(s, '=') + 1;
+            while (*eq == ' ') eq++;
+            if (*eq != '[') continue;
+            eq++; // skip '['
+            while (*eq && *eq != ']') {
+                while (*eq == ' ' || *eq == ',') eq++;
+                if (*eq == ']' || !*eq) break;
+                if (*eq == '"') {
+                    eq++;
+                    char* end = strchr(eq, '"');
+                    if (!end) break;
+                    *end = '\0';
+                    if (out[0]) strncat(out, " ", out_size - strlen(out) - 1);
+                    strncat(out, eq, out_size - strlen(out) - 1);
+                    eq = end + 1;
+                } else {
+                    eq++;
+                }
+            }
+            break;
+        }
+    }
+    fclose(f);
+}
+
 // --------------------------------------------------------------------------
 // Build GCC/MinGW command for linking an Aether-compiled C file
 static void build_gcc_cmd(char* cmd, size_t size,
@@ -602,6 +712,9 @@ static void build_gcc_cmd(char* cmd, size_t size,
                           bool optimize, const char* extra_files) {
     const char* link_flags = get_link_flags();
     const char* extra = extra_files ? extra_files : "";
+
+    // User cflags from aether.toml applied only for release builds (ae build)
+    const char* user_cflags = optimize ? get_cflags() : "";
 
 #ifdef _WIN32
     // Ensure GCC is available (auto-downloads WinLibs on first run if needed).
@@ -612,7 +725,11 @@ static void build_gcc_cmd(char* cmd, size_t size,
     // Windows (MinGW): no -pthread (Win32 threads via aether_thread.h), no -lm (CRT).
     // -lws2_32 is required for Winsock2 (aether_http/net always compiled into runtime).
     // Quote s_gcc_bin in case the path contains spaces.
-    const char* opt = optimize ? "-O2" : "-O0";
+    char opt[600];
+    if (user_cflags[0])
+        snprintf(opt, sizeof(opt), "%s %s", optimize ? "-O2" : "-O0", user_cflags);
+    else
+        snprintf(opt, sizeof(opt), "%s", optimize ? "-O2" : "-O0");
     char lib_dir[1024];
     if (tc.has_lib) {
         strncpy(lib_dir, tc.lib, sizeof(lib_dir) - 1);
@@ -631,7 +748,11 @@ static void build_gcc_cmd(char* cmd, size_t size,
     }
 #else
     // POSIX (Linux/macOS): -pthread for POSIX threads, -lm for math
-    const char* opt = optimize ? "-O2 -pipe" : "-O0 -pipe";
+    char opt[600];
+    if (user_cflags[0])
+        snprintf(opt, sizeof(opt), "%s %s", optimize ? "-O2 -pipe" : "-O0 -pipe", user_cflags);
+    else
+        snprintf(opt, sizeof(opt), "%s", optimize ? "-O2 -pipe" : "-O0 -pipe");
     if (tc.has_lib) {
         char lib_dir[1024];
         strncpy(lib_dir, tc.lib, sizeof(lib_dir) - 1);
@@ -656,9 +777,15 @@ static void build_gcc_cmd(char* cmd, size_t size,
 
 static int cmd_run(int argc, char** argv) {
     const char* file = NULL;
+    char extra_files[2048] = "";
 
     for (int i = 0; i < argc; i++) {
-        if (argv[i][0] != '-') { file = argv[i]; break; }
+        if (strcmp(argv[i], "--extra") == 0 && i + 1 < argc) {
+            if (extra_files[0]) strncat(extra_files, " ", sizeof(extra_files) - strlen(extra_files) - 1);
+            strncat(extra_files, argv[++i], sizeof(extra_files) - strlen(extra_files) - 1);
+        } else if (argv[i][0] != '-' && !file) {
+            file = argv[i];
+        }
     }
 
     // Resolve directory argument (e.g. "." or "myproject/") to src/main.ae
@@ -744,11 +871,19 @@ static int cmd_run(int argc, char** argv) {
     }
 
     // Step 2: Compile .c to executable with runtime (-O0 for fast dev builds)
-    build_gcc_cmd(cmd, sizeof(cmd), c_file, exe_file, false, NULL);
+    // Merge extra_sources from aether.toml [[bin]] with any --extra CLI args
+    char toml_extra[2048] = "";
+    get_extra_sources_for_bin(file, toml_extra, sizeof(toml_extra));
+    if (toml_extra[0]) {
+        if (extra_files[0]) strncat(extra_files, " ", sizeof(extra_files) - strlen(extra_files) - 1);
+        strncat(extra_files, toml_extra, sizeof(extra_files) - strlen(extra_files) - 1);
+    }
+    const char* run_extra = extra_files[0] ? extra_files : NULL;
+    build_gcc_cmd(cmd, sizeof(cmd), c_file, exe_file, false, run_extra);
     int gcc_ret = tc.verbose ? run_cmd(cmd) : run_cmd_quiet(cmd);
     if (gcc_ret != 0) {
         // Re-run with output for error diagnosis
-        build_gcc_cmd(cmd, sizeof(cmd), c_file, exe_file, false, NULL);
+        build_gcc_cmd(cmd, sizeof(cmd), c_file, exe_file, false, run_extra);
         run_cmd(cmd);
         fprintf(stderr, "Build failed.\n");
         remove(c_file);
@@ -851,6 +986,15 @@ static int cmd_build(int argc, char** argv) {
     }
 
     // Step 2: .c to executable with runtime (-O2 for release builds)
+    // Merge extra_sources from aether.toml [[bin]] with any --extra CLI args
+    {
+        char toml_extra[2048] = "";
+        get_extra_sources_for_bin(file, toml_extra, sizeof(toml_extra));
+        if (toml_extra[0]) {
+            if (extra_files[0]) strncat(extra_files, " ", sizeof(extra_files) - strlen(extra_files) - 1);
+            strncat(extra_files, toml_extra, sizeof(extra_files) - strlen(extra_files) - 1);
+        }
+    }
     const char* extra = extra_files[0] ? extra_files : NULL;
     build_gcc_cmd(cmd, sizeof(cmd), c_file, exe_file, true, extra);
     int gcc_ret = tc.verbose ? run_cmd(cmd) : run_cmd_quiet(cmd);

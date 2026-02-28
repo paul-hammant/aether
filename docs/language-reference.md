@@ -757,17 +757,21 @@ print("Hello, ${name}! You are ${age} years old.")
 ### Using the CLI
 
 ```bash
-# Compile and run
-ae run program.ae
+ae run program.ae           # Compile and run (fast, -O0)
+ae build program.ae -o out  # Compile to optimised executable (-O2 + aether.toml cflags)
+ae init myproject           # Scaffold a new project
+ae test                     # Discover and run .ae test files
+ae cache                    # Show build cache info
+ae cache clear              # Purge build cache
+```
 
-# Compile to executable
-ae build program.ae -o program
+`ae run` and `ae build` also accept:
 
-# Initialize new project
-ae init myproject
+```bash
+# Include extra C source files (e.g. FFI helpers, renderer backends)
+ae build main.ae -o app --extra src/ffi.c --extra src/renderer.c
 
-# Run tests
-ae test
+# Multiple --extra flags are additive; also merged with extra_sources from aether.toml
 ```
 
 ### Using the Compiler Directly
@@ -776,7 +780,8 @@ ae test
 # Compile to C
 aetherc program.ae output.c
 
-# Emit header for C embedding
+# Emit a C header for embedding Aether actors in a C application
+# Generates message structs, MSG_* constants, and spawn function prototypes
 aetherc program.ae output.c --emit-header
 ```
 
@@ -784,12 +789,34 @@ aetherc program.ae output.c --emit-header
 
 ## Type System
 
-Aether uses static typing with bidirectional type inference:
+Aether uses static typing with full type inference — explicit annotations are never required, but are always accepted.
 
-- **Local inference**: Variables infer types from initialization
-- **Parameter inference**: Function parameters infer from usage
-- **Return inference**: Return types infer from return statements
-- **Constraint solving**: Complex expressions resolved iteratively
+### Inference rules
+
+- **Local variables**: Inferred from their initializer (`x = 42` → `int`)
+- **Function parameters**: Inferred from call sites across the whole program, including through deep call chains (`main → f → g → h`)
+- **Return types**: Inferred from `return` statements and arrow-body expressions
+- **Constraint solving**: Iterative constraint propagation handles complex interdependencies
+
+### Type annotations are optional
+
+```aether
+// All three are equivalent:
+add(a, b) { return a + b; }          // fully inferred from call sites
+add(a: int, b: int) { return a + b; } // explicit
+add(a, b: int) { return a + b; }     // mixed
+```
+
+Annotations are useful for documentation or when the type cannot be determined from call sites alone (e.g. a function that is never called, or an `extern` parameter).
+
+### `extern` requires annotations
+
+The compiler cannot infer types of external C functions — parameter types must be declared explicitly:
+
+```aether
+extern malloc(n: int) -> ptr
+extern free(p: ptr) -> void
+```
 
 Explicit types are optional but can improve clarity:
 

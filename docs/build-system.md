@@ -4,6 +4,80 @@
 
 Aether uses a multi-tier build system with different optimization profiles for development, testing, and release builds.
 
+## Project Configuration (`aether.toml`)
+
+Every Aether project has an `aether.toml` at its root. `ae run` and `ae build` read it automatically.
+
+### Minimal project
+
+```toml
+[package]
+name = "myapp"
+version = "0.1.0"
+
+[[bin]]
+name = "myapp"
+path = "src/main.ae"
+```
+
+### Full configuration reference
+
+```toml
+[package]
+name = "myapp"
+version = "1.0.0"
+description = "What this program does"
+
+[build]
+# Extra C compiler flags applied during `ae build` (release builds only).
+# `ae run` uses -O0 for fast iteration regardless of this setting.
+cflags = "-O3 -march=native"
+
+# Platform-specific linker flags (e.g. for third-party C libraries).
+# macOS/Linux: link_flags = "-lraylib"
+# Windows:     link_flags = "-Ldeps/raylib/lib -lraylib -lopengl32 -lgdi32 -lwinmm"
+link_flags = ""
+
+[[bin]]
+name = "myapp"
+path = "src/main.ae"
+
+# Extra C source files compiled alongside the Aether output.
+# Useful for C FFI helpers, renderer backends, or any C code your program needs.
+# Merged additively with any --extra flags passed on the command line.
+extra_sources = ["src/ffi_helpers.c", "src/renderer.c"]
+```
+
+### `extra_sources` vs `--extra`
+
+Both add C files to the build — they are additive when both are present.
+
+| | `extra_sources` in `aether.toml` | `--extra file.c` CLI flag |
+|---|---|---|
+| **Scope** | Always included for this binary | Per-invocation |
+| **Good for** | C helpers your program always needs | Renderer backends, platform variants |
+| **Works with** | `ae build` and `ae run` | `ae build` and `ae run` |
+
+---
+
+## Build Cache
+
+`ae` caches compiled binaries in `~/.aether/cache/` using an FNV64 hash of source content, compiler mtime, runtime library mtime, and build flags.
+
+**Typical timings:**
+- Cache hit: ~8 ms (exec cached binary directly)
+- Cache miss: ~300 ms gcc + ~25 ms aetherc
+- First macOS run: 1–3 s extra (OS Gatekeeper check, one-time per binary)
+
+```bash
+ae cache          # Show cache location and entry count
+ae cache clear    # Delete all cached builds
+```
+
+Cache entries are invalidated automatically when source or compiler changes.
+
+---
+
 ## Build Tiers
 
 All builds go through the Makefile, which handles the full source list across subdirectories (`compiler/parser/`, `compiler/analysis/`, `compiler/codegen/`, `runtime/scheduler/`, `runtime/memory/`, etc.).

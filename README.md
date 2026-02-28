@@ -136,6 +136,8 @@ ae test [file|dir]       # Discover and run tests
 ae examples [dir]        # Build all example programs
 ae add <package>         # Add a dependency (GitHub repos)
 ae repl                  # Start interactive REPL
+ae cache                 # Show build cache info
+ae cache clear           # Clear the build cache
 ae version               # Show current version
 ae version list          # List all available releases
 ae version install <v>   # Install a specific version

@@ -1028,3 +1028,53 @@ void scheduler_reply(ActorBase* self, void* data, size_t data_size) {
 
     reply_slot_decref(slot);
 }
+
+// ---------------------------------------------------------------------------
+// aether_scheduler_poll — drain pending messages for main-thread-only actors.
+//
+// Call this from C-hosted event loops (e.g., inside a render callback) to
+// keep Aether actors alive while the main thread is blocked in C code.
+//
+// Thread safety: only touches actors flagged as main_thread_only, which
+// scheduler worker threads explicitly skip — so no concurrent access.
+//
+// max_per_actor: max messages to process per actor per call (0 = unlimited).
+// Returns total number of messages processed across all actors.
+int aether_scheduler_poll(int max_per_actor) {
+    // If main-thread inline mode is active, all sends are already handled
+    // synchronously — nothing to drain here.
+    if (aether_main_thread_mode_active()) return 0;
+
+    int total = 0;
+    int limit = (max_per_actor <= 0) ? 1024 : max_per_actor;
+
+    for (int c = 0; c < num_cores; c++) {
+        Scheduler* sched = &schedulers[c];
+
+        // Acquire fence: ensure actor pointer writes (from registration) are visible.
+        atomic_thread_fence(memory_order_acquire);
+        int actor_count = sched->actor_count;
+
+        for (int i = 0; i < actor_count; i++) {
+            ActorBase* actor = sched->actors[i];
+            if (!actor || !actor->step) continue;
+
+            // Only process actors the scheduler threads are skipping.
+            // It is safe to call step() here because scheduler threads check
+            // main_thread_only and skip these actors entirely.
+            if (!atomic_load_explicit(&actor->main_thread_only, memory_order_acquire))
+                continue;
+
+            int processed = 0;
+            while (actor->mailbox.count > 0 && processed < limit) {
+                actor->step(actor);
+                processed++;
+                total++;
+            }
+            if (actor->mailbox.count == 0)
+                actor->active = 0;
+        }
+    }
+
+    return total;
+}

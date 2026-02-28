@@ -136,6 +136,13 @@ void* scheduler_ask_message(ActorBase* target, void* msg_data, size_t msg_size, 
 // data/data_size describe the reply payload; it is copied internally.
 void scheduler_reply(ActorBase* self, void* data, size_t data_size);
 
+// Drain pending messages for main-thread-only actors.
+// Call this from C-hosted event loops (e.g. inside a render/event callback)
+// to keep Aether actors alive while the main thread is occupied in C code.
+// max_per_actor: max messages to process per actor per call (0 = unlimited).
+// Returns total messages processed across all actors.
+int aether_scheduler_poll(int max_per_actor);
+
 // Thread-local reply slot set by the send path (sender) and step function (receiver).
 // g_pending_reply_slot: set before aether_send_message so the slot rides inside the Message.
 // g_current_reply_slot: set by the generated step function after mailbox_receive.

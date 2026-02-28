@@ -650,11 +650,31 @@ static ASTNode* parse_postfix_expression(Parser* parser) {
         
         // Actor V2 - Ask operator: result = actor ? Message { ... }
         if (op->type == TOKEN_QUESTION) {
+            // Guard against ternary-style usage (? is actor-ask, not ternary).
+            // Heuristic: after '?', an actor-ask always names a message type
+            // (uppercase identifier). If we see a lowercase identifier, a
+            // literal, '(', or '-', it is almost certainly an attempted ternary.
+            Token* after_q = peek_ahead(parser, 1); // token after '?'
+            if (after_q && (
+                    (after_q->type == TOKEN_IDENTIFIER && after_q->value &&
+                     after_q->value[0] >= 'a' && after_q->value[0] <= 'z') ||
+                    after_q->type == TOKEN_NUMBER     ||
+                    after_q->type == TOKEN_LEFT_PAREN ||
+                    after_q->type == TOKEN_MINUS      ||
+                    after_q->type == TOKEN_STRING)) {
+                parser_error(parser,
+                    "unexpected `?` in expression: Aether does not have a ternary "
+                    "operator - `?` is the actor ask operator (`actor ? Msg { ... }`); "
+                    "use if/else blocks for conditional values");
+                // Break out of the postfix loop; return expression parsed so far.
+                break;
+            }
+
             advance_token(parser); // consume '?'
-            
+
             ASTNode* message = parse_message_constructor(parser);
             if (!message) return NULL;
-            
+
             ASTNode* ask_op = create_ast_node(AST_SEND_ASK, NULL, op->line, op->column);
             add_child(ask_op, expr);     // actor reference
             add_child(ask_op, message);  // message to send
