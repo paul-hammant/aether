@@ -13,13 +13,14 @@ message Setup { self_ref: ptr }
 message Spawn { offset: int, size: int, parent: ptr }
 
 // Result carries a subtree sum up the tree.
-message Result { value: int }
+// value is long (int64) to hold the full sum for 1M leaves (max ~499999500000).
+message Result { value: long }
 
 actor SkynetNode {
     state my_ref = 0;
     state parent_ref = 0;
     state pending = 0;
-    state total = 0;
+    state long total = 0;
 
     receive {
         Setup(self_ref) -> {
@@ -27,18 +28,43 @@ actor SkynetNode {
         }
         Spawn(offset, size, parent) -> {
             parent_ref = parent;
-            if (size == 1) {
-                // Leaf: report offset to parent
-                parent_ref ! Result { value: offset };
+            if (size <= 1) {
+                // Leaf: report offset to parent (or store if root)
+                if (parent_ref == 0) {
+                    total = offset;
+                } else {
+                    parent_ref ! Result { value: offset };
+                }
             } else {
-                pending = 10;
                 child_size = size / 10;
-                i = 0;
-                while (i < 10) {
-                    child = spawn(SkynetNode());
-                    child ! Setup { self_ref: child };
-                    child ! Spawn { offset: offset + i * child_size, size: child_size, parent: my_ref };
-                    i = i + 1;
+                if (child_size == 0) {
+                    // Fewer than 10 leaves: spawn one child per leaf
+                    pending = size;
+                    i = 0;
+                    while (i < size) {
+                        child = spawn(SkynetNode());
+                        child ! Setup { self_ref: child };
+                        child ! Spawn { offset: offset + i, size: 1, parent: my_ref };
+                        i = i + 1;
+                    }
+                } else {
+                    // Distribute remainder: first (size % 10) children get child_size+1
+                    remainder = size - child_size * 10;
+                    pending = 10;
+                    i = 0;
+                    child_offset = offset;
+                    while (i < 10) {
+                        // First 'remainder' children get one extra leaf
+                        cs = child_size;
+                        if (i < remainder) {
+                            cs = cs + 1;
+                        }
+                        child = spawn(SkynetNode());
+                        child ! Setup { self_ref: child };
+                        child ! Spawn { offset: child_offset, size: cs, parent: my_ref };
+                        child_offset = child_offset + cs;
+                        i = i + 1;
+                    }
                 }
             }
         }
@@ -77,8 +103,6 @@ main() {
     wait_for_idle();
     end_time = clock_ns();
 
-    // Note: root.total may overflow int32 for num_leaves > ~65536.
-    // Correctness is verified by the smoke test (SKYNET_LEAVES=1000, expected sum=499500).
     print("Sum: ");
     print(root.total);
     print("\n");

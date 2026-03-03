@@ -36,7 +36,7 @@ void ring_step(void* self) {
     }
     
     if (processed > 0) {
-        actor->base.active = 1;
+        atomic_store_explicit(&actor->base.active, 1, memory_order_relaxed);
         send_buffer_force_flush();  // Flush after processing batch
     }
 }
@@ -57,7 +57,7 @@ int main() {
         actors[i].count = 0;
         actors[i].base.id = i + 1;
         actors[i].base.step = ring_step;
-        actors[i].base.active = 1;
+        atomic_init(&actors[i].base.active, 1);
         mailbox_init(&actors[i].base.mailbox);
         actors[i].next = &actors[(i + 1) % num_actors];
         scheduler_register_actor(&actors[i].base, i % cores);

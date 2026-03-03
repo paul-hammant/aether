@@ -25,14 +25,14 @@ typedef struct Increment {
 } Increment;
 
 typedef struct __attribute__((aligned(64))) Counter {
-    int active;              // Hot: checked every loop iteration
+    atomic_int active;       // Hot: checked every loop iteration
     int id;                  // Hot: used for identification
     Mailbox mailbox;         // Hot: message queue
     void (*step)(void*);     // Hot: message handler
     pthread_t thread;        // Warm: thread handle
     int auto_process;        // Warm: auto-processing flag
     atomic_int assigned_core; // Cold: core assignment (atomic for work-stealing)
-    
+
 } Counter;
 
 void Counter_step(Counter* self) {
@@ -40,7 +40,7 @@ void Counter_step(Counter* self) {
     
     // Likely path: mailbox has message
     if (__builtin_expect(!mailbox_receive(&self->mailbox, &msg), 0)) {
-        self->active = 0;
+        atomic_store_explicit(&self->active, 0, memory_order_relaxed);
         return;
     }
     
@@ -55,7 +55,7 @@ Counter* spawn_Counter() {
     if (!actor) return NULL;
     
     actor->id = atomic_fetch_add(&next_actor_id, 1);
-    actor->active = 1;
+    atomic_init(&actor->active, 1);
     actor->assigned_core = -1;
     actor->step = (void (*)(void*))Counter_step;
     actor->auto_process = 1;

@@ -222,12 +222,15 @@ void aether_send_message(void* actor_ptr, void* message_data, size_t message_siz
     // STANDARD PATH: Multi-actor scheduler-based processing
     // ==============================================================================
     // Always use heap allocation for type-safe messages.
-    // TLS pools have thread affinity issues when sender/receiver are on different threads.
-    // The inline message path (Message._imsg with payload_int) is still optimized for
-    // single-int payloads and avoids allocation entirely.
+    // TLS pools have thread affinity issues: a same-core actor may be migrated
+    // to another core after the message is sent, causing the receiver to call
+    // free() on pool memory (heap-use-after-free / free-on-non-malloc).
     void* msg_copy = malloc(message_size);
-    if (!msg_copy) return;
-
+    if (!msg_copy) {
+        fprintf(stderr, "aether: malloc(%zu) failed for msg type %d to actor %d\n",
+                message_size, *(int*)message_data, actor->id);
+        abort();
+    }
     memcpy(msg_copy, message_data, message_size);
 
     Message msg;
@@ -243,8 +246,7 @@ void aether_send_message(void* actor_ptr, void* message_data, size_t message_siz
     // Use optimized scheduler send paths:
     // - Same-core: direct mailbox send (no queue overhead)
     // - Cross-core: lock-free queue with batching
-    // NOTE: Inline mode disabled for debugging
-    if (current_core_id >= 0 && current_core_id == actor->assigned_core) {
+    if (current_core_id >= 0 && current_core_id == atomic_load_explicit(&actor->assigned_core, memory_order_relaxed)) {
         // Same-core: direct mailbox send
         scheduler_send_local(actor, msg);
     } else {

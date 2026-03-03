@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdatomic.h>
 #include <pthread.h>
 
 typedef struct Increment {
@@ -9,7 +10,7 @@ typedef struct Increment {
 
 typedef struct {
     int id;
-    int active;
+    atomic_int active;
     pthread_t thread;
     int auto_process;
     int count;
@@ -24,7 +25,7 @@ void* counter_thread(void* arg) {
 Counter* spawn_Counter() {
     Counter* actor = malloc(sizeof(Counter));
     actor->id = 1;
-    actor->active = 1;
+    atomic_init(&actor->active, 1);
     actor->auto_process = 1;
     actor->count = 0;
     

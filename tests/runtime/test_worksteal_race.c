@@ -20,17 +20,18 @@
 #endif
 
 typedef struct {
-    int active;
+    atomic_int active;
     int id;
     Mailbox mailbox;
     void (*step)(void*);
     pthread_t thread;
     int auto_process;
     atomic_int assigned_core;
-    int migrate_to;
+    atomic_int migrate_to;
     atomic_int main_thread_only;
     SPSCQueue spsc_queue;
     _Atomic(ActorReplySlot*) reply_slot;
+    atomic_flag step_lock;
     atomic_int count;
 } WStealActor;
 
@@ -39,19 +40,20 @@ static void wsteal_step(WStealActor* self) {
     while (mailbox_receive(&self->mailbox, &msg)) {
         atomic_fetch_add(&self->count, 1);
     }
-    self->active = (self->mailbox.count > 0);
+    atomic_store_explicit(&self->active, (self->mailbox.count > 0), memory_order_relaxed);
 }
 
 static WStealActor* make_wsteal_actor(int actor_id) {
     WStealActor* a = calloc(1, sizeof(WStealActor));
     a->id = actor_id;
-    a->active = 0;
+    atomic_init(&a->active, 0);
     a->step = (void (*)(void*))wsteal_step;
     a->auto_process = 0;
     atomic_init(&a->assigned_core, -1);
-    a->migrate_to = -1;
+    atomic_init(&a->migrate_to, -1);
     atomic_init(&a->main_thread_only, 0);
     atomic_init(&a->reply_slot, NULL);
+    atomic_flag_clear_explicit(&a->step_lock, memory_order_relaxed);
     atomic_init(&a->count, 0);
     mailbox_init(&a->mailbox);
     spsc_queue_init(&a->spsc_queue);
@@ -178,7 +180,7 @@ static void test_worksteal_reroute_under_migration(void) {
 
         if (i == TOTAL_MSGS / 4) {
             for (int j = 0; j < NUM_ACTORS / 2; j++)
-                actors[j]->migrate_to = 1;
+                atomic_store_explicit(&actors[j]->migrate_to, 1, memory_order_relaxed);
         }
     }
 

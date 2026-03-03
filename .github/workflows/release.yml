@@ -264,6 +264,9 @@ jobs:
         echo "tag=$TAG"         >> "$GITHUB_OUTPUT"
         echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
+    - name: Build release body
+      run: python3 .github/scripts/build_release_body.py ${{ steps.tag.outputs.version }}
+
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v2
       with:
@@ -272,38 +275,7 @@ jobs:
         make_latest: true
         draft: false
         prerelease: ${{ contains(steps.tag.outputs.tag, 'alpha') || contains(steps.tag.outputs.tag, 'beta') || contains(steps.tag.outputs.tag, 'rc') }}
-        generate_release_notes: true
-        body: |
-          ## Download
-
-          | Platform | File |
-          |----------|------|
-          | **Windows 64-bit** | `aether-${{ steps.tag.outputs.version }}-windows-x86_64.zip` |
-          | Linux x86-64 | `aether-${{ steps.tag.outputs.version }}-linux-x86_64.tar.gz` |
-          | macOS Intel | `aether-${{ steps.tag.outputs.version }}-macos-x86_64.tar.gz` |
-          | macOS Apple Silicon | `aether-${{ steps.tag.outputs.version }}-macos-arm64.tar.gz` |
-
-          ## Windows — quick start (zero manual setup)
-
-          1. Download `aether-${{ steps.tag.outputs.version }}-windows-x86_64.zip`
-          2. Extract to any folder (e.g. `C:\aether`)
-          3. Add `C:\aether\bin` to your PATH
-          4. Open a terminal (PowerShell or CMD) and run:
-
-          ```
-          ae version
-          ae run myprogram.ae
-          ```
-
-          **GCC is downloaded automatically on first `ae run`** — no MSYS2, no manual toolchain setup required.
-
-          ## Linux / macOS — quick start
-
-          ```bash
-          tar -xzf aether-${{ steps.tag.outputs.version }}-<platform>.tar.gz
-          export PATH="$PWD/bin:$PATH"
-          ae run myprogram.ae
-          ```
+        body_path: /tmp/release_body.md
         files: |
           aether-*.tar.gz
           aether-*.zip

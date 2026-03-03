@@ -28,17 +28,18 @@ static long get_time_ms(void) {
 
 typedef struct {
     // MUST match ActorBase layout exactly - fields in exact same order!
-    int active;
+    atomic_int active;
     int id;
     Mailbox mailbox;
     void (*step)(void*);
     pthread_t thread;
     int auto_process;
     atomic_int assigned_core;
-    int migrate_to;
+    atomic_int migrate_to;
     atomic_int main_thread_only;
     SPSCQueue spsc_queue;
     _Atomic(ActorReplySlot*) reply_slot;
+    atomic_flag step_lock;
     // Test-specific fields below
     atomic_int count;
     atomic_int last_value;
@@ -46,17 +47,18 @@ typedef struct {
 
 typedef struct {
     // MUST match ActorBase layout exactly - fields in exact same order!
-    int active;
+    atomic_int active;
     int id;
     Mailbox mailbox;
     void (*step)(void*);
     pthread_t thread;
     int auto_process;
     atomic_int assigned_core;
-    int migrate_to;
+    atomic_int migrate_to;
     atomic_int main_thread_only;
     SPSCQueue spsc_queue;
     _Atomic(ActorReplySlot*) reply_slot;
+    atomic_flag step_lock;
     // Test-specific fields below
     atomic_int received[1000];
     atomic_int count;
@@ -72,7 +74,7 @@ void counter_step(CounterActor* self) {
         atomic_fetch_add(&self->count, 1);
         atomic_store(&self->last_value, msg.payload_int);
     }
-    self->active = (self->mailbox.count > 0);
+    atomic_store_explicit(&self->active, (self->mailbox.count > 0), memory_order_relaxed);
 }
 
 void order_step(OrderActor* self) {
@@ -84,7 +86,7 @@ void order_step(OrderActor* self) {
         }
         atomic_fetch_add(&self->count, 1);
     }
-    self->active = (self->mailbox.count > 0);
+    atomic_store_explicit(&self->active, (self->mailbox.count > 0), memory_order_relaxed);
 }
 
 // ============================================================================
@@ -149,10 +151,10 @@ void test_scheduler_basic_messaging(void) {
     CounterActor* actor = malloc(sizeof(CounterActor));
     memset(actor, 0, sizeof(CounterActor));  // Zero all fields including pthread_t
     actor->id = 1;
-    actor->active = 0;
+    atomic_init(&actor->active, 0);
     actor->step = (void (*)(void*))counter_step;
     actor->auto_process = 0;
-    actor->migrate_to = -1;
+    atomic_init(&actor->migrate_to, -1);
     atomic_store(&actor->count, 0);
     atomic_store(&actor->last_value, -1);
     mailbox_init(&actor->mailbox);
@@ -192,10 +194,10 @@ void test_scheduler_high_throughput(void) {
     CounterActor* actor = malloc(sizeof(CounterActor));
     memset(actor, 0, sizeof(CounterActor));  // Zero all fields including pthread_t
     actor->id = 1;
-    actor->active = 0;
+    atomic_init(&actor->active, 0);
     actor->step = (void (*)(void*))counter_step;
     actor->auto_process = 0;
-    actor->migrate_to = -1;
+    atomic_init(&actor->migrate_to, -1);
     atomic_store(&actor->count, 0);
     atomic_store(&actor->last_value, -1);
     mailbox_init(&actor->mailbox);
@@ -245,10 +247,10 @@ void test_scheduler_message_ordering(void) {
     OrderActor* actor = malloc(sizeof(OrderActor));
     memset(actor, 0, sizeof(OrderActor));  // Zero all fields including pthread_t
     actor->id = 1;
-    actor->active = 0;
+    atomic_init(&actor->active, 0);
     actor->step = (void (*)(void*))order_step;
     actor->auto_process = 0;
-    actor->migrate_to = -1;
+    atomic_init(&actor->migrate_to, -1);
     atomic_store(&actor->count, 0);
     mailbox_init(&actor->mailbox);
 
@@ -302,18 +304,18 @@ void test_scheduler_cross_core(void) {
     memset(actor1, 0, sizeof(CounterActor));  // Zero all fields including pthread_t
 
     actor0->id = 1;
-    actor0->active = 0;
+    atomic_init(&actor0->active, 0);
     actor0->step = (void (*)(void*))counter_step;
     actor0->auto_process = 0;
-    actor0->migrate_to = -1;
+    atomic_init(&actor0->migrate_to, -1);
     atomic_store(&actor0->count, 0);
     mailbox_init(&actor0->mailbox);
 
     actor1->id = 2;
-    actor1->active = 0;
+    atomic_init(&actor1->active, 0);
     actor1->step = (void (*)(void*))counter_step;
     actor1->auto_process = 0;
-    actor1->migrate_to = -1;
+    atomic_init(&actor1->migrate_to, -1);
     atomic_store(&actor1->count, 0);
     mailbox_init(&actor1->mailbox);
     
@@ -378,10 +380,10 @@ void test_scheduler_backpressure(void) {
     
     CounterActor* actor = calloc(1, sizeof(CounterActor));
     actor->id = 1;
-    actor->active = 0;
+    atomic_init(&actor->active, 0);
     actor->step = (void (*)(void*))counter_step;
     actor->auto_process = 0;
-    actor->migrate_to = -1;
+    atomic_init(&actor->migrate_to, -1);
     atomic_store(&actor->count, 0);
     mailbox_init(&actor->mailbox);
     

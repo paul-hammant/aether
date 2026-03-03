@@ -53,17 +53,21 @@ static inline void spinlock_unlock(OptimizedSpinlock* lock) {
 }
 
 typedef struct {
-    int active;
+    atomic_int active;
     int id;
     Mailbox mailbox;
     void (*step)(void*);
     pthread_t thread;
     int auto_process;
     atomic_int assigned_core;
-    int migrate_to;           // Affinity hint: core to migrate to (-1 = none)
+    atomic_int migrate_to;    // Affinity hint: core to migrate to (-1 = none)
     atomic_int main_thread_only;         // If set, scheduler threads must not process this actor
-    SPSCQueue spsc_queue;                // Lock-free same-core messaging
+    SPSCQueue* spsc_queue;               // Lock-free same-core messaging (lazy, only for auto_process)
     _Atomic(ActorReplySlot*) reply_slot; // Non-NULL only while an ask/reply is in flight
+    // Prevents concurrent step() calls during work-steal handoff.
+    // Set (TAS) by the thread about to call step(); cleared (release) after.
+    // Work-stealing threads that find this set will retry next outer iteration.
+    atomic_flag step_lock;
 } ActorBase;
 
 typedef struct {
@@ -77,10 +81,10 @@ typedef struct {
     // SPSC queue, so no CAS or locks are needed on the producer side.
     LockFreeQueue from_queues[MAX_CORES + 1];
     atomic_int running;
-    atomic_int work_count;  // For work stealing - approximate message count
-    atomic_int steal_attempts;  // Statistics
+    atomic_int work_count;  // Approximate in-flight message count (used for load reporting)
+    atomic_int steal_attempts;  // Cumulative count of successful work-steal operations
     atomic_int idle_cycles;     // Track how long core has been idle
-    OptimizedSpinlock actor_lock;  // Protects actors array during work stealing
+    OptimizedSpinlock actor_lock;  // Protects actors array during migration and registration
 
     // Per-core message counters (no atomics needed - core-local!)
     // This is the Linux kernel's per-CPU counter pattern for scalability

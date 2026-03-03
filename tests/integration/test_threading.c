@@ -26,20 +26,20 @@ typedef struct Increment {
 
 typedef struct Counter {
     int id;
-    int active;
+    atomic_int active;
     atomic_int assigned_core;
     Mailbox mailbox;
     void (*step)(void*);
     pthread_t thread;
     int auto_process;
-    
+
 } Counter;
 
 void Counter_step(Counter* self) {
     Message msg;
     
     if (!mailbox_receive(&self->mailbox, &msg)) {
-        self->active = 0;
+        atomic_store_explicit(&self->active, 0, memory_order_relaxed);
         return;
     }
     
@@ -51,7 +51,7 @@ void Counter_step(Counter* self) {
 Counter* spawn_Counter() {
     Counter* actor = malloc(sizeof(Counter));
     actor->id = atomic_fetch_add(&next_actor_id, 1);
-    actor->active = 1;
+    atomic_init(&actor->active, 1);
     actor->assigned_core = -1;
     actor->step = (void (*)(void*))Counter_step;
     actor->auto_process = 1;

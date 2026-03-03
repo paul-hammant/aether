@@ -17,14 +17,20 @@ void send_buffer_flush(void) {
     }
     
     ActorBase* actor = (ActorBase*)g_send_buffer.target;
-    int target_core = actor->assigned_core;
+    int target_core = atomic_load_explicit(&actor->assigned_core, memory_order_relaxed);
     
     // Fast path: same core, use lock-free SPSC queue
     if (g_send_buffer.core_id == target_core && g_send_buffer.core_id >= 0) {
         // Try SPSC queue first (lock-free, fastest path)
-        int sent = spsc_enqueue_batch(&actor->spsc_queue, g_send_buffer.buffer, g_send_buffer.count);
+        // spsc_queue is lazy-allocated (NULL for regular actors); allocate if needed
+        if (!actor->spsc_queue) {
+            actor->spsc_queue = calloc(1, sizeof(SPSCQueue));
+            if (actor->spsc_queue) spsc_queue_init(actor->spsc_queue);
+        }
+        int sent = actor->spsc_queue
+            ? spsc_enqueue_batch(actor->spsc_queue, g_send_buffer.buffer, g_send_buffer.count) : 0;
         if (sent == g_send_buffer.count) {
-            actor->active = 1;
+            atomic_store_explicit(&actor->active, 1, memory_order_relaxed);
             g_send_buffer.count = 0;
             return;
         }
@@ -32,7 +38,7 @@ void send_buffer_flush(void) {
         // SPSC queue full, fall back to mailbox
         sent = mailbox_send_batch(&actor->mailbox, g_send_buffer.buffer, g_send_buffer.count);
         if (sent == g_send_buffer.count) {
-            actor->active = 1;
+            atomic_store_explicit(&actor->active, 1, memory_order_relaxed);
             g_send_buffer.count = 0;
             return;
         }

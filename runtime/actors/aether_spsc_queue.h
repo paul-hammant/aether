@@ -21,7 +21,10 @@
  * Expected: 2-3x improvement for same-core messaging
  */
 
-#define SPSC_QUEUE_SIZE 2048
+// 64 slots: sufficient for same-core auto_process actor threads while keeping
+// the embedded SPSC queue small enough for million-scale actor workloads.
+// (The SPSC is unused for normal actors; only auto_process = 1 actors use it.)
+#define SPSC_QUEUE_SIZE 64
 #define SPSC_QUEUE_MASK (SPSC_QUEUE_SIZE - 1)
 
 typedef struct {

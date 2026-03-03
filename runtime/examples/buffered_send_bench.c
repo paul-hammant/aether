@@ -31,7 +31,7 @@ void counter_step(void* self) {
     }
     
     if (received > 0) {
-        actor->base.active = 1;  // Keep processing
+        atomic_store_explicit(&actor->base.active, 1, memory_order_relaxed);  // Keep processing
     }
 }
 
@@ -47,16 +47,16 @@ double bench_unbuffered(int num_actors, int messages_per_actor) {
         actors[i].count = 0;
         actors[i].base.id = i + 1;
         actors[i].base.step = counter_step;
-        actors[i].base.active = 1;
+        atomic_init(&actors[i].base.active, 1);
         mailbox_init(&actors[i].base.mailbox);
         scheduler_register_actor(&actors[i].base, i % 4);
     }
-    
+
     scheduler_start();
-    
+
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
-    
+
     // Send messages without buffering
     for (int i = 0; i < num_actors; i++) {
         for (int j = 0; j < messages_per_actor; j++) {
@@ -109,13 +109,13 @@ double bench_buffered(int num_actors, int messages_per_actor) {
         actors[i].count = 0;
         actors[i].base.id = i + 1;
         actors[i].base.step = counter_step;
-        actors[i].base.active = 1;
+        atomic_init(&actors[i].base.active, 1);
         mailbox_init(&actors[i].base.mailbox);
         scheduler_register_actor(&actors[i].base, i % 4);
     }
-    
+
     scheduler_start();
-    
+
     // Initialize send buffer for main thread
     send_buffer_init(-1);
     

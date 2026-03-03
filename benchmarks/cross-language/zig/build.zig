@@ -47,4 +47,15 @@ pub fn build(b: *std.Build) void {
         }),
     });
     b.installArtifact(fork_join);
+
+    // Skynet benchmark
+    const skynet = b.addExecutable(.{
+        .name = "skynet",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("skynet.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    b.installArtifact(skynet);
 }

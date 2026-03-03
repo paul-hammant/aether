@@ -103,6 +103,10 @@ Type* parse_type(Parser* parser) {
             advance_token(parser);
             type = create_type(TYPE_INT);
             break;
+        case TOKEN_INT64:
+            advance_token(parser);
+            type = create_type(TYPE_INT64);
+            break;
         case TOKEN_FLOAT:
             advance_token(parser);
             type = create_type(TYPE_FLOAT);
@@ -737,6 +741,7 @@ ASTNode* parse_statement(Parser* parser) {
             return parse_python_style_declaration(parser);
             
         case TOKEN_INT:
+        case TOKEN_INT64:
         case TOKEN_STRING:
         case TOKEN_FLOAT:
         case TOKEN_BOOL: {
@@ -1630,9 +1635,10 @@ ASTNode* parse_actor_definition(Parser* parser) {
             Token* next_tok = peek_token(parser);
             ASTNode* state_decl = NULL;
             
-            if (next_tok && (next_tok->type == TOKEN_INT || next_tok->type == TOKEN_FLOAT || 
+            if (next_tok && (next_tok->type == TOKEN_INT || next_tok->type == TOKEN_INT64 ||
+                            next_tok->type == TOKEN_FLOAT ||
                             next_tok->type == TOKEN_STRING || next_tok->type == TOKEN_BOOL)) {
-                // Explicit type: state int count = 0
+                // Explicit type: state int count = 0  or  state long total = 0
                 state_decl = parse_variable_declaration_with_semicolon(parser, false);
             } else if (next_tok && next_tok->type == TOKEN_IDENTIFIER) {
                 // Python-style: state count = 0 (no semicolon required in actor)

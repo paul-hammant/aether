@@ -31,7 +31,7 @@ static long get_time_ms(void) {
 
 typedef struct {
     int id;
-    int active;
+    atomic_int active;
     atomic_int assigned_core;
     Mailbox mailbox;
     void (*step)(void*);
@@ -62,7 +62,7 @@ void bench_actor_step(BenchActor* self) {
         atomic_store(&self->count_visible, self->count_local);
     }
     
-    self->active = (self->mailbox.count > 0);
+    atomic_store_explicit(&self->active, (self->mailbox.count > 0), memory_order_relaxed);
 }
 
 // ============================================================================
@@ -71,12 +71,12 @@ void bench_actor_step(BenchActor* self) {
 
 void bench_single_core_throughput() {
     printf("\n=== Single Core Throughput ===\n");
-    
+
     scheduler_init(1);
-    
+
     BenchActor* actor = malloc(sizeof(BenchActor));
     actor->id = 1;
-    actor->active = 0;
+    atomic_init(&actor->active, 0);
     actor->step = (void (*)(void*))bench_actor_step;
     actor->count_local = 0;
     atomic_store(&actor->count_visible, 0);
@@ -122,7 +122,7 @@ void bench_multi_core_throughput(int cores) {
     for (int i = 0; i < cores; i++) {
         actors[i] = malloc(sizeof(BenchActor));
         actors[i]->id = i + 1;
-        actors[i]->active = 0;
+        atomic_init(&actors[i]->active, 0);
         actors[i]->step = (void (*)(void*))bench_actor_step;
         actors[i]->count_local = 0;
         atomic_store(&actors[i]->count_visible, 0);
@@ -187,14 +187,14 @@ void bench_cross_core_overhead() {
     BenchActor* actor1 = malloc(sizeof(BenchActor));
     
     actor0->id = 1;
-    actor0->active = 0;
+    atomic_init(&actor0->active, 0);
     actor0->step = (void (*)(void*))bench_actor_step;
     actor0->count_local = 0;
     atomic_store(&actor0->count_visible, 0);
     mailbox_init(&actor0->mailbox);
     
     actor1->id = 2;
-    actor1->active = 0;
+    atomic_init(&actor1->active, 0);
     actor1->step = (void (*)(void*))bench_actor_step;
 actor1->count_local = 0;
     atomic_store(&actor1->count_visible, 0);
@@ -249,7 +249,7 @@ void bench_scalability() {
         for (int i = 0; i < cores; i++) {
             actors[i] = malloc(sizeof(BenchActor));
             actors[i]->id = i + 1;
-            actors[i]->active = 0;
+            atomic_init(&actors[i]->active, 0);
             actors[i]->step = (void (*)(void*))bench_actor_step;
             actors[i]->count_local = 0;
             atomic_store(&actors[i]->count_visible, 0);
@@ -314,7 +314,7 @@ void bench_latency() {
     
     BenchActor* actor = malloc(sizeof(BenchActor));
     actor->id = 1;
-    actor->active = 0;
+    atomic_init(&actor->active, 0);
     actor->step = (void (*)(void*))bench_actor_step;
     actor->count_local = 0;
     atomic_store(&actor->count_visible, 0);
@@ -368,7 +368,7 @@ void bench_contention() {
     // One target actor, multiple senders
     BenchActor* target = malloc(sizeof(BenchActor));
     target->id = 100;
-    target->active = 0;
+    atomic_init(&target->active, 0);
     target->step = (void (*)(void*))bench_actor_step;
     target->count_local = 0;
     atomic_store(&target->count_visible, 0);
@@ -420,7 +420,7 @@ void bench_burst_patterns() {
     
     BenchActor* actor = malloc(sizeof(BenchActor));
     actor->id = 1;
-    actor->active = 0;
+    atomic_init(&actor->active, 0);
     actor->step = (void (*)(void*))bench_actor_step;
     actor->count_local = 0;
     atomic_store(&actor->count_visible, 0);
@@ -474,7 +474,7 @@ void bench_mailbox_saturation() {
     
     BenchActor* actor = malloc(sizeof(BenchActor));
     actor->id = 1;
-    actor->active = 0;
+    atomic_init(&actor->active, 0);
     actor->step = (void (*)(void*))bench_actor_step;
     actor->count_local = 0;
     atomic_store(&actor->count_visible, 0);

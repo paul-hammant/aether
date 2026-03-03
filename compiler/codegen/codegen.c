@@ -444,6 +444,8 @@ const char* get_c_type(Type* type) {
 
     switch (type->kind) {
         case TYPE_INT: return "int";
+        case TYPE_INT64: return "int64_t";
+        case TYPE_UINT64: return "uint64_t";
         case TYPE_FLOAT: return "float";
         case TYPE_BOOL: return "int";
         case TYPE_STRING: return "const char*";
