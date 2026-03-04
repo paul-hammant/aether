@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include <limits.h>
 #include <sys/stat.h>
 
 
@@ -270,7 +271,7 @@ static bool get_exe_dir(char* buf, size_t size) {
 #ifdef __APPLE__
     uint32_t sz = (uint32_t)size;
     if (_NSGetExecutablePath(buf, &sz) == 0) {
-        char resolved[1024];
+        char resolved[PATH_MAX];
         if (realpath(buf, resolved)) {
             char* slash = strrchr(resolved, '/');
             if (slash) { *slash = '\0'; strncpy(buf, resolved, size); return true; }
@@ -285,7 +286,8 @@ static bool get_exe_dir(char* buf, size_t size) {
     }
 #elif defined(_WIN32)
     DWORD len = GetModuleFileNameA(NULL, buf, (DWORD)size);
-    if (len > 0) {
+    if (len > 0 && len < (DWORD)size) {
+        buf[len] = '\0';
         char* slash = strrchr(buf, '\\');
         if (slash) { *slash = '\0'; return true; }
     }
@@ -1579,13 +1581,20 @@ static int cmd_repl(void) {
 
 // Compile-time platform string used to pick the right release archive.
 #if defined(_WIN32)
-#  define AE_PLATFORM "windows-x86_64"
+#  if defined(__aarch64__) || defined(_M_ARM64)
+#    define AE_PLATFORM "windows-arm64"
+#  else
+#    define AE_PLATFORM "windows-x86_64"
+#  endif
 #  define AE_ARCHIVE_EXT ".zip"
 #elif defined(__APPLE__) && (defined(__arm64__) || defined(__aarch64__))
 #  define AE_PLATFORM "macos-arm64"
 #  define AE_ARCHIVE_EXT ".tar.gz"
 #elif defined(__APPLE__)
 #  define AE_PLATFORM "macos-x86_64"
+#  define AE_ARCHIVE_EXT ".tar.gz"
+#elif defined(__linux__) && (defined(__aarch64__) || defined(__arm64__))
+#  define AE_PLATFORM "linux-arm64"
 #  define AE_ARCHIVE_EXT ".tar.gz"
 #else
 #  define AE_PLATFORM "linux-x86_64"

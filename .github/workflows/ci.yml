@@ -32,8 +32,13 @@ jobs:
             cc: clang
             install: sudo apt-get update && sudo apt-get install -y clang make libreadline-dev bc
 
-          - name: macOS / Clang
+          - name: macOS / Clang (ARM64)
             os: macos-latest
+            cc: clang
+            install: ""
+
+          - name: macOS / Clang (x86_64)
+            os: macos-15-intel
             cc: clang
             install: ""
 
@@ -59,6 +64,10 @@ jobs:
     name: Windows / GCC (MSYS2)
     runs-on: windows-latest
 
+    defaults:
+      run:
+        shell: msys2 {0}
+
     steps:
     - uses: actions/checkout@v4
 
@@ -69,11 +78,9 @@ jobs:
         install: mingw-w64-x86_64-gcc make mingw-w64-x86_64-readline bc
 
     - name: Run CI suite
-      shell: msys2 {0}
       run: make ci
 
     - name: Install smoke test
-      shell: msys2 {0}
       run: make test-install
 
   # ============================================================
