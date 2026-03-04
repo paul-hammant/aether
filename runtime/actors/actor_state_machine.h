@@ -28,7 +28,7 @@ typedef struct {
     int sender_id;      // ID of sending actor
     int payload_int;    // Integer payload
     void* payload_ptr;  // Pointer payload (small messages or zero-copy pointer)
-    
+
     // Zero-copy support for large messages (4.8x improvement for >256 bytes)
     struct {
         void* data;     // Owned data pointer
@@ -39,14 +39,30 @@ typedef struct {
 } Message;
 
 // Ring buffer mailbox for actors (power-of-2 for fast masking)
-// Optimized to 256 for cache locality
-#define MAILBOX_SIZE 256  // Buffer for actor message queue
+// 32 slots: large enough for typical burst patterns (skynet parents see ≤10
+// child results; ping_pong sees 1; fork_join workers see 1) while keeping
+// each actor's memory footprint small enough to scale to millions of actors.
+// Overflow messages are re-queued via the scheduler's self-channel.
+#define MAILBOX_SIZE 32   // Buffer for actor message queue
 #define MAILBOX_MASK (MAILBOX_SIZE - 1)
 typedef struct {
     Message messages[MAILBOX_SIZE];
     int head;
     int tail;
-    int count;
+    // _Atomic int for the cross-thread SPSC handoff that work-stealing creates.
+    // Normal operation: single scheduler thread owns producer AND consumer roles,
+    // so all accesses are same-thread (relaxed would suffice).  But when work-
+    // stealing transfers an actor from core A to core B mid-flight, core A may
+    // still be writing a message (scheduler_send_local) while core B becomes the
+    // new consumer.  The release on count++ in mailbox_send paired with the
+    // acquire on count check in mailbox_receive establishes the necessary
+    // happens-before: A's message-data write → A's count++ (release) →
+    // B's count read (acquire) → B's message-data read.  Without this, B can
+    // read stale or torn message data on ARM64 (weakly-ordered architectures).
+    _Atomic int count;
+#ifdef AETHER_DEBUG_MAILBOX
+    atomic_flag _send_guard;
+#endif
 } Mailbox;
 
 // Mailbox operations with optimization hints
@@ -54,22 +70,40 @@ typedef struct {
 // Hardware prefetcher handles sequential ring buffer access more efficiently
 static inline int AETHER_HOT mailbox_send(Mailbox* AETHER_RESTRICT mbox, Message msg) {
     PROFILE_START();
-    if (unlikely(mbox->count >= MAILBOX_SIZE)) return 0; // Full (unlikely)
-    
+    // Relaxed load: producer does not need to observe consumer's count decrements
+    // with strict ordering — a stale "full" view just causes a re-queue (correct).
+    if (unlikely(atomic_load_explicit(&mbox->count, memory_order_relaxed) >= MAILBOX_SIZE)) return 0;
+
+#ifdef AETHER_DEBUG_MAILBOX
+    // SPSC assertion: detect concurrent producers
+    if (unlikely(atomic_flag_test_and_set_explicit(&mbox->_send_guard, memory_order_acquire))) {
+        fprintf(stderr, "CONCURRENT mailbox_send! count=%d tail=%d msg_type=%d\n",
+                atomic_load_explicit(&mbox->count, memory_order_relaxed), mbox->tail, msg.type);
+    }
+#endif
     mbox->messages[mbox->tail] = msg;
     mbox->tail = (mbox->tail + 1) & MAILBOX_MASK;  // Fast power-of-2 masking
-    mbox->count++;
+    // Release: publishes message-data write (and any prior write, e.g. actor->active=1)
+    // to any thread that subsequently acquires on count (mailbox_receive).
+    atomic_fetch_add_explicit(&mbox->count, 1, memory_order_release);
+#ifdef AETHER_DEBUG_MAILBOX
+    atomic_flag_clear_explicit(&mbox->_send_guard, memory_order_release);
+#endif
     PROFILE_END_MAILBOX_SEND(0);  // Core ID determined at runtime in real usage
     return 1;
 }
 
 static inline int AETHER_HOT mailbox_receive(Mailbox* AETHER_RESTRICT mbox, Message* AETHER_RESTRICT out_msg) {
     PROFILE_START();
-    if (unlikely(mbox->count == 0)) return 0; // Empty (unlikely)
-    
+    // Acquire: synchronizes-with the release in mailbox_send — ensures the message
+    // data written by the producer is visible before we read it below.
+    if (unlikely(atomic_load_explicit(&mbox->count, memory_order_acquire) == 0)) return 0;
+
     *out_msg = mbox->messages[mbox->head];
     mbox->head = (mbox->head + 1) & MAILBOX_MASK;  // Fast power-of-2 masking
-    mbox->count--;
+    // Relaxed: only the consumer decrements count; no other thread observes it with
+    // acquire, so no ordering guarantee is needed here.
+    atomic_fetch_sub_explicit(&mbox->count, 1, memory_order_relaxed);
     PROFILE_END_MAILBOX_RECEIVE(0);
     return 1;
 }
@@ -77,20 +111,28 @@ static inline int AETHER_HOT mailbox_receive(Mailbox* AETHER_RESTRICT mbox, Mess
 static inline void mailbox_init(Mailbox* mbox) {
     mbox->head = 0;
     mbox->tail = 0;
-    mbox->count = 0;
+    atomic_store_explicit(&mbox->count, 0, memory_order_relaxed);
+#ifdef AETHER_DEBUG_MAILBOX
+    atomic_flag_clear(&mbox->_send_guard);
+#endif
 }
 
-// Batch operations for high-throughput scenarios
+// Batch operations for high-throughput scenarios.
+// Both batch functions are always called by the actor's owning scheduler thread
+// (single-producer or single-consumer context), so relaxed atomics suffice.
 static inline int AETHER_HOT mailbox_receive_batch(
     Mailbox* AETHER_RESTRICT mbox,
     Message* AETHER_RESTRICT out_msgs,
-    int max_count) 
+    int max_count)
 {
     int received = 0;
-    while (received < max_count && mbox->count > 0) {
+    // Acquire on the first count check so any release-paired sends are visible.
+    while (received < max_count &&
+           atomic_load_explicit(&mbox->count, received == 0 ? memory_order_acquire
+                                                            : memory_order_relaxed) > 0) {
         out_msgs[received] = mbox->messages[mbox->head];
         mbox->head = (mbox->head + 1) & MAILBOX_MASK;  // Fast power-of-2 masking
-        mbox->count--;
+        atomic_fetch_sub_explicit(&mbox->count, 1, memory_order_relaxed);
         received++;
     }
     return received;
@@ -102,10 +144,11 @@ static inline int AETHER_HOT mailbox_send_batch(
     int count)
 {
     int sent = 0;
-    while (sent < count && mbox->count < MAILBOX_SIZE) {
+    while (sent < count &&
+           atomic_load_explicit(&mbox->count, memory_order_relaxed) < MAILBOX_SIZE) {
         mbox->messages[mbox->tail] = msgs[sent];
         mbox->tail = (mbox->tail + 1) & MAILBOX_MASK;  // Fast power-of-2 masking
-        mbox->count++;
+        atomic_fetch_add_explicit(&mbox->count, 1, memory_order_release);
         sent++;
     }
     return sent;

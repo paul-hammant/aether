@@ -24,7 +24,7 @@ void generate_actor_definition(CodeGenerator* gen, ASTNode* actor) {
     indent(gen);
     
     // Hot fields (accessed every message) - first cache line
-    print_line(gen, "int active;              // Hot: checked every loop iteration");
+    print_line(gen, "atomic_int active;       // Hot: checked every loop iteration");
     print_line(gen, "int id;                  // Hot: used for identification");
     print_line(gen, "Mailbox mailbox;         // Hot: message queue");
     print_line(gen, "void (*step)(void*);     // Hot: message handler");
@@ -33,10 +33,11 @@ void generate_actor_definition(CodeGenerator* gen, ASTNode* actor) {
     print_line(gen, "pthread_t thread;        // Warm: thread handle");
     print_line(gen, "int auto_process;        // Warm: auto-processing flag");
     print_line(gen, "atomic_int assigned_core; // Cold: core assignment (atomic for work-stealing)");
-    print_line(gen, "int migrate_to;          // Cold: affinity hint (-1 = none)");
-    print_line(gen, "int main_thread_only;    // Cold: scheduler skip flag");
+    print_line(gen, "atomic_int migrate_to;    // Cold: affinity hint (-1 = none)");
+    print_line(gen, "atomic_int main_thread_only; // Cold: scheduler skip flag");
     print_line(gen, "SPSCQueue spsc_queue;    // Lock-free same-core messaging");
-    print_line(gen, "ActorReplySlot* reply_slot; // Non-NULL only during ask/reply");
+    print_line(gen, "_Atomic(ActorReplySlot*) reply_slot; // Non-NULL only during ask/reply");
+    print_line(gen, "atomic_flag step_lock;   // Prevents concurrent step() during work-steal handoff");
     print_line(gen, "");
 
     // State fields (user-defined)
@@ -50,9 +51,11 @@ void generate_actor_definition(CodeGenerator* gen, ASTNode* actor) {
             if (name_len > 4 && strcmp(child->value + name_len - 4, "_ref") == 0) {
                 fprintf(gen->output, "void* %s;\n", child->value);
             } else {
-                // Use atomic types for int to enable safe concurrent access
+                // Use atomic types for numeric fields to enable safe concurrent access
                 if (child->node_type && child->node_type->kind == TYPE_INT) {
                     fprintf(gen->output, "atomic_int %s;\n", child->value);
+                } else if (child->node_type && child->node_type->kind == TYPE_INT64) {
+                    fprintf(gen->output, "_Atomic int64_t %s;\n", child->value);
                 } else {
                     generate_type(gen, child->node_type);
                     fprintf(gen->output, " %s;\n", child->value);
@@ -202,7 +205,7 @@ void generate_actor_definition(CodeGenerator* gen, ASTNode* actor) {
     print_line(gen, "");
     print_line(gen, "if (unlikely(!mailbox_receive(&self->mailbox, &msg))) {");
     indent(gen);
-    print_line(gen, "self->active = 0;");
+    print_line(gen, "atomic_store_explicit(&self->active, 0, memory_order_relaxed);");
     print_line(gen, "return;");
     unindent(gen);
     print_line(gen, "}");
@@ -326,7 +329,9 @@ void generate_actor_definition(CodeGenerator* gen, ASTNode* actor) {
     print_line(gen, "%s* spawn_%s() {", actor->value, actor->value);
     indent(gen);
     print_line(gen, "// AETHER_SINGLE_CORE=1 forces all actors to core 0 (eliminates cross-core overhead)");
-    print_line(gen, "int core = getenv(\"AETHER_SINGLE_CORE\") ? 0 : (atomic_fetch_add(&next_actor_id, 1) %% num_cores);");
+    print_line(gen, "static int _single_core_cached = -1;");
+    print_line(gen, "if (_single_core_cached < 0) _single_core_cached = (getenv(\"AETHER_SINGLE_CORE\") != NULL);");
+    print_line(gen, "int core = _single_core_cached ? 0 : (atomic_fetch_add(&next_actor_id, 1) %% num_cores);");
     print_line(gen, "%s* actor = (%s*)scheduler_spawn_pooled(core, (void (*)(void*))%s_step, sizeof(%s));",
                actor->value, actor->value, actor->value, actor->value);
     print_line(gen, "if (!actor) {");
@@ -338,10 +343,12 @@ void generate_actor_definition(CodeGenerator* gen, ASTNode* actor) {
     print_line(gen, "atomic_init(&actor->assigned_core, -1);");
     print_line(gen, "actor->step = (void (*)(void*))%s_step;", actor->value);
     print_line(gen, "mailbox_init(&actor->mailbox);");
+    print_line(gen, "atomic_flag_clear_explicit(&actor->step_lock, memory_order_relaxed);");
     print_line(gen, "scheduler_register_actor((ActorBase*)actor, -1);");
     unindent(gen);
     print_line(gen, "}");
-    print_line(gen, "actor->active = 1;");
+    print_line(gen, "atomic_init(&actor->active, 0);  // inactive until first message send");
+    print_line(gen, "atomic_init(&actor->migrate_to, -1);");
     print_line(gen, "actor->auto_process = 0;");
     print_line(gen, "");
     
@@ -358,7 +365,20 @@ void generate_actor_definition(CodeGenerator* gen, ASTNode* actor) {
             }
         }
     }
-    
+
+    // Auto-initialize "my_ref" to the actor's own pointer so it is valid
+    // immediately after spawn — no Setup message needed.  This eliminates
+    // the race window where my_ref is 0 if Spawn arrives before Setup on
+    // a different core.
+    for (int i = 0; i < actor->child_count; i++) {
+        ASTNode* child = actor->children[i];
+        if (child->type == AST_STATE_DECLARATION &&
+            strcmp(child->value, "my_ref") == 0) {
+            print_line(gen, "actor->my_ref = (void*)actor;  // self-ref available immediately (no Setup needed)");
+            break;
+        }
+    }
+
     print_line(gen, "");
     print_line(gen, "if (actor->auto_process) {");
     indent(gen);

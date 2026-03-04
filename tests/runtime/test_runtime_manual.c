@@ -7,7 +7,7 @@
 
 typedef struct Counter {
     int id;
-    int active;
+    atomic_int active;
     Mailbox mailbox;
     int count;
 } Counter;
@@ -15,7 +15,7 @@ typedef struct Counter {
 void Counter_step(Counter* self) {
     Message msg;
     if (!mailbox_receive(&self->mailbox, &msg)) {
-        self->active = 0;
+        atomic_store_explicit(&self->active, 0, memory_order_relaxed);
         return;
     }
     (self->count = (self->count + 1));
@@ -24,7 +24,7 @@ void Counter_step(Counter* self) {
 Counter* spawn_Counter() {
     Counter* actor = malloc(sizeof(Counter));
     actor->id = 1;
-    actor->active = 1;
+    atomic_store_explicit(&actor->active, 1, memory_order_relaxed);
     mailbox_init(&actor->mailbox);
     actor->count = 0;
     return actor;
@@ -34,7 +34,7 @@ void send_message(void* actor_ptr, int type, int payload) {
     Counter* actor = (Counter*)actor_ptr;
     Message msg = {type, 0, payload, NULL};
     mailbox_send(&actor->mailbox, msg);
-    actor->active = 1;
+    atomic_store_explicit(&actor->active, 1, memory_order_relaxed);
 }
 
 int main() {

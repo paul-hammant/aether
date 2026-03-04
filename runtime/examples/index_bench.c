@@ -35,7 +35,7 @@ void index_step(void* self) {
     }
     
     if (processed > 0) {
-        actor->base.active = 1;
+        atomic_store_explicit(&actor->base.active, 1, memory_order_relaxed);
     }
 }
 
@@ -49,7 +49,7 @@ double bench_index_passing(int num_actors, int msgs_per_actor) {
         actors[i].count = 0;
         actors[i].base.id = i + 1;
         actors[i].base.step = index_step;
-        actors[i].base.active = 1;
+        atomic_init(&actors[i].base.active, 1);
         actors[i].msg_count = 0;
         mailbox_init(&actors[i].base.mailbox);
         scheduler_register_actor(&actors[i].base, i % 4);

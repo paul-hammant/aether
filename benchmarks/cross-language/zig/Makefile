@@ -1,6 +1,6 @@
-.PHONY: all clean ping_pong counting thread_ring fork_join
+.PHONY: all clean ping_pong counting thread_ring fork_join skynet
 
-all: ping_pong counting thread_ring fork_join
+all: ping_pong counting thread_ring fork_join skynet
 
 ping_pong: ping_pong.zig
 	zig build -Doptimize=ReleaseFast
@@ -18,5 +18,9 @@ fork_join: fork_join.zig
 	zig build -Doptimize=ReleaseFast
 	cp zig-out/bin/fork_join .
 
+skynet: skynet.zig
+	zig build -Doptimize=ReleaseFast
+	cp zig-out/bin/skynet .
+
 clean:
-	rm -rf .zig-cache zig-out ping_pong counting thread_ring fork_join *.o
+	rm -rf .zig-cache zig-out ping_pong counting thread_ring fork_join skynet *.o

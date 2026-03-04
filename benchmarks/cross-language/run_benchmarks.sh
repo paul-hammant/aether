@@ -205,6 +205,7 @@ get_pattern_desc() {
         counting) echo "Single actor counts incoming messages sequentially" ;;
         thread_ring) echo "Token passed through a ring of actors with sequential dependencies" ;;
         fork_join) echo "Messages distributed round-robin across a pool of worker actors" ;;
+        skynet) echo "Recursive actor tree — 6 levels x 10 = 1M actors (recursive spawn + aggregate)" ;;
         *) echo "Unknown pattern" ;;
     esac
 }
@@ -283,7 +284,13 @@ EOF
     if [ -f "aether/${pattern}.ae" ]; then
         echo -n "  Aether... "
         if (cd aether && make clean &>/dev/null && make $pattern &>/dev/null); then
-            output=$(cd aether && BENCHMARK_MESSAGES=$BENCHMARK_MESSAGES $TIME_CMD ./$pattern 2>&1 || true)
+            # skynet uses SKYNET_LEAVES; other patterns use BENCHMARK_MESSAGES
+            if [ "$pattern" = "skynet" ]; then
+                AETHER_ENV="SKYNET_LEAVES=$BENCHMARK_MESSAGES"
+            else
+                AETHER_ENV="BENCHMARK_MESSAGES=$BENCHMARK_MESSAGES"
+            fi
+            output=$(cd aether && eval "$AETHER_ENV $TIME_CMD ./$pattern" 2>&1 || true)
             parsed=$(parse_output "$output")
             ns_per_msg=$(echo "$parsed" | cut -d'|' -f1)
             msg_per_sec=$(echo "$parsed" | cut -d'|' -f2)
@@ -528,7 +535,15 @@ EOF
     if command -v erlc &>/dev/null && [ -f "erlang/${pattern}.erl" ]; then
         echo -n "  Erlang... "
         if (cd erlang && erlc ${pattern}.erl &>/dev/null); then
-            output=$(cd erlang && BENCHMARK_MESSAGES=$BENCHMARK_MESSAGES $TIME_CMD erl -noshell -s ${pattern} start 2>&1 || true)
+            # skynet needs +P flag to support 1M+ processes
+            ERL_EXTRA_FLAGS=""
+            if [ "$pattern" = "skynet" ]; then
+                ERL_EXTRA_FLAGS="+P 2000000"
+                ERL_ENV="SKYNET_LEAVES=$BENCHMARK_MESSAGES"
+            else
+                ERL_ENV="BENCHMARK_MESSAGES=$BENCHMARK_MESSAGES"
+            fi
+            output=$(cd erlang && eval "$ERL_ENV $TIME_CMD erl $ERL_EXTRA_FLAGS -noshell -s ${pattern} start" 2>&1 || true)
             parsed=$(parse_output "$output")
             ns_per_msg=$(echo "$parsed" | cut -d'|' -f1)
             msg_per_sec=$(echo "$parsed" | cut -d'|' -f2)
@@ -601,12 +616,12 @@ EOF
 # Main: Run all patterns
 echo "============================================"
 echo "  Cross-Language Actor Benchmark Suite"
-echo "  Patterns: ping_pong counting thread_ring fork_join"
+echo "  Patterns: ping_pong counting thread_ring fork_join skynet"
 echo "  Messages: $BENCHMARK_MESSAGES"
 echo "============================================"
 echo ""
 
-for pattern in ping_pong counting thread_ring fork_join; do
+for pattern in ping_pong counting thread_ring fork_join skynet; do
     run_pattern "$pattern"
 done
 

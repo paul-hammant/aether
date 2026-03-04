@@ -444,6 +444,8 @@ const char* get_c_type(Type* type) {
 
     switch (type->kind) {
         case TYPE_INT: return "int";
+        case TYPE_INT64: return "int64_t";
+        case TYPE_UINT64: return "uint64_t";
         case TYPE_FLOAT: return "float";
         case TYPE_BOOL: return "int";
         case TYPE_STRING: return "const char*";
@@ -766,6 +768,14 @@ void generate_program(CodeGenerator* gen, ASTNode* program) {
             }
         }
         fprintf(gen->output, ");\n");
+    }
+
+    // Forward declarations for actor spawn functions (actors can spawn other actors
+    // from within receive handlers, which appear before the spawn function definition)
+    for (int i = 0; i < program->child_count; i++) {
+        ASTNode* child = program->children[i];
+        if (!child || child->type != AST_ACTOR_DEFINITION || !child->value) continue;
+        fprintf(gen->output, "struct %s* spawn_%s();\n", child->value, child->value);
     }
     print_line(gen, "");
 

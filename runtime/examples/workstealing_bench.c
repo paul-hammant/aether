@@ -19,8 +19,8 @@
 #define MESSAGES_PER_ACTOR 5000
 
 typedef struct Node {
+    atomic_int active;
     int id;
-    int active;
     atomic_int assigned_core;
     Mailbox mailbox;
     void (*step)(void*);
@@ -33,7 +33,7 @@ extern __thread int current_core_id;
 void Node_step(Node* self) {
     Message msg;
     if (!mailbox_receive(&self->mailbox, &msg)) {
-        self->active = 0;
+        atomic_store_explicit(&self->active, 0, memory_order_relaxed);
         return;
     }
     self->count++;
@@ -42,8 +42,8 @@ void Node_step(Node* self) {
 Node* spawn_Node(int next_id) {
     Node* actor = malloc(sizeof(Node));
     actor->id = atomic_fetch_add(&next_actor_id, 1);
-    actor->active = 1;
-    actor->assigned_core = -1;
+    atomic_init(&actor->active, 1);
+    atomic_init(&actor->assigned_core, -1);
     actor->step = (void (*)(void*))Node_step;
     mailbox_init(&actor->mailbox);
     actor->next_id = next_id;
@@ -54,12 +54,12 @@ Node* spawn_Node(int next_id) {
 
 void send_Node(Node* actor, int type) {
     Message msg = {type, 0, 0, NULL};
-    if (actor->assigned_core == current_core_id) {
+    if (atomic_load_explicit(&actor->assigned_core, memory_order_relaxed) == current_core_id) {
         // Local send - retry if mailbox full
         while (!mailbox_send(&actor->mailbox, msg)) {
             sched_yield();
         }
-        actor->active = 1;
+        atomic_store_explicit(&actor->active, 1, memory_order_relaxed);
     } else {
         scheduler_send_remote((ActorBase*)actor, msg, current_core_id);
     }
@@ -83,11 +83,11 @@ int main() {
     for (int c = 0; c < cores; c++) {
         int count = 0;
         for (int i = 0; i < NUM_ACTORS; i++) {
-            if (actors[i]->assigned_core == c) count++;
+            if (atomic_load_explicit(&actors[i]->assigned_core, memory_order_relaxed) == c) count++;
         }
         printf("  Core %d: %d actors (%.1f%%)\n", c, count, 100.0 * count / NUM_ACTORS);
     }
-    
+
     scheduler_start();
     
     int total_messages = NUM_ACTORS * MESSAGES_PER_ACTOR;
@@ -130,9 +130,9 @@ int main() {
     for (int c = 0; c < cores; c++) {
         int count = 0;
         for (int i = 0; i < NUM_ACTORS; i++) {
-            if (actors[i]->assigned_core == c) count++;
+            if (atomic_load_explicit(&actors[i]->assigned_core, memory_order_relaxed) == c) count++;
         }
-        printf("  Core %d: %d actors (%.1f%%) - %d steals\n", 
+        printf("  Core %d: %d actors (%.1f%%) - %d steals\n",
                c, count, 100.0 * count / NUM_ACTORS,
                atomic_load(&schedulers[c].steal_attempts));
     }

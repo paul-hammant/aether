@@ -16,6 +16,11 @@ Comparative benchmarking of actor/message-passing implementations across languag
 | **counting** | Single-actor message throughput |
 | **thread_ring** | Multi-actor coordination (N actors in ring) |
 | **fork_join** | Fan-out/fan-in parallelism |
+| **skynet** | Recursive actor tree — 6 levels × 10 = 1M actors, measures actor creation + aggregation throughput |
+
+The skynet benchmark is based on [atemerev/skynet](https://github.com/atemerev/skynet): a root actor
+recursively spawns 10 children per level until 1M leaf actors exist. Each leaf reports its offset;
+each parent sums 10 children's results and reports up. Total messages processed: ~1,111,111.
 
 ## Languages & Implementations
 
@@ -27,11 +32,21 @@ Comparative benchmarking of actor/message-passing implementations across languag
 | **Erlang** | Native processes | Built-in actor model |
 | **Elixir** | Native processes | Built-in actor model |
 | **Pony** | Native actors | Reference capabilities |
-| **C** | pthreads + mutex | Baseline (no actor framework) |
-| **C++** | std::mutex + cv | Baseline (no actor framework) |
-| **Zig** | std.Thread | Baseline (no actor framework) |
+| **C (pthreads + mutex)** | pthreads + mutex | Baseline thread primitives (no actor framework) |
+| **C++ (std::mutex)** | std::mutex + condvar | Baseline thread primitives (no actor framework) |
+| **Zig (std.Mutex)** | std.Thread + Mutex | Baseline thread primitives (no actor framework) |
 
-**Note on C/C++/Zig**: These languages lack native actor support. The implementations use basic synchronization primitives, not actor frameworks like [CAF](https://github.com/actor-framework/actor-framework). Results for these languages represent baseline thread synchronization overhead, not optimized actor performance.
+**On C/C++/Zig baselines**: These use standard mutex/condvar — the idiomatic baseline for concurrent
+code in those languages without an actor framework. Adding CAF (C++ Actor Framework) would require
+Akka for Java, Quasar for Kotlin, etc., creating a different kind of inconsistency. The existing
+comparison is intentionally honest: raw thread synchronization overhead vs. a purpose-built actor
+runtime. For a C++ actor/tasking library shootout, see
+[tzcnt/runtime-benchmarks](https://github.com/tzcnt/runtime-benchmarks).
+
+**On skynet for Rust/C++**: Spawning 1M OS threads is not feasible (unlike Go goroutines or Erlang
+processes). The Rust and C++ skynet implementations use threads for the top 3 levels (~1000 concurrent
+threads) and compute sub-trees sequentially below that. This is the practical baseline — a real C++
+actor framework (e.g. CAF) would perform better.
 
 ## Metrics
 
@@ -60,14 +75,17 @@ Edit `benchmark_config.json`:
 
 ## Methodology
 
-Based on the [Savina Actor Benchmark Suite](https://github.com/shamsimam/savina).
+Based on the [Savina Actor Benchmark Suite](https://github.com/shamsimam/savina) and the
+[Skynet Actor Benchmark](https://github.com/atemerev/skynet).
 
 - All languages compiled with `-O3` or equivalent
 - No specialized tuning or non-standard optimizations
-- Message validation on every exchange
+- Message validation on every exchange (ping_pong, counting, thread_ring, fork_join)
 - Results are system-dependent; run on your hardware
 
 ## References
 
 - [Savina Benchmark Paper](http://soft.vub.ac.be/AGERE14/papers/ageresplash2014_submission_19.pdf)
 - [Savina GitHub](https://github.com/shamsimam/savina)
+- [Skynet Actor Benchmark](https://github.com/atemerev/skynet)
+- [tzcnt/runtime-benchmarks — C++ tasking library comparison](https://github.com/tzcnt/runtime-benchmarks)

@@ -24,7 +24,7 @@ static long get_time_us(void) {
 
 typedef struct {
     int id;
-    int active;
+    atomic_int active;
     atomic_int assigned_core;
     Mailbox mailbox;
     void (*step)(void*);
@@ -41,17 +41,17 @@ void bench_actor_step(BenchActor* self) {
             message_free(&msg);
         }
     }
-    self->active = (self->mailbox.count > 0);
+    atomic_store_explicit(&self->active, (self->mailbox.count > 0), memory_order_relaxed);
 }
 
 void benchmark_small_messages() {
     printf("\n=== Benchmark: Small Messages (64 bytes, inline) ===\n");
-    
+
     scheduler_init(1);
-    
+
     BenchActor* actor = malloc(sizeof(BenchActor));
     actor->id = 1;
-    actor->active = 0;
+    atomic_init(&actor->active, 0);
     actor->step = (void (*)(void*))bench_actor_step;
     actor->received_count = 0;
     actor->total_bytes = 0;
@@ -95,15 +95,15 @@ void benchmark_large_messages() {
     
     BenchActor* actor = malloc(sizeof(BenchActor));
     actor->id = 1;
-    actor->active = 0;
+    atomic_init(&actor->active, 0);
     actor->step = (void (*)(void*))bench_actor_step;
     actor->received_count = 0;
     actor->total_bytes = 0;
     mailbox_init(&actor->mailbox);
-    
+
     scheduler_register_actor((ActorBase*)actor, 0);
     scheduler_start();
-    
+
     const int COUNT = 5000;
     const int SIZE = 1024;
     long start = get_time_us();
@@ -147,15 +147,15 @@ void benchmark_mixed_messages() {
     
     BenchActor* actor = malloc(sizeof(BenchActor));
     actor->id = 1;
-    actor->active = 0;
+    atomic_init(&actor->active, 0);
     actor->step = (void (*)(void*))bench_actor_step;
     actor->received_count = 0;
     actor->total_bytes = 0;
     mailbox_init(&actor->mailbox);
-    
+
     scheduler_register_actor((ActorBase*)actor, 0);
     scheduler_start();
-    
+
     const int COUNT = 10000;
     const int SIZE = 512;
     long start = get_time_us();

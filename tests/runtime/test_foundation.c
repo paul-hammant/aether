@@ -18,7 +18,7 @@
 
 typedef struct {
     int id;
-    int active;
+    atomic_int active;
     atomic_int assigned_core;
     Mailbox mailbox;
     void (*step)(void*);
@@ -35,7 +35,7 @@ void counter_step(CounterActor* self) {
         processed++;
     }
     // Keep active if there might be more messages or if we just processed some
-    self->active = (self->mailbox.count > 0) || (processed > 0);
+    atomic_store_explicit(&self->active, (self->mailbox.count > 0) || (processed > 0), memory_order_relaxed);
 }
 
 int main() {
@@ -49,7 +49,7 @@ int main() {
     printf("Creating test actor...\n");
     CounterActor* actor = malloc(sizeof(CounterActor));
     actor->id = 1;
-    actor->active = 0;
+    atomic_init(&actor->active, 0);
     actor->step = (void (*)(void*))counter_step;
     atomic_store(&actor->count, 0);
     atomic_store(&actor->last_value, -1);
@@ -73,7 +73,7 @@ int main() {
         }
         Message msg = {1, 0, sent, NULL};
         if (mailbox_send(&actor->mailbox, msg)) {
-            actor->active = 1;
+            atomic_store_explicit(&actor->active, 1, memory_order_relaxed);
             sent++;
         } else {
             // Mailbox full, wait a bit

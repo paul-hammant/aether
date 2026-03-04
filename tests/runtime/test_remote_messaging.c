@@ -18,7 +18,7 @@
 
 typedef struct {
     int id;
-    int active;
+    atomic_int active;
     atomic_int assigned_core;
     Mailbox mailbox;
     void (*step)(void*);
@@ -35,7 +35,7 @@ void counter_step(CounterActor* self) {
         processed++;
     }
     // Always stay active - we might get more messages
-    self->active = 1;
+    atomic_store_explicit(&self->active, 1, memory_order_relaxed);
 }
 
 int main() {
@@ -49,7 +49,7 @@ int main() {
     printf("Creating test actor...\n");
     CounterActor* actor = malloc(sizeof(CounterActor));
     actor->id = 1;
-    actor->active = 0;
+    atomic_store_explicit(&actor->active, 0, memory_order_relaxed);
     actor->step = (void (*)(void*))counter_step;
     atomic_store(&actor->count, 0);
     atomic_store(&actor->last_value, -1);

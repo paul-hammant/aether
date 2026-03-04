@@ -63,14 +63,17 @@ TEST_CATEGORY(spsc_wrap_around, TEST_CATEGORY_RUNTIME) {
     SPSCQueue q;
     spsc_queue_init(&q);
     
-    // Enqueue and dequeue repeatedly to test wrap-around
+    // Enqueue and dequeue repeatedly to test wrap-around.
+    // Use SPSC_QUEUE_SIZE - 1 per batch: the queue holds at most that many
+    // items at once (one slot is reserved for the empty/full distinction).
+    int batch = SPSC_QUEUE_SIZE - 1;
     for (int cycle = 0; cycle < 3; cycle++) {
-        for (int i = 0; i < 100; i++) {
+        for (int i = 0; i < batch; i++) {
             Message msg = message_create_simple(1, 0, i);
             ASSERT_TRUE(spsc_enqueue(&q, msg));
         }
-        
-        for (int i = 0; i < 100; i++) {
+
+        for (int i = 0; i < batch; i++) {
             Message out;
             ASSERT_TRUE(spsc_dequeue(&q, &out));
             ASSERT_EQ(out.payload_int, i);

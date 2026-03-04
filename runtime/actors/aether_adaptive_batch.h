@@ -80,7 +80,7 @@ static inline int adaptive_batch_receive(
     
     // Receive batch (or single messages if no batch function)
     int received = 0;
-    while (received < batch_size && mbox->count > 0) {
+    while (received < batch_size && atomic_load_explicit(&mbox->count, memory_order_relaxed) > 0) {
         if (!mailbox_receive(mbox, &out_msgs[received])) {
             break;
         }

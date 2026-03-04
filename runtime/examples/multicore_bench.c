@@ -15,7 +15,7 @@
 #define MESSAGES_PER_ACTOR 5000
 
 typedef struct Node {
-    int active;
+    atomic_int active;
     int id;
     Mailbox mailbox;
     void (*step)(void*);
@@ -55,7 +55,7 @@ void* worker_thread(void* arg) {
 void Node_step(Node* self) {
     Message msg;
     if (!mailbox_receive(&self->mailbox, &msg)) {
-        self->active = 0;
+        atomic_store_explicit(&self->active, 0, memory_order_relaxed);
         return;
     }
     self->count++;
@@ -64,8 +64,8 @@ void Node_step(Node* self) {
 Node* spawn_Node(int next_id) {
     Node* actor = malloc(sizeof(Node));
     actor->id = atomic_fetch_add(&next_actor_id, 1);
-    actor->active = 1;
-    actor->assigned_core = -1;
+    atomic_init(&actor->active, 1);
+    atomic_init(&actor->assigned_core, -1);
     actor->step = (void (*)(void*))Node_step;
     mailbox_init(&actor->mailbox);
     actor->next_id = next_id;
@@ -76,13 +76,13 @@ Node* spawn_Node(int next_id) {
 
 void send_Node(Node* actor, int type) {
     Message msg = {type, 0, 0, NULL};
-    if (actor->assigned_core == current_core_id) {
+    if (atomic_load_explicit(&actor->assigned_core, memory_order_relaxed) == current_core_id) {
         // Local send - retry if mailbox full
         while (!mailbox_send(&actor->mailbox, msg)) {
             // Mailbox full - yield and retry
             sched_yield();
         }
-        actor->active = 1;
+        atomic_store_explicit(&actor->active, 1, memory_order_relaxed);
     } else {
         scheduler_send_remote((ActorBase*)actor, msg, current_core_id);
     }
@@ -104,11 +104,11 @@ int main() {
     for (int c = 0; c < cores; c++) {
         int count = 0;
         for (int i = 0; i < NUM_ACTORS; i++) {
-            if (actors[i]->assigned_core == c) count++;
+            if (atomic_load_explicit(&actors[i]->assigned_core, memory_order_relaxed) == c) count++;
         }
         printf("  Core %d: %d actors\n", c, count);
     }
-    
+
     // Start scheduler BEFORE sending messages
     scheduler_start();
     
@@ -125,7 +125,7 @@ int main() {
         worker_args[c].actors = malloc(500 * sizeof(Node*));
         worker_args[c].actor_count = 0;
         for (int i = 0; i < NUM_ACTORS; i++) {
-            if (actors[i]->assigned_core == c) {
+            if (atomic_load_explicit(&actors[i]->assigned_core, memory_order_relaxed) == c) {
                 worker_args[c].actors[worker_args[c].actor_count++] = actors[i];
             }
         }

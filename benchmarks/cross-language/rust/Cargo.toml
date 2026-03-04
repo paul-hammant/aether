@@ -19,4 +19,8 @@ path = "src/thread_ring.rs"
 name = "fork_join"
 path = "src/fork_join.rs"
 
+[[bin]]
+name = "skynet"
+path = "src/skynet.rs"
+
 [dependencies]

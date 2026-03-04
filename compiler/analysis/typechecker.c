@@ -190,6 +190,8 @@ static const char* type_name(Type* t) {
     if (!t) return "unknown";
     switch (t->kind) {
         case TYPE_INT:      return "int";
+        case TYPE_INT64:    return "long";
+        case TYPE_UINT64:   return "uint64";
         case TYPE_FLOAT:    return "float";
         case TYPE_BOOL:     return "bool";
         case TYPE_STRING:   return "string";
@@ -234,6 +236,9 @@ int is_type_compatible(Type* from, Type* to) {
     // Numeric conversions
     if (from->kind == TYPE_INT && to->kind == TYPE_FLOAT) return 1;
     if (from->kind == TYPE_FLOAT && to->kind == TYPE_INT) return 1;
+    // int promotes to long without loss
+    if (from->kind == TYPE_INT && to->kind == TYPE_INT64) return 1;
+    if (from->kind == TYPE_INT64 && to->kind == TYPE_INT) return 1;
     
     // Array compatibility
     if (from->kind == TYPE_ARRAY && to->kind == TYPE_ARRAY) {
@@ -244,7 +249,13 @@ int is_type_compatible(Type* from, Type* to) {
     if (from->kind == TYPE_ACTOR_REF && to->kind == TYPE_ACTOR_REF) {
         return is_type_compatible(from->element_type, to->element_type);
     }
-    
+
+    // Actor refs stored in int/ptr state fields (common wiring pattern: state ref = 0)
+    if (from->kind == TYPE_ACTOR_REF &&
+        (to->kind == TYPE_INT || to->kind == TYPE_INT64 || to->kind == TYPE_PTR)) return 1;
+    if (to->kind == TYPE_ACTOR_REF &&
+        (from->kind == TYPE_INT || from->kind == TYPE_INT64 || from->kind == TYPE_PTR)) return 1;
+
     return 0;
 }
 
@@ -322,9 +333,10 @@ Type* infer_type(ASTNode* expr, SymbolTable* table) {
             // If node_type already set, use it
             if (expr->node_type && expr->node_type->kind != TYPE_UNKNOWN)
                 return clone_type(expr->node_type);
-            // Look up the struct type and find the field type
+            // Look up the struct/actor type and find the field type
             if (expr->child_count > 0 && expr->children[0]) {
                 Type* base_type = infer_type(expr->children[0], table);
+                // Struct field lookup
                 if (base_type && base_type->kind == TYPE_STRUCT && base_type->struct_name) {
                     Symbol* struct_sym = lookup_symbol(table, base_type->struct_name);
                     if (struct_sym && struct_sym->node) {
@@ -332,6 +344,23 @@ Type* infer_type(ASTNode* expr, SymbolTable* table) {
                         for (int fi = 0; fi < struct_def->child_count; fi++) {
                             ASTNode* field = struct_def->children[fi];
                             if (field && field->value && strcmp(field->value, expr->value) == 0) {
+                                if (field->node_type && field->node_type->kind != TYPE_UNKNOWN)
+                                    return clone_type(field->node_type);
+                                break;
+                            }
+                        }
+                    }
+                }
+                // Actor ref field lookup — look up state declarations in the actor definition
+                if (base_type && base_type->kind == TYPE_ACTOR_REF && base_type->element_type &&
+                    base_type->element_type->kind == TYPE_STRUCT && base_type->element_type->struct_name) {
+                    Symbol* actor_sym = lookup_symbol(table, base_type->element_type->struct_name);
+                    if (actor_sym && actor_sym->node) {
+                        ASTNode* actor_def = actor_sym->node;
+                        for (int fi = 0; fi < actor_def->child_count; fi++) {
+                            ASTNode* field = actor_def->children[fi];
+                            if (field && field->type == AST_STATE_DECLARATION &&
+                                field->value && strcmp(field->value, expr->value) == 0) {
                                 if (field->node_type && field->node_type->kind != TYPE_UNKNOWN)
                                     return clone_type(field->node_type);
                                 break;
@@ -385,6 +414,11 @@ Type* infer_binary_type(ASTNode* left, ASTNode* right, AeTokenType operator) {
             }
             if (left_type->kind == TYPE_INT && right_type->kind == TYPE_INT) {
                 return create_type(TYPE_INT);
+            }
+            // Promote to int64 if either operand is long/int64
+            if ((left_type->kind == TYPE_INT64 || left_type->kind == TYPE_INT) &&
+                (right_type->kind == TYPE_INT64 || right_type->kind == TYPE_INT)) {
+                return create_type(TYPE_INT64);
             }
             if (left_type->kind == TYPE_STRING && right_type->kind == TYPE_STRING) {
                 return create_type(TYPE_STRING);
@@ -478,8 +512,8 @@ int typecheck_program(ASTNode* program) {
     Type* atoi_type = create_type(TYPE_INT);  // Returns int
     add_symbol(global_table, "atoi", atoi_type, 0, 1, 0);
 
-    // Timing builtin
-    Type* clock_ns_type = create_type(TYPE_INT);  // Returns nanoseconds as int
+    // Timing builtin — returns nanoseconds as int64 (int32 overflows after ~2.1 seconds)
+    Type* clock_ns_type = create_type(TYPE_INT64);
     add_symbol(global_table, "clock_ns", clock_ns_type, 0, 1, 0);
 
     // Output builtins
@@ -496,6 +530,9 @@ int typecheck_program(ASTNode* program) {
                 Type* actor_type = create_type(TYPE_STRUCT);
                 actor_type->struct_name = strdup(child->value);
                 add_symbol(global_table, child->value, actor_type, 1, 0, 0);
+                // Store AST node so state field types can be looked up
+                Symbol* actor_sym_node = lookup_symbol(global_table, child->value);
+                if (actor_sym_node) actor_sym_node->node = child;
                 
                 // Add generated spawn_ActorName() function - returns pointer to actor
                 // Use TYPE_ACTOR_REF to represent pointer type
@@ -1228,6 +1265,28 @@ int typecheck_expression(ASTNode* expr, SymbolTable* table) {
                         expr->node_type = create_type(TYPE_INT);
                     } else if (strcmp(expr->value, "payload_ptr") == 0) {
                         expr->node_type = create_type(TYPE_VOID);
+                    }
+                }
+                // Handle actor ref member access — look up state field type from actor definition
+                else if (base_type && base_type->kind == TYPE_ACTOR_REF && base_type->element_type &&
+                         base_type->element_type->kind == TYPE_STRUCT && base_type->element_type->struct_name) {
+                    Symbol* actor_sym2 = lookup_symbol(table, base_type->element_type->struct_name);
+                    if (actor_sym2 && actor_sym2->node) {
+                        ASTNode* actor_def2 = actor_sym2->node;
+                        for (int fi = 0; fi < actor_def2->child_count; fi++) {
+                            ASTNode* field = actor_def2->children[fi];
+                            if (field && field->type == AST_STATE_DECLARATION &&
+                                field->value && strcmp(field->value, expr->value) == 0) {
+                                if (field->node_type && field->node_type->kind != TYPE_UNKNOWN) {
+                                    expr->node_type = clone_type(field->node_type);
+                                }
+                                break;
+                            }
+                        }
+                    }
+                    // Fallback to general inference
+                    if (!expr->node_type || expr->node_type->kind == TYPE_UNKNOWN) {
+                        expr->node_type = infer_type(expr, table);
                     }
                 }
                 // Handle struct member access — look up field type from definition

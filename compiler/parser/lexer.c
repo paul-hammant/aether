@@ -220,6 +220,7 @@ Token* read_identifier() {
     else if (strcmp(buffer, "extern") == 0) token = create_token(TOKEN_EXTERN, buffer, current_line, current_column);
     else if (strcmp(buffer, "ptr") == 0) token = create_token(TOKEN_PTR, buffer, current_line, current_column);
     else if (strcmp(buffer, "int") == 0) token = create_token(TOKEN_INT, buffer, current_line, current_column);
+    else if (strcmp(buffer, "long") == 0) token = create_token(TOKEN_INT64, buffer, current_line, current_column);
     else if (strcmp(buffer, "float") == 0) token = create_token(TOKEN_FLOAT, buffer, current_line, current_column);
     else if (strcmp(buffer, "bool") == 0) token = create_token(TOKEN_BOOL, buffer, current_line, current_column);
     else if (strcmp(buffer, "string") == 0) token = create_token(TOKEN_STRING, buffer, current_line, current_column);

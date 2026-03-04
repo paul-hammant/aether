@@ -11,9 +11,9 @@ RUNTIME_SRCS = ../../../runtime/scheduler/multicore_scheduler.c \
                ../../../runtime/actors/aether_send_message.c \
                ../../../runtime/actors/aether_actor_thread.c
 
-.PHONY: all clean ping_pong counting thread_ring fork_join
+.PHONY: all clean ping_pong counting thread_ring fork_join skynet
 
-all: ping_pong counting thread_ring fork_join
+all: ping_pong counting thread_ring fork_join skynet
 
 ping_pong: ping_pong.ae
 	@echo "Compiling Aether ping_pong..."
@@ -39,5 +39,11 @@ fork_join: fork_join.ae
 	@$(CC) $(CFLAGS) /tmp/fork_join_aether.c $(RUNTIME_SRCS) -o fork_join $(LDFLAGS)
 	@echo "Done: ./fork_join"
 
+skynet: skynet.ae
+	@echo "Compiling Aether skynet..."
+	@$(AETHER_COMPILER) skynet.ae /tmp/skynet_aether.c
+	@$(CC) $(CFLAGS) /tmp/skynet_aether.c $(RUNTIME_SRCS) -o skynet $(LDFLAGS)
+	@echo "Done: ./skynet"
+
 clean:
-	rm -f ping_pong counting thread_ring fork_join /tmp/*_aether.c*
+	rm -f ping_pong counting thread_ring fork_join skynet /tmp/*_aether.c*

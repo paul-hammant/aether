@@ -42,7 +42,7 @@ int tests_failed = 0;
 
 typedef struct {
     int id;
-    int active;
+    atomic_int active;
     atomic_int assigned_core;
     Mailbox mailbox;
     SPSCQueue spsc_queue;  // REQUIRED - must match ActorBase layout
@@ -53,7 +53,7 @@ typedef struct {
 
 typedef struct {
     int id;
-    int active;
+    atomic_int active;
     atomic_int assigned_core;
     Mailbox mailbox;
     SPSCQueue spsc_queue;  // REQUIRED - must match ActorBase layout
@@ -64,7 +64,7 @@ typedef struct {
 
 typedef struct {
     int id;
-    int active;
+    atomic_int active;
     atomic_int assigned_core;
     Mailbox mailbox;
     SPSCQueue spsc_queue;  // REQUIRED - must match ActorBase layout
@@ -84,7 +84,7 @@ void counter_step(CounterActor* self) {
         atomic_store(&self->last_value, msg.payload_int);
     }
     // Keep active if there might be more messages
-    self->active = (self->mailbox.count > 0);
+    atomic_store_explicit(&self->active, (self->mailbox.count > 0), memory_order_relaxed);
 }
 
 void order_step(OrderActor* self) {
@@ -96,24 +96,24 @@ void order_step(OrderActor* self) {
         }
         atomic_fetch_add(&self->count, 1);
     }
-    self->active = (self->mailbox.count > 0);
+    atomic_store_explicit(&self->active, (self->mailbox.count > 0), memory_order_relaxed);
 }
 
 void pingpong_step(PingPongActor* self) {
     Message msg;
     while (mailbox_receive(&self->mailbox, &msg)) {
         atomic_fetch_add(&self->pings_received, 1);
-        
+
         // Send pong back if there's a reply target
         if (msg.payload_ptr) {
             PingPongActor* target = (PingPongActor*)msg.payload_ptr;
             Message pong = {2, self->id, 0, NULL};
             mailbox_send(&target->mailbox, pong);
-            target->active = 1;
+            atomic_store_explicit(&target->active, 1, memory_order_relaxed);
             atomic_fetch_add(&self->pongs_sent, 1);
         }
     }
-    self->active = (self->mailbox.count > 0);
+    atomic_store_explicit(&self->active, (self->mailbox.count > 0), memory_order_relaxed);
 }
 
 // ============================================
@@ -129,7 +129,7 @@ int test_basic_message_delivery() {
     // Create actor
     CounterActor* actor = malloc(sizeof(CounterActor));
     actor->id = 1;
-    actor->active = 0;
+    atomic_init(&actor->active, 0);
     actor->step = (void (*)(void*))counter_step;
     atomic_store(&actor->count, 0);
     atomic_store(&actor->last_value, -1);
@@ -167,7 +167,7 @@ int test_message_ordering() {
     
     OrderActor* actor = malloc(sizeof(OrderActor));
     actor->id = 1;
-    actor->active = 0;
+    atomic_init(&actor->active, 0);
     actor->step = (void (*)(void*))order_step;
     atomic_store(&actor->count, 0);
     mailbox_init(&actor->mailbox);
@@ -220,13 +220,13 @@ int test_cross_core_messaging() {
     CounterActor* actor1 = malloc(sizeof(CounterActor));
     
     actor0->id = 1;
-    actor0->active = 0;
+    atomic_init(&actor0->active, 0);
     actor0->step = (void (*)(void*))counter_step;
     atomic_store(&actor0->count, 0);
     mailbox_init(&actor0->mailbox);
     
     actor1->id = 2;
-    actor1->active = 0;
+    atomic_init(&actor1->active, 0);
     actor1->step = (void (*)(void*))counter_step;
     atomic_store(&actor1->count, 0);
     mailbox_init(&actor1->mailbox);
@@ -264,7 +264,7 @@ int test_high_throughput() {
     
     CounterActor* actor = malloc(sizeof(CounterActor));
     actor->id = 1;
-    actor->active = 0;
+    atomic_init(&actor->active, 0);
     actor->step = (void (*)(void*))counter_step;
     atomic_store(&actor->count, 0);
     mailbox_init(&actor->mailbox);
@@ -279,9 +279,9 @@ int test_high_throughput() {
     for (int i = 0; i < total_msgs; i++) {
         Message msg = {1, 0, i, NULL};
         mailbox_send(&actor->mailbox, msg);
-        actor->active = 1;
+        atomic_store_explicit(&actor->active, 1, memory_order_relaxed);
     }
-    
+
     // Wait for processing
     while (atomic_load(&actor->count) < total_msgs) {
         sleep_ms(1);
@@ -315,14 +315,14 @@ int test_bidirectional_communication() {
     PingPongActor* actor2 = malloc(sizeof(PingPongActor));
     
     actor1->id = 1;
-    actor1->active = 0;
+    atomic_init(&actor1->active, 0);
     actor1->step = (void (*)(void*))pingpong_step;
     atomic_store(&actor1->pings_received, 0);
     atomic_store(&actor1->pongs_sent, 0);
     mailbox_init(&actor1->mailbox);
     
     actor2->id = 2;
-    actor2->active = 0;
+    atomic_init(&actor2->active, 0);
     actor2->step = (void (*)(void*))pingpong_step;
     atomic_store(&actor2->pings_received, 0);
     atomic_store(&actor2->pongs_sent, 0);
@@ -335,7 +335,7 @@ int test_bidirectional_communication() {
     for (int i = 0; i < 50; i++) {
         Message msg = {1, actor1->id, 0, actor1};  // Reply to actor1
         mailbox_send(&actor2->mailbox, msg);
-        actor2->active = 1;
+        atomic_store_explicit(&actor2->active, 1, memory_order_relaxed);
     }
     
     sleep_ms(200);

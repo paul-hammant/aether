@@ -17,8 +17,8 @@ void* aether_actor_thread(void* arg) {
 
     while (1) {
         // Process any pending mailbox messages first to free space.
-        if (actor->mailbox.count > 0) {
-            actor->active = 1;
+        if (atomic_load_explicit(&actor->mailbox.count, memory_order_acquire) > 0) {
+            atomic_store_explicit(&actor->active, 1, memory_order_relaxed);
             if (actor->step) {
                 actor->step(arg);
             }
@@ -29,7 +29,8 @@ void* aether_actor_thread(void* arg) {
         // (or other actor threads via scheduler_send_local) enqueue here;
         // only this thread touches the mailbox, so no race on head/tail/count.
         Message spsc_msgs[128];
-        int spsc_count = spsc_dequeue_batch(&actor->spsc_queue, spsc_msgs, 128);
+        int spsc_count = actor->spsc_queue
+            ? spsc_dequeue_batch(actor->spsc_queue, spsc_msgs, 128) : 0;
         if (spsc_count > 0) {
             mailbox_send_batch(&actor->mailbox, spsc_msgs, spsc_count);
             continue;

@@ -28,17 +28,18 @@ static long get_time_ms(void) {
 
 typedef struct {
     // MUST match ActorBase layout exactly - fields in exact same order!
-    int active;
+    atomic_int active;
     int id;
     Mailbox mailbox;
     void (*step)(void*);
     pthread_t thread;
     int auto_process;
     atomic_int assigned_core;
-    int migrate_to;
+    atomic_int migrate_to;
     atomic_int main_thread_only;
     SPSCQueue spsc_queue;
     _Atomic(ActorReplySlot*) reply_slot;
+    atomic_flag step_lock;
     // Test-specific fields below
     atomic_int count;
     atomic_int errors;
@@ -50,23 +51,24 @@ void stress_actor_step(StressActor* self) {
     while (mailbox_receive(&self->mailbox, &msg) && batch++ < 100) {
         atomic_fetch_add(&self->count, 1);
     }
-    self->active = (self->mailbox.count > 0);
+    atomic_store_explicit(&self->active, (self->mailbox.count > 0), memory_order_relaxed);
 }
 
 // OrderActor type and step function for test_message_ordering_under_load
 typedef struct {
     // MUST match ActorBase layout exactly - fields in exact same order!
-    int active;
+    atomic_int active;
     int id;
     Mailbox mailbox;
     void (*step)(void*);
     pthread_t thread;
     int auto_process;
     atomic_int assigned_core;
-    int migrate_to;
+    atomic_int migrate_to;
     atomic_int main_thread_only;
     SPSCQueue spsc_queue;
     _Atomic(ActorReplySlot*) reply_slot;
+    atomic_flag step_lock;
     // Test-specific fields below
     atomic_int count;
     int last_seq;
@@ -82,23 +84,24 @@ static void order_step(OrderActor* self) {
         self->last_seq = msg.payload_int;
         atomic_fetch_add(&self->count, 1);
     }
-    self->active = (self->mailbox.count > 0);
+    atomic_store_explicit(&self->active, (self->mailbox.count > 0), memory_order_relaxed);
 }
 
 // CascadeActor type and step function for test_cascading_messages
 typedef struct {
     // MUST match ActorBase layout exactly - fields in exact same order!
-    int active;
+    atomic_int active;
     int id;
     Mailbox mailbox;
     void (*step)(void*);
     pthread_t thread;
     int auto_process;
     atomic_int assigned_core;
-    int migrate_to;
+    atomic_int migrate_to;
     atomic_int main_thread_only;
     SPSCQueue spsc_queue;
     _Atomic(ActorReplySlot*) reply_slot;
+    atomic_flag step_lock;
     // Test-specific fields below
     atomic_int count;
     void* next_actor;
@@ -114,10 +117,10 @@ static void cascade_step(CascadeActor* self) {
             int next_id = ((CascadeActor*)self->next_actor)->id;
             Message fwd = message_create_simple(next_id, 0, msg.payload_int - 1);
             mailbox_send(&((CascadeActor*)self->next_actor)->mailbox, fwd);
-            ((CascadeActor*)self->next_actor)->active = 1;
+            atomic_store_explicit(&((CascadeActor*)self->next_actor)->active, 1, memory_order_relaxed);
         }
     }
-    self->active = (self->mailbox.count > 0);
+    atomic_store_explicit(&self->active, (self->mailbox.count > 0), memory_order_relaxed);
 }
 
 // ============================================================================
@@ -154,19 +157,19 @@ void test_single_message() {
     StressActor* actor = malloc(sizeof(StressActor));
     memset(actor, 0, sizeof(StressActor));  // Zero all fields including pthread_t
     actor->id = 1;
-    actor->active = 0;
+    atomic_init(&actor->active, 0);
     actor->step = (void (*)(void*))stress_actor_step;
     actor->auto_process = 0;
-    actor->migrate_to = -1;
+    atomic_init(&actor->migrate_to, -1);
     atomic_store(&actor->count, 0);
     mailbox_init(&actor->mailbox);
-    
+
     scheduler_register_actor((ActorBase*)actor, 0);
     scheduler_start();
-    
+
     Message msg = message_create_simple(1, 0, 42);
     scheduler_send_remote((ActorBase*)actor, msg, -1);
-    
+
     sleep_ms(50);
     
     int count = atomic_load(&actor->count);
@@ -190,10 +193,10 @@ void test_many_actors_single_core() {
         actors[i] = malloc(sizeof(StressActor));
         memset(actors[i], 0, sizeof(StressActor));  // Zero all fields including pthread_t
         actors[i]->id = i + 1;
-        actors[i]->active = 0;
+        atomic_init(&actors[i]->active, 0);
         actors[i]->step = (void (*)(void*))stress_actor_step;
         actors[i]->auto_process = 0;
-        actors[i]->migrate_to = -1;
+        atomic_init(&actors[i]->migrate_to, -1);
         atomic_store(&actors[i]->count, 0);
         mailbox_init(&actors[i]->mailbox);
         scheduler_register_actor((ActorBase*)actors[i], 0);
@@ -232,10 +235,10 @@ void test_burst_then_idle() {
     StressActor* actor = malloc(sizeof(StressActor));
     memset(actor, 0, sizeof(StressActor));  // Zero all fields including pthread_t
     actor->id = 1;
-    actor->active = 0;
+    atomic_init(&actor->active, 0);
     actor->step = (void (*)(void*))stress_actor_step;
     actor->auto_process = 0;
-    actor->migrate_to = -1;
+    atomic_init(&actor->migrate_to, -1);
     atomic_store(&actor->count, 0);
     mailbox_init(&actor->mailbox);
     
@@ -290,10 +293,10 @@ void test_max_cores() {
         actors[i] = malloc(sizeof(StressActor));
         memset(actors[i], 0, sizeof(StressActor));  // Zero all fields including pthread_t
         actors[i]->id = i + 1;
-        actors[i]->active = 0;
+        atomic_init(&actors[i]->active, 0);
         actors[i]->step = (void (*)(void*))stress_actor_step;
         actors[i]->auto_process = 0;
-        actors[i]->migrate_to = -1;
+        atomic_init(&actors[i]->migrate_to, -1);
         atomic_store(&actors[i]->count, 0);
         mailbox_init(&actors[i]->mailbox);
         scheduler_register_actor((ActorBase*)actors[i], i);
@@ -338,10 +341,10 @@ void test_alternating_load() {
         actors[i] = malloc(sizeof(StressActor));
         memset(actors[i], 0, sizeof(StressActor));  // Zero all fields including pthread_t
         actors[i]->id = i + 1;
-        actors[i]->active = 0;
+        atomic_init(&actors[i]->active, 0);
         actors[i]->step = (void (*)(void*))stress_actor_step;
         actors[i]->auto_process = 0;
-        actors[i]->migrate_to = -1;
+        atomic_init(&actors[i]->migrate_to, -1);
         atomic_store(&actors[i]->count, 0);
         mailbox_init(&actors[i]->mailbox);
         scheduler_register_actor((ActorBase*)actors[i], i);
@@ -388,10 +391,10 @@ void test_immediate_shutdown() {
     StressActor* actor = malloc(sizeof(StressActor));
     memset(actor, 0, sizeof(StressActor));  // Zero all fields including pthread_t
     actor->id = 1;
-    actor->active = 0;
+    atomic_init(&actor->active, 0);
     actor->step = (void (*)(void*))stress_actor_step;
     actor->auto_process = 0;
-    actor->migrate_to = -1;
+    atomic_init(&actor->migrate_to, -1);
     atomic_store(&actor->count, 0);
     mailbox_init(&actor->mailbox);
     
@@ -419,10 +422,10 @@ void test_concurrent_sends_same_actor() {
     StressActor* actor = malloc(sizeof(StressActor));
     memset(actor, 0, sizeof(StressActor));  // Zero all fields including pthread_t
     actor->id = 1;
-    actor->active = 0;
+    atomic_init(&actor->active, 0);
     actor->step = (void (*)(void*))stress_actor_step;
     actor->auto_process = 0;
-    actor->migrate_to = -1;
+    atomic_init(&actor->migrate_to, -1);
     atomic_store(&actor->count, 0);
     mailbox_init(&actor->mailbox);
 
@@ -460,20 +463,20 @@ void test_priority_inversion() {
     StressActor* slow = malloc(sizeof(StressActor));
     memset(slow, 0, sizeof(StressActor));  // Zero all fields including pthread_t
     slow->id = 1;
-    slow->active = 0;
+    atomic_init(&slow->active, 0);
     slow->step = (void (*)(void*))stress_actor_step;
     slow->auto_process = 0;
-    slow->migrate_to = -1;
+    atomic_init(&slow->migrate_to, -1);
     atomic_store(&slow->count, 0);
     mailbox_init(&slow->mailbox);
 
     StressActor* fast = malloc(sizeof(StressActor));
     memset(fast, 0, sizeof(StressActor));  // Zero all fields including pthread_t
     fast->id = 2;
-    fast->active = 0;
+    atomic_init(&fast->active, 0);
     fast->step = (void (*)(void*))stress_actor_step;
     fast->auto_process = 0;
-    fast->migrate_to = -1;
+    atomic_init(&fast->migrate_to, -1);
     atomic_store(&fast->count, 0);
     mailbox_init(&fast->mailbox);
     
@@ -516,10 +519,10 @@ void test_message_ordering_under_load() {
     OrderActor* actor = malloc(sizeof(OrderActor));
     memset(actor, 0, sizeof(OrderActor));  // Zero all fields including pthread_t
     actor->id = 1;
-    actor->active = 0;
+    atomic_init(&actor->active, 0);
     actor->step = (void (*)(void*))order_step;
     actor->auto_process = 0;
-    actor->migrate_to = -1;
+    atomic_init(&actor->migrate_to, -1);
     atomic_store(&actor->count, 0);
     actor->last_seq = -1;
     atomic_store(&actor->out_of_order, 0);
@@ -561,9 +564,9 @@ void test_cascading_messages() {
         actors[i] = malloc(sizeof(CascadeActor));
         memset(actors[i], 0, sizeof(CascadeActor));  // Zero all fields including pthread_t
         actors[i]->id = i + 1;
-        actors[i]->active = 0;
+        atomic_init(&actors[i]->active, 0);
         actors[i]->auto_process = 0;
-        actors[i]->migrate_to = -1;
+        atomic_init(&actors[i]->migrate_to, -1);
         atomic_store(&actors[i]->count, 0);
         mailbox_init(&actors[i]->mailbox);
         actors[i]->next_actor = (i < 2) ? actors[i + 1] : NULL;
@@ -621,10 +624,10 @@ void test_memory_pressure() {
         actors[i] = malloc(sizeof(StressActor));
         memset(actors[i], 0, sizeof(StressActor));  // Zero all fields including pthread_t
         actors[i]->id = i + 1;
-        actors[i]->active = 0;
+        atomic_init(&actors[i]->active, 0);
         actors[i]->step = (void (*)(void*))stress_actor_step;
         actors[i]->auto_process = 0;
-        actors[i]->migrate_to = -1;
+        atomic_init(&actors[i]->migrate_to, -1);
         atomic_store(&actors[i]->count, 0);
         mailbox_init(&actors[i]->mailbox);
         scheduler_register_actor((ActorBase*)actors[i], i % 2);

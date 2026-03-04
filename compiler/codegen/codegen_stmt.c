@@ -495,17 +495,47 @@ void generate_statement(CodeGenerator* gen, ASTNode* stmt) {
             }
             fprintf(gen->output, ") {\n");
 
-            indent(gen);
-            if (stmt->child_count > 1) {
-                generate_statement(gen, stmt->children[1]);
-            }
-            unindent(gen);
+            {
+                // Save declared_var_count before if-body.  Variables declared
+                // in the if-branch must not suppress re-declaration in the
+                // else-branch (they are in separate C scopes).
+                int saved_var_count = gen->declared_var_count;
 
-            if (stmt->child_count > 2) {
-                print_line(gen, "} else {");
                 indent(gen);
-                generate_statement(gen, stmt->children[2]);
+                if (stmt->child_count > 1) {
+                    generate_statement(gen, stmt->children[1]);
+                }
                 unindent(gen);
+
+                if (stmt->child_count > 2) {
+                    // Save if-branch variable names before restoring count,
+                    // because the else-branch may overwrite those array slots.
+                    int if_new_count = gen->declared_var_count - saved_var_count;
+                    char** if_vars = NULL;
+                    if (if_new_count > 0) {
+                        if_vars = malloc(sizeof(char*) * if_new_count);
+                        for (int vi = 0; vi < if_new_count; vi++) {
+                            if_vars[vi] = gen->declared_vars[saved_var_count + vi];
+                        }
+                    }
+
+                    // Restore: else-branch sees only pre-if declarations.
+                    gen->declared_var_count = saved_var_count;
+
+                    print_line(gen, "} else {");
+                    indent(gen);
+                    generate_statement(gen, stmt->children[2]);
+                    unindent(gen);
+
+                    // Union: merge if-branch declarations back.
+                    for (int vi = 0; vi < if_new_count; vi++) {
+                        if (!is_var_declared(gen, if_vars[vi])) {
+                            mark_var_declared(gen, if_vars[vi]);
+                        }
+                        free(if_vars[vi]);
+                    }
+                    free(if_vars);
+                }
             }
 
             print_line(gen, "}");
@@ -862,6 +892,10 @@ void generate_statement(CodeGenerator* gen, ASTNode* stmt) {
                         fprintf(gen->output, "printf(\"%%s\", ");
                         generate_expression(gen, first_arg);
                         fprintf(gen->output, " ? \"true\" : \"false\");\n");
+                    } else if (arg_type->kind == TYPE_INT64) {
+                        fprintf(gen->output, "printf(\"%%lld\", (long long)");
+                        generate_expression(gen, first_arg);
+                        fprintf(gen->output, ");\n");
                     } else if (arg_type->kind == TYPE_PTR) {
                         // ptr type is typically char* (from stdlib string returns)
                         fprintf(gen->output, "printf(\"%%s\", (char*)");
