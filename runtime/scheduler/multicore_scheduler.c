@@ -62,6 +62,12 @@ extern AETHER_TLS ActorBase* g_sync_step_actor;
 
 #ifdef _WIN32
 #include <windows.h>
+// Portable wrappers for POSIX sleep/yield (not available on MINGW)
+static inline void aether_usleep(unsigned int us) { Sleep(us < 1000 ? 1 : us / 1000); }
+static inline void aether_sched_yield(void) { SwitchToThread(); }
+#else
+static inline void aether_usleep(unsigned int us) { usleep(us); }
+static inline void aether_sched_yield(void) { sched_yield(); }
 #endif
 
 // Layout assertions to catch struct padding/size mismatches between translation units
@@ -715,7 +721,7 @@ void* AETHER_HOT scheduler_thread(void* arg) {
                 #endif
             } else {
                 // Brief yield only after extended idle
-                sched_yield();
+                aether_sched_yield();
                 idle_count = 5000;
             }
         } else {
@@ -923,7 +929,7 @@ void scheduler_wait() {
         // message counts is more robust.
         // Wait until there are no pending messages in any from_queue or
         // overflow buffer.  We use a stability check: 5 consecutive reads
-        // that return 0 with usleep(100) between them (~500us total).
+        // that return 0 with aether_usleep(100) between them (~500us total).
         // This gives scheduler threads time to finish any in-progress step()
         // calls and enqueue any resulting messages.
         int stable_count = 0;
@@ -970,9 +976,9 @@ void scheduler_wait() {
             // convergence phase (pending < 10k), this dominates wall time.
             if (pending <= 10000) {
                 for (int sp = 0; sp < 200; sp++) AETHER_PAUSE();
-                sched_yield();
+                aether_sched_yield();
             } else {
-                usleep(100);  // 100 microseconds
+                aether_usleep(100);  // 100 microseconds
             }
         }
 
@@ -1244,7 +1250,7 @@ void scheduler_send_remote(ActorBase* actor, Message msg, int from_core) {
     // main thread does not drain from_queues, so it cannot be part of a circular wait.
     int retries = 0;
     while (!queue_enqueue(&schedulers[target_core].from_queues[from_idx], actor, msg)) {
-        if (++retries % 1000 == 0) sched_yield();
+        if (++retries % 1000 == 0) aether_sched_yield();
         AETHER_PAUSE();
     }
     atomic_fetch_add_explicit(&schedulers[target_core].work_count, 1, memory_order_relaxed);
