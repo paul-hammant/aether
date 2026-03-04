@@ -460,6 +460,9 @@ release: clean
 ifeq ($(DETECTED_OS),Linux)
 	@echo "Stripping debug symbols..."
 	@strip build/aetherc-release$(EXE_EXT)
+else ifeq ($(DETECTED_OS),Darwin)
+	@echo "Stripping debug symbols..."
+	@strip -x build/aetherc-release$(EXE_EXT)
 endif
 	@echo "✓ Release build complete: build/aetherc-release$(EXE_EXT)"
 	@ls -lh build/aetherc-release$(EXE_EXT)

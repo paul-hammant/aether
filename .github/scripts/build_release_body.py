@@ -73,7 +73,7 @@ Extract the `.zip` archive, then run `bin\\ae.exe version` from the extracted fo
 
 ---
 
-Full documentation: https://aetherlang.org"""
+Documentation: https://github.com/nicolasmd87/aether#readme"""
 
 
 def main() -> None:

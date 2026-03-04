@@ -8,12 +8,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/aether-lang/aether"
+    "url": "https://github.com/nicolasmd87/aether"
   },
   "bugs": {
-    "url": "https://github.com/aether-lang/aether/issues"
+    "url": "https://github.com/nicolasmd87/aether/issues"
   },
-  "homepage": "https://github.com/aether-lang/aether#readme",
+  "homepage": "https://github.com/nicolasmd87/aether#readme",
   "keywords": [
     "aether",
     "actor",

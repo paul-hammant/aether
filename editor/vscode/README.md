@@ -1,6 +1,6 @@
 # Aether Language Support
 
-Official Visual Studio Code extension for the [Aether programming language](https://github.com/aether-lang/aether).
+Official Visual Studio Code extension for the [Aether programming language](https://github.com/nicolasmd87/aether).
 
 ## Features
 
@@ -75,7 +75,7 @@ Install from VSIX:
 
 ## Contribution
 
-Found a bug or have a feature request? Please open an issue on the [GitHub repository](https://github.com/aether-lang/aether).
+Found a bug or have a feature request? Please open an issue on the [GitHub repository](https://github.com/nicolasmd87/aether).
 
 ## License
 
@@ -83,7 +83,7 @@ This extension is licensed under the MIT License. See the [LICENSE](../../LICENS
 
 ## Links
 
-- [Aether GitHub Repository](https://github.com/aether-lang/aether)
+- [Aether GitHub Repository](https://github.com/nicolasmd87/aether)
 - [Language Documentation](../../docs/language-reference.md)
 - [Getting Started Guide](../../docs/getting-started.md)
 
