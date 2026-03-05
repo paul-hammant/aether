@@ -53,9 +53,10 @@ jobs:
       env:
         COMMIT_MSG: ${{ github.event.head_commit.message }}
       run: |
-        # Derive current version from the latest tag (authoritative source).
-        # Falls back to VERSION file if no tags exist yet.
-        LATEST_TAG=$(git describe --tags --match 'v*.*.*' --abbrev=0 2>/dev/null || echo "")
+        # Derive current version from the highest semver tag (authoritative).
+        # Uses `git tag -l` (not `git describe`) because release tags live
+        # on detached commits that are not ancestors of main.
+        LATEST_TAG=$(git tag -l 'v*.*.*' | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)
         if [ -n "$LATEST_TAG" ]; then
           OLD=$(echo "$LATEST_TAG" | sed 's/^v//')
         else
