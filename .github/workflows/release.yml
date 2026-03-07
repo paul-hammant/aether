@@ -3,17 +3,18 @@ name: Release
 # Every merge to main creates a versioned release automatically.
 #
 # Version bump rules:
-#   - Commit message starts with "major"  ->  bump MAJOR, reset minor + patch to 0
-#   - Anything else                       ->  bump MINOR, reset patch to 0  (default)
+#   - Commit message starts with "major"  ->  bump MAJOR
+#   - Anything else                       ->  bump MINOR (default)
 #
-# Manual tag push (v*.*.*) also triggers a build + publish, without bumping.
+# Manual tag push (v*.*.*) also triggers a build + publish.
 #
-# Version source of truth: git tags (not the VERSION file).
+# Flow (state-based, no commit message parsing):
+#   1. Push to main → prepare job reads VERSION and checks if vX.Y.Z tag exists
+#   2a. Tag EXISTS   → bump job computes next version, opens a release PR
+#   2b. Tag MISSING  → tag job creates vX.Y.Z tag from HEAD
+#   3. Tag push → build + publish jobs create the GitHub Release
 #
-# Flow:
-#   1. Non-release push to main → bump job opens a "chore: release X.Y.Z" PR
-#   2. PR merges → tag job creates vX.Y.Z tag
-#   3. Tag push (or manual tag) → build + publish jobs create the GitHub Release
+# This is robust regardless of merge strategy (squash, merge commit, rebase).
 
 on:
   push:
@@ -29,18 +30,79 @@ concurrency:
 
 jobs:
   # ================================================================== #
-  # AUTO-BUMP — open a version-bump PR (main branch merges only)       #
-  #                                                                    #
-  # Derives the CURRENT version from the latest v*.*.* tag, computes   #
-  # the next version, creates a release branch, and opens a PR.        #
+  # PREPARE — decide whether to bump or tag based on repo state        #
+  # ================================================================== #
+  prepare:
+    name: Prepare release
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    outputs:
+      action:  ${{ steps.decide.outputs.action }}
+      version: ${{ steps.decide.outputs.version }}
+      tag:     ${{ steps.decide.outputs.tag }}
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Decide action
+      id: decide
+      env:
+        COMMIT_MSG: ${{ github.event.head_commit.message }}
+      run: |
+        VERSION=$(cat VERSION | tr -d '[:space:]')
+        TAG="v${VERSION}"
+
+        if git rev-parse "$TAG" >/dev/null 2>&1; then
+          # Tag exists for current VERSION → compute next version and open PR
+          OLD="$VERSION"
+          MAJOR=$(echo "$OLD" | cut -d. -f1)
+          MINOR=$(echo "$OLD" | cut -d. -f2)
+
+          if echo "$COMMIT_MSG" | grep -q "^major"; then
+            NEW="$((MAJOR + 1)).0.0"
+          else
+            NEW="${MAJOR}.$((MINOR + 1)).0"
+          fi
+
+          NEW_TAG="v$NEW"
+
+          # If next tag also exists (idempotent), skip entirely
+          if git rev-parse "$NEW_TAG" >/dev/null 2>&1; then
+            echo "Tag $NEW_TAG already exists -- nothing to do"
+            echo "action=skip" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # If a release PR branch already exists, skip (avoid duplicates)
+          if git ls-remote --heads origin "release/v${NEW}" | grep -q "release/v${NEW}"; then
+            echo "Release branch release/v${NEW} already exists -- skipping"
+            echo "action=skip" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "action=bump"      >> "$GITHUB_OUTPUT"
+          echo "version=$NEW"     >> "$GITHUB_OUTPUT"
+          echo "tag=$NEW_TAG"     >> "$GITHUB_OUTPUT"
+          echo "Will bump: $OLD -> $NEW"
+        else
+          # No tag for current VERSION → this is a merged release PR, create tag
+          echo "action=tag"       >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG"         >> "$GITHUB_OUTPUT"
+          echo "Will tag: $TAG"
+        fi
+
+  # ================================================================== #
+  # BUMP — open a version-bump PR                                      #
   # ================================================================== #
   bump:
     name: Auto-bump version
+    needs: prepare
+    if: needs.prepare.outputs.action == 'bump'
     runs-on: ubuntu-latest
-    # Skip version-bump commits (prevents feedback loop)
-    if: >-
-      github.ref == 'refs/heads/main' &&
-      !startsWith(github.event.head_commit.message, 'chore: release ')
 
     permissions:
       contents: write
@@ -51,50 +113,11 @@ jobs:
       with:
         fetch-depth: 0
 
-    - name: Compute new version
-      id: v
-      env:
-        COMMIT_MSG: ${{ github.event.head_commit.message }}
-      run: |
-        # Derive current version from the highest semver tag (authoritative).
-        LATEST_TAG=$(git tag -l 'v*.*.*' | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)
-        if [ -n "$LATEST_TAG" ]; then
-          OLD=$(echo "$LATEST_TAG" | sed 's/^v//')
-        else
-          OLD=$(cat VERSION | tr -d '[:space:]')
-        fi
-
-        MAJOR=$(echo "$OLD" | cut -d. -f1)
-        MINOR=$(echo "$OLD" | cut -d. -f2)
-
-        if echo "$COMMIT_MSG" | grep -q "^major"; then
-          NEW="$((MAJOR + 1)).0.0"
-          KIND="major"
-        else
-          NEW="${MAJOR}.$((MINOR + 1)).0"
-          KIND="minor"
-        fi
-
-        TAG="v$NEW"
-
-        # Safety: if this tag already exists, skip (idempotent).
-        if git rev-parse "$TAG" >/dev/null 2>&1; then
-          echo "Tag $TAG already exists -- skipping bump"
-          echo "skip=true" >> "$GITHUB_OUTPUT"
-          exit 0
-        fi
-
-        echo "version=$NEW" >> "$GITHUB_OUTPUT"
-        echo "tag=$TAG"     >> "$GITHUB_OUTPUT"
-        echo "skip=false"   >> "$GITHUB_OUTPUT"
-        echo "Bumped $KIND: $OLD -> $NEW"
-
     - name: Create release PR
-      if: steps.v.outputs.skip != 'true'
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
-        VERSION="${{ steps.v.outputs.version }}"
+        VERSION="${{ needs.prepare.outputs.version }}"
         BRANCH="release/v${VERSION}"
 
         git config user.name  "github-actions[bot]"
@@ -112,6 +135,12 @@ jobs:
           git add CHANGELOG.md
         fi
 
+        # Only commit if there are staged changes
+        if git diff --cached --quiet; then
+          echo "No changes to commit -- skipping"
+          exit 0
+        fi
+
         git commit -m "chore: release ${VERSION}"
         git push origin "$BRANCH"
 
@@ -124,17 +153,13 @@ jobs:
         Merging this PR will trigger a tag + release build."
 
   # ================================================================== #
-  # TAG — create git tag when a release PR merges                      #
-  #                                                                    #
-  # Runs only on "chore: release X.Y.Z" commits (i.e. merged PRs).    #
-  # Creates the vX.Y.Z tag, which triggers the build + publish jobs.   #
+  # TAG — create git tag (release PR just merged)                      #
   # ================================================================== #
   tag:
     name: Tag release
+    needs: prepare
+    if: needs.prepare.outputs.action == 'tag'
     runs-on: ubuntu-latest
-    if: >-
-      github.ref == 'refs/heads/main' &&
-      startsWith(github.event.head_commit.message, 'chore: release ')
 
     permissions:
       contents: write
@@ -151,14 +176,8 @@ jobs:
     - name: Create and push tag
       id: t
       run: |
-        VERSION=$(cat VERSION | tr -d '[:space:]')
-        TAG="v${VERSION}"
-
-        # Safety: skip if tag already exists
-        if git rev-parse "$TAG" >/dev/null 2>&1; then
-          echo "Tag $TAG already exists -- skipping"
-          exit 0
-        fi
+        VERSION="${{ needs.prepare.outputs.version }}"
+        TAG="${{ needs.prepare.outputs.tag }}"
 
         git config user.name  "github-actions[bot]"
         git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -173,7 +192,7 @@ jobs:
   # ================================================================== #
   # BUILD -- all four platforms                                         #
   #                                                                    #
-  # Runs on tag push (from tag job or manual).                          #
+  # Runs when: tag job succeeds, or manual tag push.                   #
   # Checks out the exact release tag so binaries match VERSION.        #
   # ================================================================== #
   build:
@@ -361,7 +380,6 @@ jobs:
     - name: Resolve release tag
       id: tag
       run: |
-        # Prefer the tag produced by the tag job; fall back to the push tag.
         TAG="${{ needs.tag.outputs.tag }}"
         if [ -z "$TAG" ]; then
           TAG="${{ github.ref_name }}"
