@@ -11,6 +11,11 @@
 #include <string.h>
 #include <stdbool.h>
 #include <time.h>
+#ifdef _WIN32
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
 #include "parser/tokens.h"
 #include "ast.h"
 #include "parser/parser.h"
