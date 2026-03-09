@@ -329,15 +329,18 @@ examples: compiler
 		fi; \
 		printf "  %-30s " "$$name"; \
 		out_c="$(BUILD_DIR)/examples/$$name.c"; \
-		if ./build/aetherc$(EXE_EXT) $$src $$out_c 2>/dev/null && \
-		   $(CC) $(CFLAGS) $$out_c $$extra_c $(RUNTIME_SRC) $(STD_SRC) $(COLLECTIONS_SRC) \
-		         -o $(BUILD_DIR)/examples/$$name$(EXE_EXT) $(LDFLAGS) 2>/dev/null; then \
+		if ! ./build/aetherc$(EXE_EXT) $$src $$out_c 2>/tmp/ae_err.txt; then \
+			echo "FAIL (aetherc)"; \
+			cat /tmp/ae_err.txt 2>/dev/null | head -5; \
+			fail=$$((fail + 1)); \
+		elif ! $(CC) $(CFLAGS) $$out_c $$extra_c $(RUNTIME_SRC) $(STD_SRC) $(COLLECTIONS_SRC) \
+		         -o $(BUILD_DIR)/examples/$$name$(EXE_EXT) $(LDFLAGS) 2>/tmp/cc_err.txt; then \
+			echo "FAIL (gcc)"; \
+			cat /tmp/cc_err.txt 2>/dev/null | head -20; \
+			fail=$$((fail + 1)); \
+		else \
 			echo "OK"; \
 			pass=$$((pass + 1)); \
-		else \
-			echo "FAIL"; \
-			./build/aetherc$(EXE_EXT) --verbose $$src $$out_c 2>&1 | tail -5; \
-			fail=$$((fail + 1)); \
 		fi; \
 	done; \
 	echo ""; \
