@@ -114,12 +114,19 @@ if [ "$EDITOR_ONLY" -eq 0 ]; then
         MISSING_DEPS="C compiler (gcc, clang, or cc)"
     fi
 
-    if ! command -v make >/dev/null 2>&1; then
+    if ! command -v make >/dev/null 2>&1 && ! command -v mingw32-make >/dev/null 2>&1; then
         if [ -n "$MISSING_DEPS" ]; then
             MISSING_DEPS="$MISSING_DEPS, make"
         else
             MISSING_DEPS="make"
         fi
+    fi
+
+    # Detect make command (prefer make, fall back to mingw32-make on Windows)
+    if command -v make >/dev/null 2>&1; then
+        MAKE_CMD="make"
+    elif command -v mingw32-make >/dev/null 2>&1; then
+        MAKE_CMD="mingw32-make"
     fi
 
     if [ -n "$MISSING_DEPS" ]; then
@@ -142,17 +149,17 @@ if [ "$EDITOR_ONLY" -eq 0 ]; then
         CC_VERSION=$(cc --version 2>&1 | head -1)
     fi
     ok "  C compiler: $CC_VERSION"
-    ok "  make: $(make --version 2>&1 | head -1)"
+    ok "  make: $($MAKE_CMD --version 2>&1 | head -1)"
     echo ""
 
     # Build
     info "Building Aether..."
-    make compiler 2>&1 | tail -1
-    make ae 2>&1 | tail -1
+    $MAKE_CMD compiler 2>&1 | tail -1
+    $MAKE_CMD ae 2>&1 | tail -1
 
     # Build precompiled stdlib
     info "Building standard library..."
-    make stdlib 2>&1 | tail -1
+    $MAKE_CMD stdlib 2>&1 | tail -1
 
     # Build REPL (optional — needs readline)
     info "Building REPL..."
@@ -173,7 +180,7 @@ if [ "$EDITOR_ONLY" -eq 0 ]; then
             esac
         fi
     fi
-    make repl 2>&1 | tail -1 || warn "  REPL build skipped (install readline: apt-get install libreadline-dev / brew install readline)"
+    $MAKE_CMD repl 2>&1 | tail -1 || warn "  REPL build skipped (install readline: apt-get install libreadline-dev / brew install readline)"
     echo ""
 
     # Install
@@ -181,14 +188,20 @@ if [ "$EDITOR_ONLY" -eq 0 ]; then
 
     mkdir -p "$BIN_DIR" "$LIB_DIR" "$INCLUDE_DIR" "$SRC_DIR"
 
+    # Detect Windows exe extension
+    case "$(uname -s)" in
+        MINGW*|MSYS*|CYGWIN*) EXE=".exe" ;;
+        *) EXE="" ;;
+    esac
+
     # Binaries
-    cp build/ae "$BIN_DIR/ae"
-    cp build/aetherc "$BIN_DIR/aetherc"
-    if [ -f build/aether_repl ]; then
-        cp build/aether_repl "$BIN_DIR/aether_repl"
-        chmod 755 "$BIN_DIR/aether_repl"
+    cp "build/ae${EXE}" "$BIN_DIR/ae${EXE}"
+    cp "build/aetherc${EXE}" "$BIN_DIR/aetherc${EXE}"
+    if [ -f "build/aether_repl${EXE}" ]; then
+        cp "build/aether_repl${EXE}" "$BIN_DIR/aether_repl${EXE}"
+        chmod 755 "$BIN_DIR/aether_repl${EXE}"
     fi
-    chmod 755 "$BIN_DIR/ae" "$BIN_DIR/aetherc"
+    chmod 755 "$BIN_DIR/ae${EXE}" "$BIN_DIR/aetherc${EXE}"
 
     # Precompiled library
     if [ -f build/libaether.a ]; then

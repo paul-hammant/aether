@@ -275,13 +275,13 @@ test-install: compiler ae stdlib
 	echo "  Installing to $$tmpdir..." && \
 	./install.sh "$$tmpdir" < /dev/null > /dev/null 2>&1 && \
 	echo "  Testing ae version..." && \
-	AETHER_HOME="$$tmpdir" "$$tmpdir/bin/ae" version > /dev/null 2>&1 && \
+	AETHER_HOME="$$tmpdir" "$$tmpdir/bin/ae$(EXE_EXT)" version > /dev/null 2>&1 && \
 	echo "  Testing ae init + ae run..." && \
 	projdir=$$(mktemp -d) && \
 	cd "$$projdir" && \
-	AETHER_HOME="$$tmpdir" "$$tmpdir/bin/ae" init smoketest > /dev/null 2>&1 && \
+	AETHER_HOME="$$tmpdir" "$$tmpdir/bin/ae$(EXE_EXT)" init smoketest > /dev/null 2>&1 && \
 	cd smoketest && \
-	output=$$(AETHER_HOME="$$tmpdir" "$$tmpdir/bin/ae" run 2>&1) && \
+	output=$$(AETHER_HOME="$$tmpdir" "$$tmpdir/bin/ae$(EXE_EXT)" run 2>&1) && \
 	echo "  Output: $$output" && \
 	echo "$$output" | grep -q "Hello from smoketest" && \
 	echo "  Cleaning up..." && \
@@ -858,8 +858,8 @@ ci: clean
 	@echo "[3/8] Building stdlib..."
 	@$(MAKE) stdlib
 	@echo ""
-	@echo "[4/8] Building REPL..."
-	@$(MAKE) repl
+	@echo "[4/8] Building REPL (optional — skipped if readline unavailable)..."
+	@$(MAKE) repl || echo "  ⚠ REPL skipped: readline not installed (non-fatal)"
 	@echo ""
 	@echo "[5/8] Running C unit tests..."
 	@$(MAKE) test
