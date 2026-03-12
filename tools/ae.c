@@ -2071,9 +2071,11 @@ static int cmd_version_install(const char* version) {
     }
     remove(archive);
 
-    // Move extracted contents into ver_dir (the archive extracts a flat dir)
+    // Move extracted contents into ver_dir.
+    // Release archives may have a single wrapper directory (e.g. "aether-v0.21.0-macos-arm64/")
+    // OR may have bin/, lib/, share/, include/ directly at root. Handle both cases.
 #ifdef _WIN32
-    char cmd[1024];
+    char cmd[2048];
     snprintf(cmd, sizeof(cmd), "xcopy /E /Y /Q \"%s\\*\" \"%s\\\"", tmp_dir, ver_dir);
     if (system(cmd) != 0) {
         fprintf(stderr, "Error: Failed to copy installation files.\n");
@@ -2084,11 +2086,18 @@ static int cmd_version_install(const char* version) {
 #else
     {
         char cmd[4096];
-        // Find the single top-level directory inside tmp_dir
+        // If there is exactly one top-level entry and it is a directory,
+        // treat it as a wrapper and copy its contents. Otherwise copy
+        // everything directly (the archive has bin/, lib/, etc. at root).
         snprintf(cmd, sizeof(cmd),
-            "src=$(ls -d '%s'/*/ 2>/dev/null | head -1); "
-            "[ -n \"$src\" ] && cp -r \"$src\"* '%s/' || cp -r '%s'/* '%s/'",
-            tmp_dir, ver_dir, tmp_dir, ver_dir);
+            "entries=$(ls '%s' | wc -l | tr -d ' '); "
+            "single=$(ls -d '%s'/*/ 2>/dev/null | wc -l | tr -d ' '); "
+            "if [ \"$entries\" = \"1\" ] && [ \"$single\" = \"1\" ]; then "
+            "  src=$(ls -d '%s'/*/); cp -r \"$src\"* '%s/'; "
+            "else "
+            "  cp -r '%s'/* '%s/'; "
+            "fi",
+            tmp_dir, tmp_dir, tmp_dir, ver_dir, tmp_dir, ver_dir);
         if (system(cmd) != 0) {
             fprintf(stderr, "Error: Failed to copy installation files.\n");
             return 1;

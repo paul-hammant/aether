@@ -261,6 +261,7 @@ jobs:
         make test
         make test-ae
         make test-install
+        make test-release-archive
 
     - name: Strip (Unix)
       if: matrix.os != 'windows-latest'
@@ -282,6 +283,7 @@ jobs:
         make test
         make test-ae
         make test-install
+        make test-release-archive
 
     - name: Strip (Windows)
       if: matrix.os == 'windows-latest'
@@ -300,10 +302,10 @@ jobs:
         if [ -f build/libaether.a ]; then
           cp build/libaether.a release/lib/
         fi
-        # Headers (preserve directory structure)
+        # Headers (preserve directory structure — must match install.sh)
         for dir in runtime runtime/actors runtime/scheduler runtime/utils \
                    runtime/memory runtime/config std std/string std/io std/math \
-                   std/net std/collections std/json std/fs std/log; do
+                   std/net std/collections std/json std/fs std/log std/http; do
           if [ -d "$dir" ]; then
             mkdir -p "release/include/aether/$dir"
             cp "$dir"/*.h "release/include/aether/$dir/" 2>/dev/null || true
@@ -327,10 +329,10 @@ jobs:
         if [ -f build/libaether.a ]; then
           cp build/libaether.a release/lib/
         fi
-        # Headers (preserve directory structure)
+        # Headers (preserve directory structure — must match install.sh)
         for dir in runtime runtime/actors runtime/scheduler runtime/utils \
                    runtime/memory runtime/config std std/string std/io std/math \
-                   std/net std/collections std/json std/fs std/log; do
+                   std/net std/collections std/json std/fs std/log std/http; do
           if [ -d "$dir" ]; then
             mkdir -p "release/include/aether/$dir"
             cp "$dir"/*.h "release/include/aether/$dir/" 2>/dev/null || true

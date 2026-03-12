@@ -211,7 +211,7 @@ if [ "$EDITOR_ONLY" -eq 0 ]; then
     # Headers (preserve directory structure for relative includes)
     for dir in runtime runtime/actors runtime/scheduler runtime/utils \
                runtime/memory runtime/config std std/string std/io std/math \
-               std/net std/collections std/json std/fs std/log; do
+               std/net std/collections std/json std/fs std/log std/http; do
         if [ -d "$dir" ]; then
             mkdir -p "$INCLUDE_DIR/$dir"
             for h in "$dir"/*.h; do

@@ -13,6 +13,42 @@ number (e.g. `[0.18.0]`) before tagging the release.
 
 ### Added
 
+- **Release archive CI test (`test-release-archive`)**: New Makefile target and CI step [9/9] that packages a tarball exactly like the release pipeline, extracts it, and verifies `ae init` + `ae run` work from the extracted layout — catches archive structure bugs that `test-install` (which tests `install.sh`) would miss
+- **4 regression tests for CLI helper battle-testing**: `test_actor_print_char.ae` (print_char/escapes in actor handlers, self-send animation), `test_box_drawing.ae` (ASCII boxes, ANSI escapes, progress bars, tab tables, nested boxes), `test_interp_escape_combo.ae` (10 hex/octal + interpolation combos), `test_file_io_char_return.ae` (file I/O roundtrip, char* returns, append, cleanup)
+
+### Fixed
+
+- **Stdlib functions returned `AetherString*` instead of `char*`**: All stdlib modules (fs, io, json, net) returned opaque `AetherString*` pointers from functions like `file_read_all()`, `io_read_file()`, `json_stringify()`, `tcp_receive()` — but Aether's native string type is `const char*`, so codegen generated `printf("%s", ...)` which interpreted the struct pointer as a string, producing garbage output on all platforms. Changed all public stdlib APIs to return `char*` directly; module.ae declarations updated from `-> ptr` to `-> string`
+- **`file_write` / `file_size` ABI mismatch**: `file_write()` C signature used `size_t length` (8 bytes on 64-bit) but module.ae declared `int` (4 bytes) — misaligned stack on ARM64. `file_size()` returned `size_t` but module declared `int`. Fixed C signatures to use `int` matching the module declarations
+- **`ae version install` extracted only one directory from release archives**: The POSIX extraction logic assumed release archives had a single wrapper directory and used `ls -d tmp/*/ | head -1` to find it — but release archives contain `bin/`, `lib/`, `share/`, `include/` at root with no wrapper. `head -1` picked only one directory (e.g. `bin/`), so `lib/libaether.a` and `share/aether/` were lost, causing "flat layout" detection and compilation failures when running `ae run` on an installed version
+- **`ae version install` incomplete install detection**: Pre-existing version directories without actual binaries were treated as complete installations — now probes for `aetherc` binary and reinstalls if missing
+- **Windows `ae version use` missing lib/share**: Only copied `bin/` subdirectory contents — now copies the entire version directory so `lib/`, `include/`, `share/` are available
+
+### Changed
+
+- **`make ci` expanded to 9 steps**: Added `test-release-archive` as step [9/9] — every CI run now verifies both `install.sh` and release archive extraction paths end-to-end
+
+## [0.20.0]
+
+### Added
+
+- **6 new regression tests**: `test_actor_ref_message_fields.ae` (actor ref routing through messages), `test_format_specifier_typecheck.ae` (format specifier selection for all types), `test_stdlib_file_module.ae` (file module read/write), `test_stdlib_resolution.ae` (stdlib module resolution), `test_string_escape_sequences.ae` (escape sequence roundtrips), `test_win32_actor_self_scheduling.ae` (Windows actor self-scheduling)
+- **2 new examples**: `actor-ref-routing.ae` (passing actor refs through messages), `self-scheduling.ae` (actor self-send patterns), `cross-platform-strings.ae` (cross-platform string handling)
+
+### Fixed
+
+- **Windows 11 thread compatibility**: Fixed `aether_thread.h` for Windows 11 — proper `CONDITION_VARIABLE` initialization and `SleepConditionVariableCS` usage
+- **`--emit-c` flag handling**: Fixed flag parsing in `aetherc` for `--emit-c` output mode
+- **Scheduler thread startup on Windows**: Added `scheduler_ensure_threads_running()` call in Windows codepath for actor self-scheduling
+
+### Changed
+
+- **`install.sh` improvements**: Better error handling, cleaner output, improved readline detection
+
+## [0.19.0]
+
+### Added
+
 - **`--emit-c` compiler flag**: `aetherc --emit-c file.ae` prints the generated C code to stdout — useful for debugging codegen, inspecting optimizer output, and verifying MSVC compatibility guards
 - **20 new integration tests** (46→66):
   - `test_print_null.ae` — 5 tests for `print`/`println` with NULL string values
@@ -140,6 +176,13 @@ number (e.g. `[0.18.0]`) before tagging the release.
 - **`set_clear()` / `hashmap_clear()` left stale entries**: `hashmap_clear()` only set `occupied = false` per entry, leaving stale PSL, hash, key, and value data that could cause phantom entries on reinsertion — now uses `memset` to zero the entire entries array after freeing keys/values
 - **`main_thread_sent` counter not reset between scheduler lifecycles**: The atomic `main_thread_sent` counter was never reset in `scheduler_init()` — stale sent count from a previous lifecycle caused `count_pending_messages()` to return permanently non-zero, spinning `scheduler_wait()` forever in C unit tests
 - **Type inference not propagating parameter types through call chains**: Function parameters resolved from one call site were not propagated when the function was called from other sites — added constraint propagation pass that infers parameter types from all call sites
+
+## [0.18.0]
+
+### Fixed
+
+- **Type checker did not validate message constructor field types**: Message constructors like `Greet { name: 42 }` were accepted even when the field was declared as `string` — now validates each field against the message definition's declared types
+- **Missing `getpid()` header on Windows**: `<process.h>` is needed for `getpid()` on Windows, `<unistd.h>` on POSIX — added proper platform-guarded includes
 
 ## [0.17.0]
 

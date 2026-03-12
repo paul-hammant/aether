@@ -289,6 +289,56 @@ test-install: compiler ae stdlib
 	echo "  [PASS] Install smoke test" || \
 	(echo "  [FAIL] Install smoke test"; rm -rf "$$tmpdir" "$$projdir" 2>/dev/null; exit 1)
 
+# Release archive smoke test: packages a tarball exactly like release.yml,
+# extracts it (simulating `ae version install`), and verifies ae init + ae run
+# work from the extracted layout. This catches archive structure bugs that
+# test-install (which tests install.sh) would miss.
+test-release-archive: compiler ae stdlib
+	@echo "==================================="
+	@echo "  Release Archive Smoke Test"
+	@echo "==================================="
+	@tmpdir=$$(mktemp -d) && \
+	reldir="$$tmpdir/release" && \
+	mkdir -p "$$reldir/bin" "$$reldir/lib" "$$reldir/share/aether" "$$reldir/include/aether" && \
+	cp build/aetherc$(EXE_EXT) "$$reldir/bin/" && \
+	cp build/ae$(EXE_EXT)      "$$reldir/bin/" && \
+	chmod 755 "$$reldir/bin/"* && \
+	if [ -f build/libaether.a ]; then cp build/libaether.a "$$reldir/lib/"; fi && \
+	for dir in runtime runtime/actors runtime/scheduler runtime/utils \
+	           runtime/memory runtime/config std std/string std/io std/math \
+	           std/net std/collections std/json std/fs std/log std/http; do \
+	  if [ -d "$$dir" ]; then \
+	    mkdir -p "$$reldir/include/aether/$$dir"; \
+	    cp "$$dir"/*.h "$$reldir/include/aether/$$dir/" 2>/dev/null || true; \
+	  fi; \
+	done && \
+	cp -r runtime "$$reldir/share/aether/" && \
+	cp -r std     "$$reldir/share/aether/" && \
+	echo "  Created release layout in $$reldir" && \
+	echo "  Packing tarball..." && \
+	(cd "$$reldir" && tar -czf "$$tmpdir/aether-test.tar.gz" *) && \
+	echo "  Extracting to simulated version dir..." && \
+	verdir="$$tmpdir/extracted" && mkdir -p "$$verdir" && \
+	tar -xzf "$$tmpdir/aether-test.tar.gz" -C "$$verdir" && \
+	echo "  Checking extracted layout..." && \
+	test -f "$$verdir/bin/aetherc$(EXE_EXT)" || (echo "  FAIL: bin/aetherc missing"; exit 1) && \
+	test -f "$$verdir/bin/ae$(EXE_EXT)"      || (echo "  FAIL: bin/ae missing"; exit 1) && \
+	test -f "$$verdir/lib/libaether.a"       || (echo "  FAIL: lib/libaether.a missing"; exit 1) && \
+	test -d "$$verdir/share/aether/runtime"  || (echo "  FAIL: share/aether/runtime missing"; exit 1) && \
+	test -d "$$verdir/share/aether/std"      || (echo "  FAIL: share/aether/std missing"; exit 1) && \
+	echo "  Testing ae init + ae run from extracted archive..." && \
+	projdir=$$(mktemp -d) && \
+	cd "$$projdir" && \
+	AETHER_HOME="$$verdir" "$$verdir/bin/ae$(EXE_EXT)" init archivetest > /dev/null 2>&1 && \
+	cd archivetest && \
+	output=$$(AETHER_HOME="$$verdir" "$$verdir/bin/ae$(EXE_EXT)" run 2>&1) && \
+	echo "  Output: $$output" && \
+	echo "$$output" | grep -q "Hello from archivetest" && \
+	echo "  Cleaning up..." && \
+	rm -rf "$$tmpdir" "$$projdir" && \
+	echo "  [PASS] Release archive smoke test" || \
+	(echo "  [FAIL] Release archive smoke test"; rm -rf "$$tmpdir" "$$projdir" 2>/dev/null; exit 1)
+
 # Run both C unit tests and .ae integration tests
 test-all: test test-ae
 	@echo ""
@@ -849,29 +899,32 @@ ci: clean
 	@echo "  Aether CI — Full Test Suite"
 	@echo "==================================="
 	@echo ""
-	@echo "[1/8] Building compiler (-Werror)..."
+	@echo "[1/9] Building compiler (-Werror)..."
 	@$(MAKE) compiler EXTRA_CFLAGS=-Werror
 	@echo ""
-	@echo "[2/8] Building ae CLI..."
+	@echo "[2/9] Building ae CLI..."
 	@$(MAKE) ae
 	@echo ""
-	@echo "[3/8] Building stdlib..."
+	@echo "[3/9] Building stdlib..."
 	@$(MAKE) stdlib
 	@echo ""
-	@echo "[4/8] Building REPL (optional — skipped if readline unavailable)..."
+	@echo "[4/9] Building REPL (optional — skipped if readline unavailable)..."
 	@$(MAKE) repl || echo "  ⚠ REPL skipped: readline not installed (non-fatal)"
 	@echo ""
-	@echo "[5/8] Running C unit tests..."
+	@echo "[5/9] Running C unit tests..."
 	@$(MAKE) test
 	@echo ""
-	@echo "[6/8] Running .ae integration tests..."
+	@echo "[6/9] Running .ae integration tests..."
 	@$(MAKE) test-ae
 	@echo ""
-	@echo "[7/8] Building examples..."
+	@echo "[7/9] Building examples..."
 	@$(MAKE) examples
 	@echo ""
-	@echo "[8/8] Install smoke test..."
+	@echo "[8/9] Install smoke test..."
 	@$(MAKE) test-install
+	@echo ""
+	@echo "[9/9] Release archive smoke test..."
+	@$(MAKE) test-release-archive
 	@echo ""
 	@echo "==================================="
 	@echo "  CI PASSED — all checks green"
@@ -907,7 +960,7 @@ asan-check: clean
 	  fi
 	@echo "✓ ASan clean — no memory errors detected"
 
-.PHONY: all compiler lsp apkg ae profiler docgen docs-server docs docs-serve test test-build test-valgrind test-asan test-memory test-manual-runtime test-install benchmark benchmark-ui examples run compile repl clean help self-test install stats stdlib ci ci-windows docker-ci docker-ci-windows docker-build-ci valgrind-check asan-check
+.PHONY: all compiler lsp apkg ae profiler docgen docs-server docs docs-serve test test-build test-valgrind test-asan test-memory test-manual-runtime test-install test-release-archive benchmark benchmark-ui examples run compile repl clean help self-test install stats stdlib ci ci-windows docker-ci docker-ci-windows docker-build-ci valgrind-check asan-check
 
 # Cross-language benchmark UI
 benchmark-ui:
