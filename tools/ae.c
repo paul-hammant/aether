@@ -1957,6 +1957,55 @@ static int ae_extract(const char* archive, const char* dest_dir) {
 static int cmd_version_list(void) {
     const char* home = get_home_dir();
 
+    // Determine which version is actually active.
+    // Priority: 1) ~/.aether/current symlink (set by `ae version use`)
+    //           2) ~/.aether/active_version file (set by install.sh)
+    //           3) compiled-in AE_VERSION (fallback)
+    char active_ver[64] = "";
+
+#ifndef _WIN32
+    // POSIX: resolve ~/.aether/current symlink → ~/.aether/versions/vX.Y.Z
+    {
+        char current_link[512], target[1024];
+        snprintf(current_link, sizeof(current_link), "%s/.aether/current", home);
+        ssize_t rlen = readlink(current_link, target, sizeof(target) - 1);
+        if (rlen > 0) {
+            target[rlen] = '\0';
+            // Extract version tag from path: last component is e.g. "v0.21.0"
+            const char* last = strrchr(target, '/');
+            if (last) last++; else last = target;
+            // Strip 'v' prefix for comparison
+            if (last[0] == 'v') last++;
+            strncpy(active_ver, last, sizeof(active_ver) - 1);
+            active_ver[sizeof(active_ver) - 1] = '\0';
+        }
+    }
+#endif
+
+    // Check active_version file (written by install.sh)
+    if (active_ver[0] == '\0') {
+        char avpath[512];
+#ifdef _WIN32
+        snprintf(avpath, sizeof(avpath), "%s\\.aether\\active_version", home);
+#else
+        snprintf(avpath, sizeof(avpath), "%s/.aether/active_version", home);
+#endif
+        FILE* avf = fopen(avpath, "r");
+        if (avf) {
+            if (fgets(active_ver, sizeof(active_ver), avf)) {
+                char* nl = strchr(active_ver, '\n'); if (nl) *nl = '\0';
+                char* cr = strchr(active_ver, '\r'); if (cr) *cr = '\0';
+            }
+            fclose(avf);
+        }
+    }
+
+    // Fallback: use compiled-in version
+    if (active_ver[0] == '\0') {
+        strncpy(active_ver, AE_VERSION, sizeof(active_ver) - 1);
+        active_ver[sizeof(active_ver) - 1] = '\0';
+    }
+
     // Fetch the GitHub releases JSON into a temp file
     char json_path[512];
 #ifdef _WIN32
@@ -2005,9 +2054,9 @@ static int cmd_version_list(void) {
         tag[len] = '\0';
         p = end + 1;
 
-        // v-prefix normalisation: strip 'v' to compare with AE_VERSION
+        // v-prefix normalisation: strip 'v' to compare with active version
         const char* ver = (tag[0] == 'v') ? tag + 1 : tag;
-        bool is_current = strcmp(ver, AE_VERSION) == 0;
+        bool is_current = strcmp(ver, active_ver) == 0;
 
         // Check locally installed
         char ver_dir[512];
@@ -2268,13 +2317,29 @@ static int cmd_version_use(const char* version) {
     char dest_bin[512];
     snprintf(dest_bin, sizeof(dest_bin), "%s/.aether/bin", home);
     snprintf(cmd, sizeof(cmd),
-        "mkdir -p \"%s\" && cp -f \"%s\"/* \"%s/\" 2>/dev/null; "
-        "cp -f \"%s\"/* \"%s/\" 2>/dev/null; true",
-        dest_bin, src_bin, dest_bin, src_bin, dest_bin);
+        "mkdir -p \"%s\" && cp -f \"%s\"/* \"%s/\" 2>/dev/null; true",
+        dest_bin, src_bin, dest_bin);
     system(cmd);
-    printf("Switched to Aether %s.\n", vtag);
-    return 0;
 #endif
+
+    // Update active_version file so 'ae version list' shows the correct current
+    // even if the symlink approach fails or on Windows.
+    {
+        char avpath[512];
+#ifdef _WIN32
+        snprintf(avpath, sizeof(avpath), "%s\\.aether\\active_version", home);
+#else
+        snprintf(avpath, sizeof(avpath), "%s/.aether/active_version", home);
+#endif
+        FILE* avf = fopen(avpath, "w");
+        if (avf) {
+            // Write version without 'v' prefix
+            const char* v = (vtag[0] == 'v') ? vtag + 1 : vtag;
+            fprintf(avf, "%s\n", v);
+            fclose(avf);
+        }
+    }
+
     printf("Switched to Aether %s.\n", vtag);
     return 0;
 }

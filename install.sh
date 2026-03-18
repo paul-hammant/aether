@@ -245,11 +245,39 @@ if [ "$EDITOR_ONLY" -eq 0 ]; then
         fi
     done
 
-    # Remove stale 'current' symlink — it was created by 'ae version use'
-    # and may point to an incomplete version dir, causing a confusing warning.
-    # Direct installs put everything in INSTALL_DIR itself, no symlink needed.
-    if [ -L "$INSTALL_DIR/current" ]; then
+    # Register installed version in ~/.aether/versions/ so that:
+    # - 'ae version list' shows it as "installed"
+    # - 'ae version use vX.Y.Z' can switch back after trying another version
+    INSTALLED_VER=$("$BIN_DIR/ae" version 2>&1 | head -1 | awk '{print $2}')
+    if [ -n "$INSTALLED_VER" ] && [ "$INSTALLED_VER" != "0.0.0-dev" ]; then
+        VTAG="v$INSTALLED_VER"
+        VER_ENTRY="$INSTALL_DIR/versions/$VTAG"
+        mkdir -p "$INSTALL_DIR/versions"
+
+        # Copy the full install into versions/ so 'ae version use' works.
+        # Remove old entry first (may be stale from a previous build).
+        rm -rf "$VER_ENTRY"
+        mkdir -p "$VER_ENTRY"
+        for subdir in bin lib include share; do
+            if [ -d "$INSTALL_DIR/$subdir" ]; then
+                cp -r "$INSTALL_DIR/$subdir" "$VER_ENTRY/$subdir"
+            fi
+        done
+        for f in VERSION LICENSE README.md; do
+            if [ -f "$INSTALL_DIR/$f" ]; then
+                cp -f "$INSTALL_DIR/$f" "$VER_ENTRY/$f" 2>/dev/null || true
+            fi
+        done
+
+        # Write active_version marker and update current symlink
+        echo "$INSTALLED_VER" > "$INSTALL_DIR/active_version"
         rm -f "$INSTALL_DIR/current"
+        ln -sf "$VER_ENTRY" "$INSTALL_DIR/current"
+    else
+        # Fallback: just remove stale symlink
+        if [ -L "$INSTALL_DIR/current" ]; then
+            rm -f "$INSTALL_DIR/current"
+        fi
     fi
 
     ok "  Installed successfully"
