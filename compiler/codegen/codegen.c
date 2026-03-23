@@ -1039,9 +1039,8 @@ void generate_program(CodeGenerator* gen, ASTNode* program) {
                                 ASTNode* decl = mod_ast->children[j];
                                 if (decl->type == AST_EXTERN_FUNCTION && decl->value) {
                                     generate_extern_declaration(gen, decl);
-                                } else if (decl->type == AST_FUNCTION_DEFINITION && decl->value) {
-                                    generate_extern_declaration(gen, decl);
                                 }
+                                // AST_FUNCTION_DEFINITION handled by module_merge_into_program()
                             }
                             // NOTE: do NOT free mod_ast — registry owns it
                         }

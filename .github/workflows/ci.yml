@@ -11,8 +11,8 @@ jobs:
   # ============================================================
   # Full CI suite — Linux (GCC), Linux (Clang), macOS (Clang)
   # Runs `make ci` which is the single source of truth:
-  #   compiler (-Werror), ae, stdlib, repl, unit tests,
-  #   .ae integration tests, examples.
+  #   compiler (-Werror), ae, stdlib, unit tests,
+  #   .ae integration tests (includes REPL tests), examples.
   # ============================================================
   ci:
     name: ${{ matrix.name }}
@@ -25,12 +25,12 @@ jobs:
           - name: Linux / GCC
             os: ubuntu-22.04
             cc: gcc
-            install: sudo apt-get update && sudo apt-get install -y gcc make libreadline-dev bc
+            install: sudo apt-get update && sudo apt-get install -y gcc make bc
 
           - name: Linux / Clang
             os: ubuntu-22.04
             cc: clang
-            install: sudo apt-get update && sudo apt-get install -y clang make libreadline-dev bc
+            install: sudo apt-get update && sudo apt-get install -y clang make bc
 
           - name: macOS / Clang (ARM64)
             os: macos-latest
@@ -54,8 +54,8 @@ jobs:
 
   # ============================================================
   # Windows CI — MinGW via MSYS2
-  # Builds compiler, ae, stdlib, REPL (with readline), and
-  # runs the full 162-test C unit test suite on Windows.
+  # Runs `make ci` — compiler, ae, stdlib, unit tests,
+  # .ae integration tests (includes REPL tests), examples.
   # ============================================================
   ci-windows:
     name: Windows / GCC (MSYS2)
@@ -72,7 +72,7 @@ jobs:
       with:
         msystem: MINGW64
         update: false
-        install: mingw-w64-x86_64-gcc make mingw-w64-x86_64-readline bc
+        install: mingw-w64-x86_64-gcc make bc
 
     - name: Run CI suite
       run: make ci

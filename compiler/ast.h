@@ -130,6 +130,7 @@ Type* clone_type(Type* type);
 ASTNode* create_ast_node(ASTNodeType type, const char* value, int line, int column);
 void add_child(ASTNode* parent, ASTNode* child);
 void free_ast_node(ASTNode* node);
+ASTNode* clone_ast_node(ASTNode* node);
 void print_ast(ASTNode* node, int indent);
 const char* ast_node_type_to_string(ASTNodeType type);
 

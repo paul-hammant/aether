@@ -685,7 +685,21 @@ int propagate_call_types_in_tree(ASTNode* tree, const char* func_name, ASTNode* 
     }
     
     // Check if this is a function call to our target function
-    if (tree->type == AST_FUNCTION_CALL && tree->value && strcmp(tree->value, func_name) == 0) {
+    // Also match qualified calls: "mymath.double_it" matches definition "mymath_double_it"
+    int is_match = 0;
+    if (tree->type == AST_FUNCTION_CALL && tree->value) {
+        if (strcmp(tree->value, func_name) == 0) {
+            is_match = 1;
+        } else if (strchr(tree->value, '.')) {
+            // Convert dots to underscores and check
+            char mangled[512];
+            strncpy(mangled, tree->value, sizeof(mangled) - 1);
+            mangled[sizeof(mangled) - 1] = '\0';
+            for (char* p = mangled; *p; p++) { if (*p == '.') *p = '_'; }
+            if (strcmp(mangled, func_name) == 0) is_match = 1;
+        }
+    }
+    if (is_match) {
         // This is a call to our function - propagate argument types to parameters
         int arg_count = tree->child_count;
         for (int i = 0; i < arg_count && i < param_count; i++) {

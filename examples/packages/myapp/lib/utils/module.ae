@@ -1,25 +1,27 @@
-// Local Utils Module Definition
-// This defines the interface for the utils package
+// Utils Module — pure Aether library with export visibility
 //
-// When the module system is fully wired up:
-//   import utils
-//   result = utils.double_value(5)
+// Public API:
+//   utils.double_value(x), utils.triple_value(x), utils.quadruple_value(x)
+//   utils.MULTIPLIER
+//
+// Internal helpers (not accessible from outside):
+//   multiply() — used by the public functions
 
-// Module functions (would be extern when imported)
-double_value(x) {
-    return x * 2;
+export const MULTIPLIER = 2
+
+export double_value(x) {
+    return multiply(x, MULTIPLIER)
 }
 
-triple_value(x) {
-    return x * 3;
+export triple_value(x) {
+    return multiply(x, 3)
 }
 
-main() {
-    print("=== Utils Module ===\n");
-    print("double_value(5) = ");
-    print(double_value(5));
-    print("\n");
-    print("triple_value(5) = ");
-    print(triple_value(5));
-    print("\n");
+export quadruple_value(x) {
+    return multiply(double_value(x), MULTIPLIER)
+}
+
+// Private helper — not exported, used internally only
+multiply(a, b) {
+    return a * b
 }

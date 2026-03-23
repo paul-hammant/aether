@@ -167,28 +167,6 @@ if [ "$EDITOR_ONLY" -eq 0 ]; then
     info "Building standard library..."
     $MAKE_CMD stdlib 2>&1 | tail -1
 
-    # Build REPL (optional — needs readline)
-    info "Building REPL..."
-    _cc=$(command -v gcc 2>/dev/null || command -v cc 2>/dev/null || command -v clang 2>/dev/null || echo gcc)
-    if [ "$(uname -s)" = "Linux" ]; then
-        if ! echo 'int main(){return 0;}' | "$_cc" -x c - -lreadline -o /dev/null 2>/dev/null; then
-            distro=$(detect_linux_distro)
-            case "$distro" in
-                ubuntu|debian|pop|mint|elementary)
-                    warn "  readline not found. Install with: sudo apt-get install libreadline-dev"
-                    ;;
-                fedora)
-                    warn "  readline not found. Install with: sudo dnf install readline-devel"
-                    ;;
-                arch|manjaro|endeavouros)
-                    warn "  readline not found. Install with: sudo pacman -S readline"
-                    ;;
-            esac
-        fi
-    fi
-    $MAKE_CMD repl 2>&1 | tail -1 || warn "  REPL build skipped (install readline: apt-get install libreadline-dev / brew install readline)"
-    echo ""
-
     # Install
     info "Installing to $INSTALL_DIR..."
 
@@ -203,10 +181,6 @@ if [ "$EDITOR_ONLY" -eq 0 ]; then
     # Binaries
     cp "build/ae${EXE}" "$BIN_DIR/ae${EXE}"
     cp "build/aetherc${EXE}" "$BIN_DIR/aetherc${EXE}"
-    if [ -f "build/aether_repl${EXE}" ]; then
-        cp "build/aether_repl${EXE}" "$BIN_DIR/aether_repl${EXE}"
-        chmod 755 "$BIN_DIR/aether_repl${EXE}"
-    fi
     chmod 755 "$BIN_DIR/ae${EXE}" "$BIN_DIR/aetherc${EXE}"
 
     # Precompiled library

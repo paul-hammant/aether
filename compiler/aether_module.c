@@ -551,6 +551,17 @@ static int orchestrate_module(const char* module_name, const char* file_path,
     mod->ast = ast;
     module_register(mod);
 
+    // Collect exports from AST_EXPORT_STATEMENT nodes
+    for (int i = 0; i < ast->child_count; i++) {
+        ASTNode* child = ast->children[i];
+        if (child->type == AST_EXPORT_STATEMENT && child->child_count > 0) {
+            ASTNode* exported = child->children[0];
+            if (exported->value) {
+                module_add_export(mod, exported->value);
+            }
+        }
+    }
+
     // Add node to dependency graph
     dependency_graph_add_node(graph, module_name);
 
@@ -626,5 +637,215 @@ int module_orchestrate(ASTNode* program) {
 
     dependency_graph_free(graph);
     return 1;
+}
+
+// --- Pure Aether Module Merging ---
+
+// Extract namespace from module path: "mypackage.utils" -> "utils"
+static const char* module_get_namespace(const char* module_path) {
+    const char* last_dot = strrchr(module_path, '.');
+    if (last_dot) return last_dot + 1;
+    return module_path;
+}
+
+// Get the actual declaration from a node (unwrap AST_EXPORT_STATEMENT if needed)
+static ASTNode* unwrap_export(ASTNode* node) {
+    if (node->type == AST_EXPORT_STATEMENT && node->child_count > 0) {
+        return node->children[0];
+    }
+    return node;
+}
+
+// Collect all function names defined in a module AST
+static int collect_module_func_names(ASTNode* mod_ast, const char** names, int max) {
+    int count = 0;
+    for (int i = 0; i < mod_ast->child_count && count < max; i++) {
+        ASTNode* decl = unwrap_export(mod_ast->children[i]);
+        if (decl->type == AST_FUNCTION_DEFINITION && decl->value) {
+            names[count++] = decl->value;
+        }
+    }
+    return count;
+}
+
+// Collect all constant names defined in a module AST
+static int collect_module_const_names(ASTNode* mod_ast, const char** names, int max) {
+    int count = 0;
+    for (int i = 0; i < mod_ast->child_count && count < max; i++) {
+        ASTNode* decl = unwrap_export(mod_ast->children[i]);
+        if (decl->type == AST_CONST_DECLARATION && decl->value) {
+            names[count++] = decl->value;
+        }
+    }
+    return count;
+}
+
+// Check if a name is in a string array
+static int name_in_list(const char* name, const char** list, int count) {
+    for (int i = 0; i < count; i++) {
+        if (strcmp(name, list[i]) == 0) return 1;
+    }
+    return 0;
+}
+
+// Collect all names that are locally bound in a function (params + local variable declarations).
+// Recursively walks blocks to find all AST_VARIABLE_DECLARATION and AST_CONST_DECLARATION names.
+static void collect_local_names(ASTNode* node, const char** names, int* count, int max) {
+    if (!node || *count >= max) return;
+    if ((node->type == AST_PATTERN_VARIABLE || node->type == AST_VARIABLE_DECLARATION ||
+         node->type == AST_CONST_DECLARATION) && node->value) {
+        if (!name_in_list(node->value, names, *count)) {
+            names[(*count)++] = node->value;
+        }
+    }
+    for (int i = 0; i < node->child_count; i++) {
+        // Don't recurse into nested function definitions (they have their own scope)
+        if (node->children[i] && node->children[i]->type == AST_FUNCTION_DEFINITION) continue;
+        collect_local_names(node->children[i], names, count, max);
+    }
+}
+
+// Recursively rename intra-module function calls and constant references in a cloned AST.
+// local_names/local_count: names bound in the enclosing function (params + locals) that shadow constants.
+static void rename_intra_module_refs(ASTNode* node, const char* prefix,
+                                      const char** func_names, int func_count,
+                                      const char** const_names, int const_count,
+                                      const char** local_names, int local_count) {
+    if (!node) return;
+
+    if (node->type == AST_FUNCTION_CALL && node->value) {
+        // Check if this call targets a function defined in the same module
+        for (int i = 0; i < func_count; i++) {
+            if (strcmp(node->value, func_names[i]) == 0) {
+                char prefixed[256];
+                snprintf(prefixed, sizeof(prefixed), "%s_%s", prefix, node->value);
+                free(node->value);
+                node->value = strdup(prefixed);
+                break;
+            }
+        }
+    }
+
+    if (node->type == AST_IDENTIFIER && node->value) {
+        // Only rename if this identifier matches a module constant AND is not
+        // shadowed by a local variable or parameter in the enclosing function
+        if (!name_in_list(node->value, local_names, local_count)) {
+            for (int i = 0; i < const_count; i++) {
+                if (strcmp(node->value, const_names[i]) == 0) {
+                    char prefixed[256];
+                    snprintf(prefixed, sizeof(prefixed), "%s_%s", prefix, node->value);
+                    free(node->value);
+                    node->value = strdup(prefixed);
+                    break;
+                }
+            }
+        }
+    }
+
+    // When entering a function definition, collect its local names for shadowing checks.
+    // Limit: 128 locals per function — excess names won't shadow module constants.
+    if (node->type == AST_FUNCTION_DEFINITION) {
+        const char* nested_locals[128];
+        int nested_local_count = 0;
+        collect_local_names(node, nested_locals, &nested_local_count, 128);
+        for (int i = 0; i < node->child_count; i++) {
+            rename_intra_module_refs(node->children[i], prefix, func_names, func_count,
+                                     const_names, const_count, nested_locals, nested_local_count);
+        }
+        return;
+    }
+
+    for (int i = 0; i < node->child_count; i++) {
+        rename_intra_module_refs(node->children[i], prefix, func_names, func_count,
+                                 const_names, const_count, local_names, local_count);
+    }
+}
+
+// Insert a node into program->children at a specific index, shifting others right.
+static void insert_child_at(ASTNode* parent, ASTNode* child, int index) {
+    if (!parent || !child) return;
+    ASTNode** new_children = realloc(parent->children, (parent->child_count + 1) * sizeof(ASTNode*));
+    if (!new_children) { fprintf(stderr, "Fatal: out of memory\n"); exit(1); }
+    parent->children = new_children;
+    // Shift elements right
+    for (int i = parent->child_count; i > index; i--) {
+        parent->children[i] = parent->children[i - 1];
+    }
+    parent->children[index] = child;
+    parent->child_count++;
+}
+
+// Merge pure Aether module functions into the main program AST.
+// For each non-stdlib import, clones function definitions with namespace-prefixed
+// names and inserts them before main() so constants and functions are available.
+void module_merge_into_program(ASTNode* program) {
+    if (!program || !global_module_registry) return;
+
+    // Find insertion point: just before AST_MAIN_FUNCTION
+    int insert_idx = program->child_count;
+    for (int i = 0; i < program->child_count; i++) {
+        if (program->children[i]->type == AST_MAIN_FUNCTION) {
+            insert_idx = i;
+            break;
+        }
+    }
+
+    // Save original child count — we only scan imports from the original program
+    int orig_count = program->child_count;
+
+    for (int i = 0; i < orig_count; i++) {
+        ASTNode* child = program->children[i];
+        if (child->type != AST_IMPORT_STATEMENT || !child->value) continue;
+
+        const char* module_path = child->value;
+
+        // Skip stdlib imports — they have C backing
+        if (strncmp(module_path, "std.", 4) == 0) continue;
+
+        AetherModule* mod = module_find(module_path);
+        if (!mod || !mod->ast) continue;
+
+        ASTNode* mod_ast = mod->ast;
+        const char* ns = module_get_namespace(module_path);
+
+        // Collect function and constant names for intra-module renaming
+        const char* func_names[128];
+        int func_count = collect_module_func_names(mod_ast, func_names, 128);
+        const char* const_names[128];
+        int const_count = collect_module_const_names(mod_ast, const_names, 128);
+
+        for (int j = 0; j < mod_ast->child_count; j++) {
+            ASTNode* decl = unwrap_export(mod_ast->children[j]);
+
+            if (decl->type == AST_FUNCTION_DEFINITION && decl->value) {
+                // Clone and rename: "double_it" -> "mymath_double_it"
+                ASTNode* clone = clone_ast_node(decl);
+                char prefixed[256];
+                snprintf(prefixed, sizeof(prefixed), "%s_%s", ns, clone->value);
+                free(clone->value);
+                clone->value = strdup(prefixed);
+
+                // Rename intra-module function calls and constant refs within the cloned body
+                rename_intra_module_refs(clone, ns, func_names, func_count,
+                                         const_names, const_count, NULL, 0);
+
+                insert_child_at(program, clone, insert_idx++);
+            } else if (decl->type == AST_CONST_DECLARATION && decl->value) {
+                // Clone and rename constants too
+                ASTNode* clone = clone_ast_node(decl);
+                char prefixed[256];
+                snprintf(prefixed, sizeof(prefixed), "%s_%s", ns, clone->value);
+                free(clone->value);
+                clone->value = strdup(prefixed);
+
+                // Rename references to other module constants in the value expression
+                rename_intra_module_refs(clone, ns, func_names, func_count,
+                                         const_names, const_count, NULL, 0);
+
+                insert_child_at(program, clone, insert_idx++);
+            }
+            // Skip AST_MAIN_FUNCTION, AST_IMPORT_STATEMENT, etc.
+        }
+    }
 }
 

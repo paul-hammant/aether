@@ -55,6 +55,8 @@ static const char* get_common_suggestion(AetherErrorCode code) {
             return "check spelling or declare the variable before use";
         case AETHER_ERR_UNDEFINED_FUNC:
             return "check function name spelling or ensure it's defined before use";
+        case AETHER_ERR_NOT_EXPORTED:
+            return "add 'export' to the declaration in the module, or use an exported alternative";
         case AETHER_ERR_UNDEFINED_TYPE:
             return "check type name or define the struct/actor first";
         case AETHER_ERR_REDEFINITION:

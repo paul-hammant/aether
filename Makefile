@@ -243,10 +243,17 @@ test-ae: compiler ae stdlib
 	@tmpdir=$$(mktemp -d); \
 	script="$$tmpdir/run_test.sh"; \
 	printf '#!/bin/sh\n'                                                                        > "$$script"; \
-	printf 'f="$$1"; tmpdir="$$2"\n'                                                           >> "$$script"; \
+	printf 'f="$$1"; tmpdir="$$2"; root="$$3"\n'                                               >> "$$script"; \
 	printf 'name=$$(echo "$$f" | sed "s|tests/||;s|/|_|g;s|\\.ae$$||")\n'                    >> "$$script"; \
-	printf 'if ./build/ae build "$$f" -o "build/test_$$name" 2>/dev/null; then\n'              >> "$$script"; \
-	printf '  if "./build/test_$$name" >/dev/null 2>&1; then\n'                                >> "$$script"; \
+	printf 'dir=$$(dirname "$$f")\n'                                                           >> "$$script"; \
+	printf 'base=$$(basename "$$f")\n'                                                         >> "$$script"; \
+	printf 'if [ -d "$$dir/lib" ]; then\n'                                                     >> "$$script"; \
+	printf '  cmd="cd $$dir && $$root/build/ae build $$base -o $$root/build/test_$$name"\n'    >> "$$script"; \
+	printf 'else\n'                                                                            >> "$$script"; \
+	printf '  cmd="$$root/build/ae build $$f -o $$root/build/test_$$name"\n'                   >> "$$script"; \
+	printf 'fi\n'                                                                              >> "$$script"; \
+	printf 'if eval "$$cmd" 2>/dev/null; then\n'                                               >> "$$script"; \
+	printf '  if "$$root/build/test_$$name" >/dev/null 2>&1; then\n'                           >> "$$script"; \
 	printf '    echo "  [PASS] $$name"; touch "$$tmpdir/PASS_$$name"\n'                        >> "$$script"; \
 	printf '  else\n'                                                                          >> "$$script"; \
 	printf '    echo "  [FAIL] $$name (runtime error)"; touch "$$tmpdir/FAIL_$$name"\n'        >> "$$script"; \
@@ -255,8 +262,17 @@ test-ae: compiler ae stdlib
 	printf '  echo "  [FAIL] $$name (compile error)"; touch "$$tmpdir/FAIL_$$name"\n'          >> "$$script"; \
 	printf 'fi\n'                                                                              >> "$$script"; \
 	chmod +x "$$script"; \
-	find tests/syntax tests/compiler tests/integration -name '*.ae' 2>/dev/null | sort | \
-	xargs -P $(NPROC) -I{} "$$script" "{}" "$$tmpdir"; \
+	root=$$(pwd); \
+	find tests/syntax tests/compiler tests/integration -path '*/lib/*' -prune -o -name '*.ae' -print 2>/dev/null | sort | \
+	xargs -P $(NPROC) -I{} "$$script" "{}" "$$tmpdir" "$$root"; \
+	for sh_test in $$(find tests/integration -name 'test_*.sh' 2>/dev/null | sort); do \
+		name=$$(echo "$$sh_test" | sed 's|tests/||;s|/|_|g;s|\.sh$$||'); \
+		if sh "$$sh_test" >/dev/null 2>&1; then \
+			echo "  [PASS] $$name"; touch "$$tmpdir/PASS_$$name"; \
+		else \
+			echo "  [FAIL] $$name"; touch "$$tmpdir/FAIL_$$name"; \
+		fi; \
+	done; \
 	passed=$$(ls "$$tmpdir"/PASS_* 2>/dev/null | wc -l | tr -d ' '); \
 	failed=$$(ls "$$tmpdir"/FAIL_* 2>/dev/null | wc -l | tr -d ' '); \
 	total=$$((passed + failed)); \
@@ -369,9 +385,9 @@ examples: compiler
 	@echo "==================================="
 	@echo "  Building Aether Examples"
 	@echo "==================================="
-	@$(MKDIR) $(BUILD_DIR)/examples $(BUILD_DIR)/examples/basics $(BUILD_DIR)/examples/actors $(BUILD_DIR)/examples/applications $(BUILD_DIR)/examples/c-interop $(BUILD_DIR)/examples/stdlib $(BUILD_DIR)/examples/packages/myapp/lib/utils $(BUILD_DIR)/examples/packages/myapp/src
+	@$(MKDIR) $(BUILD_DIR)/examples $(BUILD_DIR)/examples/basics $(BUILD_DIR)/examples/actors $(BUILD_DIR)/examples/applications $(BUILD_DIR)/examples/c-interop $(BUILD_DIR)/examples/stdlib
 	@pass=0; fail=0; \
-	for src in $$(find examples -name '*.ae' | sort); do \
+	for src in $$(find examples -name '*.ae' | grep -v '/lib/' | grep -v '/packages/' | sort); do \
 		name=$$(echo $$src | sed 's|examples/||;s|\.ae$$||'); \
 		dir=$$(dirname $$src); \
 		extra_c=""; \
@@ -658,33 +674,9 @@ pgo-clean:
 	@$(RM) build/pgo_workload$(EXE_EXT) build/bench_pgo_baseline$(EXE_EXT) build/bench_pgo_optimized$(EXE_EXT) 2>/dev/null || true
 	@echo "✓ PGO data cleaned"
 
-# Interactive REPL (requires readline library)
-repl: compiler
-	@echo "Starting Aether REPL..."
-	@echo "Checking dependencies..."
-ifeq ($(DETECTED_OS),Darwin)
-	@$(CC) $(CFLAGS) -I/opt/homebrew/include tools/aether_repl.c -o build/aether_repl$(EXE_EXT) -L/opt/homebrew/lib -lreadline 2>/dev/null || \
-	$(CC) $(CFLAGS) -I/usr/local/include tools/aether_repl.c -o build/aether_repl$(EXE_EXT) -L/usr/local/lib -lreadline 2>/dev/null || \
-	$(CC) $(CFLAGS) tools/aether_repl.c -o build/aether_repl$(EXE_EXT) -ledit 2>/dev/null || \
-	$(CC) $(CFLAGS) tools/aether_repl.c -o build/aether_repl$(EXE_EXT) -lreadline 2>/dev/null || \
-	(echo "readline not found. Install with: brew install readline" && exit 1)
-else ifeq ($(DETECTED_OS),Linux)
-	@$(CC) $(CFLAGS) tools/aether_repl.c -o build/aether_repl$(EXE_EXT) -lreadline 2>/dev/null || \
-	(echo "readline not found. Install with: sudo apt-get install libreadline-dev" && exit 1)
-else ifneq ($(findstring MINGW,$(DETECTED_OS)),)
-	@$(CC) $(CFLAGS) tools/aether_repl.c -o build/aether_repl$(EXE_EXT) -lreadline 2>/dev/null || \
-	(echo "readline not found. Install with: pacman -S mingw-w64-x86_64-readline" && exit 1)
-else ifneq ($(findstring MSYS,$(DETECTED_OS)),)
-	@$(CC) $(CFLAGS) tools/aether_repl.c -o build/aether_repl$(EXE_EXT) -lreadline 2>/dev/null || \
-	(echo "readline not found. Install with: pacman -S readline" && exit 1)
-else ifeq ($(DETECTED_OS),Windows)
-	@$(CC) $(CFLAGS) tools/aether_repl.c -o build/aether_repl$(EXE_EXT)
-else
-	@echo "Error: REPL not supported on $(DETECTED_OS)"
-	@exit 1
-endif
-	@echo "✓ REPL built: build/aether_repl$(EXE_EXT)"
-	@echo "Run with: ./build/ae repl"
+# Interactive REPL — integrated into ae CLI, no external dependencies
+repl: ae
+	@./build/ae$(EXE_EXT) repl
 
 # Build statistics
 stats:
@@ -826,7 +818,7 @@ ci-windows: clean compiler
 	@echo "[1/3] Generating C from all examples with native aetherc..."
 	@mkdir -p build/win
 	@pass=0; fail=0; \
-	for src in $$(find examples -name '*.ae' | sort); do \
+	for src in $$(find examples -name '*.ae' | grep -v '/lib/' | grep -v '/packages/' | sort); do \
 		name=$$(echo $$src | sed 's|examples/||;s|\.ae$$||'); \
 		printf "  %-30s " "$$name"; \
 		mkdir -p "build/win/examples/$$(dirname $$name)"; \
@@ -866,7 +858,7 @@ ci-windows: clean compiler
 	@echo ""
 	@echo "[3/3] Syntax-checking generated C with MinGW..."
 	@pass=0; fail=0; \
-	for src in $$(find examples -name '*.ae' | sort); do \
+	for src in $$(find examples -name '*.ae' | grep -v '/lib/' | grep -v '/packages/' | sort); do \
 		name=$$(echo $$src | sed 's|examples/||;s|\.ae$$||'); \
 		out_c="build/win/examples/$$name.c"; \
 		printf "  %-30s " "$$name"; \
@@ -900,31 +892,28 @@ ci: clean
 	@echo "  Aether CI — Full Test Suite"
 	@echo "==================================="
 	@echo ""
-	@echo "[1/9] Building compiler (-Werror)..."
+	@echo "[1/8] Building compiler (-Werror)..."
 	@$(MAKE) compiler EXTRA_CFLAGS=-Werror
 	@echo ""
-	@echo "[2/9] Building ae CLI..."
+	@echo "[2/8] Building ae CLI..."
 	@$(MAKE) ae
 	@echo ""
-	@echo "[3/9] Building stdlib..."
+	@echo "[3/8] Building stdlib..."
 	@$(MAKE) stdlib
 	@echo ""
-	@echo "[4/9] Building REPL (optional — skipped if readline unavailable)..."
-	@$(MAKE) repl || echo "  ⚠ REPL skipped: readline not installed (non-fatal)"
-	@echo ""
-	@echo "[5/9] Running C unit tests..."
+	@echo "[4/8] Running C unit tests..."
 	@$(MAKE) test
 	@echo ""
-	@echo "[6/9] Running .ae integration tests..."
+	@echo "[5/8] Running .ae integration tests..."
 	@$(MAKE) test-ae
 	@echo ""
-	@echo "[7/9] Building examples..."
+	@echo "[6/8] Building examples..."
 	@$(MAKE) examples
 	@echo ""
-	@echo "[8/9] Install smoke test..."
+	@echo "[7/8] Install smoke test..."
 	@$(MAKE) test-install
 	@echo ""
-	@echo "[9/9] Release archive smoke test..."
+	@echo "[8/8] Release archive smoke test..."
 	@$(MAKE) test-release-archive
 	@echo ""
 	@echo "==================================="

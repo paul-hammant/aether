@@ -145,6 +145,34 @@ ae build hello.ae -o hello
 ./hello
 ```
 
+## Interactive REPL
+
+Experiment with Aether interactively:
+
+```bash
+ae repl
+```
+
+```
+Aether 0.27.0 REPL
+Type expressions to evaluate. Enter on empty line to run.
+Commands: :help :reset :show :quit
+
+ae> x = 5
+
+ae> y = 3
+
+ae> println(x + y)
+
+8
+ae> :show
+  x = 5
+  y = 3
+ae> :quit
+```
+
+Assignments and constants persist across evaluations. Multi-line blocks (if/while/for) auto-continue until braces close. Use `:reset` to clear the session, `:show` to see accumulated code.
+
 ## Actor-Based Programming
 
 Aether is built around the actor model. Here is a simple counter example:
@@ -200,14 +228,57 @@ Functions are called using **namespace-style syntax**: `namespace.function()`.
 
 | Import | Namespace | Example |
 |--------|-----------|---------|
-| `import std.string` | `string` | `string.new("hello")` |
-| `import std.file` | `file` | `file.exists("path")` |
-| `import std.map` | `map` | `map.new()`, `map.put()` |
-| `import std.list` | `list` | `list.new()`, `list.add()` |
-| `import std.json` | `json` | `json.parse(str)` |
-| `import std.os` | `os` | `os.exec("ls")` |
+| `import std.string` | `string` | `string.new("hello")`, `string.length(s)` |
+| `import std.file` | `file` | `file.open("f", "r")`, `file.exists("f")` |
+| `import std.dir` | `dir` | `dir.create("d")`, `dir.exists("d")` |
+| `import std.path` | `path` | `path.join("a", "b")`, `path.basename("a/b")` |
+| `import std.list` | `list` | `list.new()`, `list.add()`, `list.get()` |
+| `import std.map` | `map` | `map.new()`, `map.put()`, `map.get()` |
+| `import std.json` | `json` | `json.parse(str)`, `json.create_object()` |
+| `import std.math` | `math` | `math.abs_int(x)`, `math.sqrt(x)` |
+| `import std.http` | `http` | `http.get(url)`, `http.server_create(port)` |
+| `import std.tcp` | `tcp` | `tcp.connect(host, port)`, `tcp.send()` |
+| `import std.log` | `log` | `log.init("app")`, `log.write()` |
+| `import std.io` | `io` | `io.read_file("f")`, `io.getenv("HOME")` |
+| `import std.os` | `os` | `os.exec("ls")`, `os.system("cmd")` |
 
-See [Module System Design](module-system-design.md) for creating your own packages.
+### Creating Your Own Modules
+
+You can write reusable modules in pure Aether — no C required. Place your module in `lib/<name>/module.ae`:
+
+**lib/mymath/module.ae:**
+```aether
+export const PI = 3
+
+export double_it(x) {
+    return multiply(x, 2)
+}
+
+export add(a, b) {
+    return a + b
+}
+
+// Private helper — not accessible from outside
+multiply(a, b) {
+    return a * b
+}
+```
+
+**src/main.ae:**
+```aether
+import mymath
+
+main() {
+    println(mymath.double_it(5))    // 10
+    println(mymath.add(3, 4))       // 7
+    println(mymath.PI)              // 3
+    // mymath.multiply(2, 3)        // Error: not exported
+}
+```
+
+Use `export` to control which functions and constants are part of your module's public API. Non-exported symbols are private — they can be used internally by exported functions but are not accessible to importers. If a module has no `export` declarations, all symbols are public (backwards compatible).
+
+Modules support functions, constants, intra-module calls (functions calling other functions in the same module), and export visibility. See [Module System Design](module-system-design.md#pure-aether-modules) for full details.
 
 ## Standard Library
 

@@ -118,6 +118,14 @@ void register_namespace(const char* ns) {
     }
 }
 
+// Check if a symbol is blocked by export visibility.
+// Returns 1 if blocked (module has exports and symbol isn't one), 0 if allowed.
+static int is_export_blocked(const char* namespace, const char* symbol) {
+    if (!global_module_registry) return 0;
+    AetherModule* mod = module_find(namespace);
+    return (mod && mod->export_count > 0 && !module_is_exported(mod, symbol));
+}
+
 int is_imported_namespace(const char* name) {
     for (int i = 0; i < namespace_count; i++) {
         if (strcmp(imported_namespaces[i], name) == 0) return 1;
@@ -149,6 +157,11 @@ Symbol* lookup_qualified_symbol(SymbolTable* table, const char* qualified_name) 
         // Check if prefix is an imported namespace (e.g., "string" from import std.string)
         // Convert string.new -> string_new
         if (is_imported_namespace(prefix)) {
+            // Enforce export visibility
+            if (is_export_blocked(prefix, suffix)) {
+                free(name_copy);
+                return NULL;
+            }
             char c_func_name[512];
             snprintf(c_func_name, sizeof(c_func_name), "%s_%s", prefix, suffix);
             Symbol* sym = lookup_symbol(table, c_func_name);
@@ -163,7 +176,8 @@ Symbol* lookup_qualified_symbol(SymbolTable* table, const char* qualified_name) 
 
 void type_error(const char* message, int line, int column) {
     AetherErrorCode code = AETHER_ERR_TYPE_MISMATCH;
-    if (strstr(message, "Undefined variable")) code = AETHER_ERR_UNDEFINED_VAR;
+    if (strstr(message, "not exported")) code = AETHER_ERR_NOT_EXPORTED;
+    else if (strstr(message, "Undefined variable")) code = AETHER_ERR_UNDEFINED_VAR;
     else if (strstr(message, "Undefined function") || strstr(message, "Unknown function"))
         code = AETHER_ERR_UNDEFINED_FUNC;
     else if (strstr(message, "Undefined type") || strstr(message, "Unknown type"))
@@ -349,9 +363,37 @@ Type* infer_type(ASTNode* expr, SymbolTable* table) {
             return expr->node_type ? clone_type(expr->node_type) : create_type(TYPE_UNKNOWN);
 
         case AST_MEMBER_ACCESS: {
+            // Enforce export visibility before resolving
+            if (expr->child_count > 0 && expr->children[0] &&
+                expr->children[0]->type == AST_IDENTIFIER && expr->children[0]->value &&
+                is_imported_namespace(expr->children[0]->value) && expr->value &&
+                is_export_blocked(expr->children[0]->value, expr->value)) {
+                char msg[256];
+                snprintf(msg, sizeof(msg), "'%s' is not exported from module '%s'",
+                         expr->value, expr->children[0]->value);
+                type_error(msg, expr->line, expr->column);
+                return create_type(TYPE_UNKNOWN);
+            }
             // If node_type already set, use it
             if (expr->node_type && expr->node_type->kind != TYPE_UNKNOWN)
                 return clone_type(expr->node_type);
+            // Namespace-qualified constant access: mymath.PI_APPROX -> mymath_PI_APPROX
+            if (expr->child_count > 0 && expr->children[0] &&
+                expr->children[0]->type == AST_IDENTIFIER && expr->children[0]->value &&
+                is_imported_namespace(expr->children[0]->value) && expr->value) {
+                char qualified[512];
+                snprintf(qualified, sizeof(qualified), "%s_%s",
+                         expr->children[0]->value, expr->value);
+                Symbol* sym = lookup_symbol(table, qualified);
+                if (sym && sym->type) {
+                    // Rewrite node in-place for codegen
+                    expr->type = AST_IDENTIFIER;
+                    free(expr->value);
+                    expr->value = strdup(qualified);
+                    expr->node_type = clone_type(sym->type);
+                    return clone_type(sym->type);
+                }
+            }
             // Look up the struct/actor type and find the field type
             if (expr->child_count > 0 && expr->children[0]) {
                 Type* base_type = infer_type(expr->children[0], table);
@@ -727,12 +769,8 @@ int typecheck_program(ASTNode* program) {
                                     add_symbol(global_table, decl->value,
                                                clone_type(decl->node_type), 0, 1, 0);
                                 }
-                            } else if (decl->type == AST_FUNCTION_DEFINITION && decl->value) {
-                                if (!lookup_symbol_local(global_table, decl->value)) {
-                                    add_symbol(global_table, decl->value,
-                                               clone_type(decl->node_type), 0, 1, 0);
-                                }
                             }
+                            // AST_FUNCTION_DEFINITION handled by module_merge_into_program()
                         }
                         // NOTE: do NOT free mod_ast — registry owns it
                     }
@@ -1453,6 +1491,32 @@ int typecheck_expression(ASTNode* expr, SymbolTable* table) {
             return 1;
             
         case AST_MEMBER_ACCESS: {
+            // Namespace-qualified constant access: mymath.PI_APPROX -> mymath_PI_APPROX
+            // Rewrite AST to AST_IDENTIFIER so codegen emits the C variable name directly
+            if (expr->child_count > 0 && expr->children[0] &&
+                expr->children[0]->type == AST_IDENTIFIER && expr->children[0]->value &&
+                is_imported_namespace(expr->children[0]->value) && expr->value) {
+                // Enforce export visibility for constants
+                if (is_export_blocked(expr->children[0]->value, expr->value)) {
+                    char msg[256];
+                    snprintf(msg, sizeof(msg), "'%s' is not exported from module '%s'",
+                             expr->value, expr->children[0]->value);
+                    type_error(msg, expr->line, expr->column);
+                    return 0;
+                }
+                char qualified[512];
+                snprintf(qualified, sizeof(qualified), "%s_%s",
+                         expr->children[0]->value, expr->value);
+                Symbol* sym = lookup_symbol(table, qualified);
+                if (sym && sym->type) {
+                    // Rewrite node in-place
+                    expr->type = AST_IDENTIFIER;
+                    free(expr->value);
+                    expr->value = strdup(qualified);
+                    expr->node_type = clone_type(sym->type);
+                    return 1;
+                }
+            }
             // Type check member access (e.g., msg.type, struct.field)
             if (expr->child_count > 0) {
                 ASTNode* base = expr->children[0];
@@ -1625,7 +1689,23 @@ int typecheck_function_call(ASTNode* call, SymbolTable* table) {
     Symbol* symbol = lookup_qualified_symbol(table, call->value);
     if (!symbol || !symbol->is_function) {
         char error_msg[256];
-        snprintf(error_msg, sizeof(error_msg), "Undefined function '%s'", call->value ? call->value : "?");
+        // Check if this is a visibility rejection (not-exported) rather than truly undefined
+        if (call->value && strchr(call->value, '.') && global_module_registry) {
+            char* tmp = strdup(call->value);
+            char* dot = strchr(tmp, '.');
+            *dot = '\0';
+            if (is_export_blocked(tmp, dot + 1)) {
+                snprintf(error_msg, sizeof(error_msg),
+                         "'%s' is not exported from module '%s'", dot + 1, tmp);
+            } else {
+                snprintf(error_msg, sizeof(error_msg),
+                         "Undefined function '%s'", call->value);
+            }
+            free(tmp);
+        } else {
+            snprintf(error_msg, sizeof(error_msg),
+                     "Undefined function '%s'", call->value ? call->value : "?");
+        }
         type_error(error_msg, call->line, call->column);
         return 0;
     }

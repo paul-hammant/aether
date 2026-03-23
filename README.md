@@ -156,7 +156,7 @@ In a project directory (with `aether.toml`), `ae run` and `ae build` compile `sr
 make compiler                    # Build compiler only
 make ae                          # Build ae CLI tool
 make test                        # Run runtime C test suite (166 tests)
-make test-ae                     # Run .ae source tests (60 tests)
+make test-ae                     # Run .ae source tests (90 tests)
 make test-all                    # Run all tests
 make examples                    # Build all examples
 make -j8                         # Parallel build
@@ -180,11 +180,18 @@ aether/
 │   ├── scheduler/     # Multi-core partitioned scheduler with work-stealing fallback
 │   └── utils/         # CPU detection, SIMD, tracing, profiling
 ├── std/               # Standard library
-│   ├── collections/   # HashMap, Vector, Set, List
 │   ├── string/       # String operations
-│   ├── net/          # TCP/UDP networking, HTTP client & server
-│   ├── json/         # JSON parser
-│   ├── fs/           # File system operations
+│   ├── file/         # File operations (open, read, write, delete)
+│   ├── dir/          # Directory operations (create, delete, list)
+│   ├── path/         # Path utilities (join, basename, dirname)
+│   ├── fs/           # Combined file/dir/path module
+│   ├── collections/  # List, HashMap, Vector, Set, PQueue
+│   ├── list/         # Dynamic array (ArrayList)
+│   ├── map/          # Hash map
+│   ├── json/         # JSON parser and builder
+│   ├── http/         # HTTP client and server
+│   ├── tcp/          # TCP client and server
+│   ├── net/          # Combined TCP/HTTP networking module
 │   ├── math/         # Math functions and random numbers
 │   ├── io/           # Console I/O, environment variables
 │   ├── os/           # Shell execution, command capture, env vars
@@ -348,13 +355,15 @@ Aether is under active development. The compiler, runtime, and standard library 
 - Main-thread actor mode — single-actor programs bypass the scheduler entirely (zero-overhead path)
 - Batch fan-out send for main-to-many patterns
 - Lock-free message passing with adaptive optimizations
-- Standard library (collections, networking, JSON, file I/O, OS/shell)
+- Module system with pure Aether modules, export visibility, and namespace-qualified calls
+- Standard library (collections, networking, JSON, file I/O, math, OS/shell)
+- Interactive REPL (`ae repl`) with session persistence and error recovery
 - C embedding via `--emit-header`
 - IDE support (VS Code, Cursor) with syntax highlighting
 - Cross-platform (macOS, Linux, Windows)
 
 **Known Limitations:**
-- Module system is early-stage (imports resolve at compile time; no versioned package registry yet)
+- No versioned package registry yet (local modules and stdlib work; `ae add` can clone GitHub repos but has no dependency resolution or lock files)
 
 **Roadmap:**
 - Hot code reloading

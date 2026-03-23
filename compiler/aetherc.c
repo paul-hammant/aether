@@ -209,6 +209,9 @@ int compile_source(const char* input_path, const char* output_path) {
     }
     if (verbose_mode) printf("Module resolution successful\n");
 
+    // Step 2.6: Merge pure Aether module functions into program AST
+    module_merge_into_program(program);
+
     // Step 3: Type Checking
     if (verbose_mode) printf("Step 3: Type checking...\n");
     if (!typecheck_program(program)) {

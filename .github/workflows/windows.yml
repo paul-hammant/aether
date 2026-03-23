@@ -12,8 +12,8 @@ on:
 jobs:
   # ============================================================
   # MinGW build — primary Windows target
-  # Full CI suite: compiler (-Werror), ae, stdlib, REPL,
-  # unit tests, .ae integration tests, examples.
+  # Full CI suite: compiler (-Werror), ae, stdlib, unit tests,
+  # .ae integration tests (includes REPL tests), examples.
   # ============================================================
   build-mingw:
     name: Build + Test (Windows / MinGW-w64)
@@ -36,7 +36,6 @@ jobs:
           mingw-w64-x86_64-gcc
           mingw-w64-x86_64-make
           make
-          mingw-w64-x86_64-readline
           bc
 
     - name: Run full CI suite

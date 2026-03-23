@@ -95,12 +95,6 @@ static void parser_message(Parser* parser, const char* message) {
     (void)message;
 }
 
-// Check if a token type is a type keyword (int, float, string, bool, long, ptr)
-static int is_type_token(AeTokenType type) {
-    return type == TOKEN_INT || type == TOKEN_INT64 || type == TOKEN_FLOAT ||
-           type == TOKEN_BOOL || type == TOKEN_STRING || type == TOKEN_PTR;
-}
-
 Type* parse_type(Parser* parser) {
     Token* token = peek_token(parser);
     if (!token) return NULL;
@@ -1495,12 +1489,47 @@ ASTNode* parse_export_statement(Parser* parser) {
         case TOKEN_ACTOR:
             exported_item = parse_actor_definition(parser);
             break;
-        case TOKEN_IDENTIFIER:
-            // Export existing symbol: export my_func
-            exported_item = create_ast_node(AST_IDENTIFIER, next->value,
-                                          next->line, next->column);
-            advance_token(parser);
+        case TOKEN_CONST:
+            exported_item = parse_statement(parser);  // parse const declaration
             break;
+        case TOKEN_INT:
+        case TOKEN_INT64:
+        case TOKEN_FLOAT:
+        case TOKEN_BOOL:
+        case TOKEN_STRING:
+        case TOKEN_PTR: {
+            // C-style: export int func_name(...) { ... }
+            Token* next2 = peek_ahead(parser, 1);
+            Token* next3 = peek_ahead(parser, 2);
+            if (next2 && next2->type == TOKEN_IDENTIFIER &&
+                next3 && next3->type == TOKEN_LEFT_PAREN) {
+                Type* ret_type = parse_type(parser);
+                exported_item = parse_function_definition(parser);
+                if (exported_item && ret_type) {
+                    if (exported_item->node_type) free_type(exported_item->node_type);
+                    exported_item->node_type = ret_type;
+                } else if (ret_type) {
+                    free_type(ret_type);
+                }
+            } else {
+                parser_error(parser, "Expected function definition after type in export");
+                return NULL;
+            }
+            break;
+        }
+        case TOKEN_IDENTIFIER: {
+            // Check if this is a function: export func_name(...)
+            Token* after = peek_ahead(parser, 1);
+            if (after && after->type == TOKEN_LEFT_PAREN) {
+                exported_item = parse_function_definition(parser);
+            } else {
+                // Export existing symbol: export my_func
+                exported_item = create_ast_node(AST_IDENTIFIER, next->value,
+                                              next->line, next->column);
+                advance_token(parser);
+            }
+            break;
+        }
         default:
             parser_error(parser, "Expected function, struct, actor, or identifier after 'export'");
             return NULL;

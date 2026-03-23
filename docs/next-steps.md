@@ -119,17 +119,21 @@ The header `runtime/actors/aether_supervision.h` exists but is an empty stub. Th
 
 This is incremental and doesn't require the Result type to start — crash signals can use int status initially and upgrade to structured errors later.
 
-### Export Visibility Enforcement
+### ~~Export Visibility Enforcement~~ ✓
 
-The `export` keyword is already parsed by the compiler but has zero semantic effect — all functions in a module are currently visible to importers. The quick win is making the typechecker reject calls to non-exported symbols from other modules.
+Shipped. `export` keyword controls which functions and constants are part of a module's public API. Non-exported symbols are private — used internally but not accessible via `module.name()`. If a module has no exports, all symbols remain public (backwards compatible). See [Module System Design](module-system-design.md#export-visibility).
+
+### ~~Interactive REPL~~ ✓
+
+Shipped. `ae repl` starts an interactive session with session persistence — assignments and constants survive across evaluations, variable reassignment replaces previous values, multi-line blocks auto-continue until braces close. Single-line auto-execute for complete statements. Commands: `:help`, `:quit`, `:reset`, `:show`. Error recovery: compile failures show error messages and the session continues. Run `ae repl` then `:help` for usage.
 
 ### Selective Imports
 
 `import std.math (sqrt, PI)` already parses and the typechecker has partial filtering logic, but it's unreliable. Fixing the selective import path so only the listed symbols are visible in the importing module.
 
-### Pure Aether Modules
+### ~~Pure Aether Modules~~ ✓
 
-Currently all modules require a C backing file with `extern` declarations pointing to C implementations. The goal is allowing `.ae` files with function bodies to be imported directly. The module orchestrator already parses imported `.ae` files — the missing piece is merging their AST into the main program instead of only extracting extern declarations.
+Shipped. Modules written in pure Aether (no C backing file) can be imported and used directly. Functions, constants, and intra-module calls all work. See [Module System Design](module-system-design.md#pure-aether-modules).
 
 ### Package Registry
 

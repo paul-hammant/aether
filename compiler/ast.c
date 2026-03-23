@@ -128,6 +128,19 @@ void add_child(ASTNode* parent, ASTNode* child) {
     parent->child_count++;
 }
 
+ASTNode* clone_ast_node(ASTNode* node) {
+    if (!node) return NULL;
+
+    ASTNode* clone = create_ast_node(node->type, node->value, node->line, node->column);
+    clone->node_type = clone_type(node->node_type);
+
+    for (int i = 0; i < node->child_count; i++) {
+        add_child(clone, clone_ast_node(node->children[i]));
+    }
+
+    return clone;
+}
+
 void free_ast_node(ASTNode* node) {
     if (!node) return;
     

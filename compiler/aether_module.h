@@ -90,5 +90,9 @@ ASTNode* module_parse_file(const char* file_path);
 char* module_resolve_stdlib_path(const char* module_name);  // "fs" -> path
 char* module_resolve_local_path(const char* module_path);   // "mypackage.utils" -> path
 
+// Merge pure Aether module functions into the main program AST.
+// Call after module_orchestrate() and before typecheck_program().
+void module_merge_into_program(ASTNode* program);
+
 #endif // AETHER_MODULE_H
 

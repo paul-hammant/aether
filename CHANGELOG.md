@@ -13,11 +13,67 @@ number (e.g. `[0.18.0]`) before tagging the release.
 
 ### Added
 
+- **Pure Aether modules**: Write reusable `.ae` libraries without C backing files. `import mymath` loads `lib/mymath/module.ae`, and `mymath.func()` calls functions defined in pure Aether. Supports functions with type inference, constants (`const PI = 3`), and intra-module calls (module functions calling each other). Implemented via AST merge with namespace renaming — cloned module functions are inserted into the main program as regular top-level definitions, so the entire downstream pipeline (type inference, typechecking, codegen) works unchanged
+- **Export visibility enforcement**: `export` keyword controls which functions and constants are part of a module's public API. `export double_it(x) { ... }` and `export const PI = 3` mark symbols as public; non-exported symbols are private — used internally by exported functions but not accessible via `module.name()` from importers. If a module has no `export` declarations, all symbols remain public (backwards compatible). Works with Aether-style functions (no `fn` keyword), `fn`-keyword functions, C-style typed functions, and constants
+- **`clone_ast_node()`**: Deep-copy utility for AST nodes (used internally by the module merge system)
+- **Pure module test suite**: 15 tests across `test_pure_module.ae` covering basic functions, intra-module calls, constants, constant-to-constant references, type inference through module boundaries, nested expressions, parameter/local variable shadowing, multi-module imports (mymath + strutil), and cross-module expressions
+- **Export visibility test suite**: `test_export_visibility.ae` — 5 tests covering exported functions, exported constants, internal helpers, and mixed expressions. `test_export_reject.sh` — 2 compile-failure tests verifying non-exported functions and constants are rejected
+- **Backwards compatibility test**: `test_noexport.ae` — 4 tests verifying modules with no `export` declarations keep all symbols public
+- **Mixed import test**: `test_mixed.ae` — 5 tests verifying pure module imports work alongside `std.string` and `std.math` stdlib imports in the same program
+- **Updated `examples/packages/myapp/`**: Now uses actual `import utils` with `export` visibility — `utils.double_value()`, `utils.MULTIPLIER` are public; `multiply()` is private
+- **REPL rewrite**: `ae repl` rebuilt from scratch with session persistence — assignments and constants survive across evaluations, variable reassignment replaces previous value in history, multi-line blocks auto-continue until braces close. Single-line auto-execute: complete statements run immediately without needing a blank line. Retro box-drawing banner with dynamic width. Three-state prompt: `ae>` (normal), `...` (inside braces), `..` (multi-line accumulation). Commands: `:help` (with usage examples), `:quit`, `:reset`, `:show`
+- **REPL integration tests**: `tests/integration/repl/test_repl.sh` — 40 tests covering basic output (integers, strings, arithmetic, negatives), variable persistence (int, string, const, derived expressions), reassignment (single and triple), string interpolation, multi-line blocks (if, if-else, nested if, while, while with accumulator), all commands (`:help`, `:h`, `:show`, `:reset`), all exit variants (`:quit`, `:q`, `exit`, `quit`), error recovery (compile errors, session continues after error, failed evals not persisted), single-line auto-execute (4 tests), and banner/goodbye messages
+- **Shell test discovery in `make test-ae`**: Integration tests using `.sh` files (e.g., REPL tests, export rejection tests) are now auto-discovered and run alongside `.ae` tests
+
+### Removed
+
+- **Standalone REPL binary (`tools/aether_repl.c`)**: Deleted 657-line standalone REPL with readline dependency — redundant with the integrated `ae repl` which uses correct toolchain infrastructure, has fewer bugs, and requires no external dependencies
+
+### Fixed
+
+- **Module constants not renamed inside module functions**: When a pure module function referenced a module constant (e.g., `return x * SCALE`), the constant name was not namespace-prefixed during AST merge — generated C used the bare name `SCALE` instead of `mymath_SCALE`, causing "undeclared identifier" errors. Added `collect_module_const_names()` and extended `rename_intra_module_refs()` to rename `AST_IDENTIFIER` references to module constants alongside function calls
+- **Parameter/local shadowing of module constants**: A function parameter or local variable with the same name as a module constant (e.g., `check(SCALE) { return SCALE }` where `const SCALE = 10`) had the body reference incorrectly renamed to `mymath_SCALE`, returning the constant instead of the parameter. `rename_intra_module_refs()` now collects all locally-bound names (parameters + variable declarations) per function scope via `collect_local_names()` and skips renaming identifiers that match a local name
+- **Constant value expressions not renamed**: `const DOUBLE_SCALE = SCALE * 2` — the `SCALE` reference in the value expression was not namespace-prefixed during merge, causing "undeclared identifier" in generated C. Constant clones now run through `rename_intra_module_refs()` like function clones
+- **Non-exported function calls produced misleading "Undefined function" error**: Calling a private function like `mathlib.internal_multiply()` reported "Undefined function 'mathlib.internal_multiply'" with help text suggesting a typo. Now reports "'internal_multiply' is not exported from module 'mathlib'" with error code E0303 and actionable help text
+- **`export` keyword didn't work with Aether-style functions**: `export double_it(x) { ... }` (identifier followed by parentheses) was parsed as exporting a bare identifier `double_it`, leaving `(x) { ... }` as unparsed junk. The export parser now detects identifier-then-`(` as a function definition, and also handles `export const`, C-style return types (`export int func(...)`), and `export fn func(...)`
+- **`export const` produced `VARIABLE_DECLARATION` instead of `CONST_DECLARATION`**: The export parser consumed the `const` token before calling `parse_statement`, which then saw the identifier and created a variable declaration. Fixed by letting `parse_statement` handle the `const` token directly
+- **Unused function `is_type_token` compiler warning**: Removed dead code in `parser.c` — eliminated the only `-Wunused-function` warning in the compiler
+- **`ae examples` and `make examples` failed on package example files**: `module.ae` (library file) and `main.ae` (uses local `import utils`) under `examples/packages/` were compiled as standalone programs by `aetherc`, which doesn't support module orchestration. Now skips files under `lib/` and `packages/` directories — these require `ae run` with full module orchestration, not bare `aetherc`
+
+## [0.27.0]
+
+### Added
+
+- **Local `const` declarations**: `const` now works inside function bodies (previously only top-level). `const AGE = 5` inside `main()` emits `const int AGE = 5;` in generated C — the C compiler enforces immutability
+
+### Fixed
+
+- **`ae version use` didn't sync stdlib files**: Switching versions with `ae version use` updated binaries but left stale `lib/`, `include/`, and `share/` directories from previous versions — caused `string_length` to use `void*` params instead of `const char*` when a stale `module.ae` shadowed the version-managed one. Now syncs all subdirectories on version switch
+
+## [0.26.0]
+
+### Added
+
 - **`std.os` module — shell & process execution** ([Issue #39](https://github.com/nicolasmd87/aether/issues/39)): New stdlib module with `os.system(cmd)` (run command, get exit code), `os.exec(cmd)` (run command, capture stdout as string), and `os.getenv(name)` (get environment variable). Cross-platform (POSIX `popen`/Windows `_popen`). Example: `examples/stdlib/os-demo.ae`, tests: `test_os_module.ae` (7 tests)
 - **Release archive CI test (`test-release-archive`)**: New Makefile target and CI step [9/9] that packages a tarball exactly like the release pipeline, extracts it, and verifies `ae init` + `ae run` work from the extracted layout — catches archive structure bugs that `test-install` (which tests `install.sh`) would miss
-- **4 regression tests for CLI helper battle-testing**: `test_actor_print_char.ae` (print_char/escapes in actor handlers, self-send animation), `test_box_drawing.ae` (ASCII boxes, ANSI escapes, progress bars, tab tables, nested boxes), `test_interp_escape_combo.ae` (10 hex/octal + interpolation combos), `test_file_io_char_return.ae` (file I/O roundtrip, char* returns, append, cleanup)
 - **Regression test for printing stdlib returns**: `test_print_stdlib_returns.ae` — covers `file.read_all`, `io.read_file`, `io.getenv` through `print()`, `println()`, and string interpolation paths
 - **Filesystem return value regression test**: `test_fs_return_values.ae` — 15 tests covering `file.write`, `file.close`, `file.delete`, `dir.create`, `dir.delete`, `dir.exists` return values including success, failure, non-existent targets, duplicate operations, and NULL inputs
+
+### Fixed
+
+- **`ae version list` showed wrong "current" after `ae version use`**: The "current" marker was based on the compiled-in `AE_VERSION`, not the actually active version. After switching with `ae version use v0.21.0`, the list still showed v0.25.0 as current. Now reads the active version from `~/.aether/current` symlink (set by `ae version use`) or `~/.aether/active_version` file (set by `install.sh`), falling back to compiled-in version only if neither exists
+- **`ae version use` didn't persist active version**: Switching versions updated the symlink and copied binaries but didn't write a version marker file. Now writes `~/.aether/active_version` so the active version is always queryable
+- **Source-built installs invisible to `ae version list`**: `install.sh` installed to `~/.aether/` directly but never registered in `~/.aether/versions/`, so the source-built version never showed as "installed" or "current" in `ae version list`. Now writes `~/.aether/active_version` after install
+- **Release pipeline computed next version from stale VERSION file**: The `prepare` job derived the next version by reading `VERSION` and incrementing — but if `VERSION` was stale (e.g. stuck at `0.21.0` while latest tag was `v0.25.0`), every bump PR proposed `0.22.0` instead of `0.26.0`, and the existing `release/v0.22.0` branch check caused it to skip silently. Now computes next version from the latest `v*.*.*` git tag, making the pipeline self-healing even if VERSION drifts
+
+### Changed
+
+- **`make ci` expanded to 9 steps**: Added `test-release-archive` as step [9/9] — every CI run now verifies both `install.sh` and release archive extraction paths end-to-end
+
+## [0.25.0]
+
+### Added
+
 - **5 stdlib regression test suites (71 tests)**: Comprehensive edge-case coverage for every stdlib module:
   - `test_string_plain_char.ae` — 18 tests: every `std.string` function with plain `char*` (length, to_upper, to_lower, contains, starts_with, ends_with, index_of, substring, concat, equals, char_at, trim, split, to_cstr, release no-op, mixed managed+plain, empty string)
   - `test_stdlib_edge_cases.ae` — 25 tests: path return types and edge cases, file ops on missing files, JSON parsing edge cases, string ops on plain strings, mixed managed/plain equality
@@ -28,23 +84,10 @@ number (e.g. `[0.18.0]`) before tagging the release.
 ### Fixed
 
 - **String interpolation used `%d` for ptr/string types**: `println("${file.read_all(f)}")` and similar interpolations with `TYPE_PTR` values fell through to the `%d` default in `EMIT_INTERP_FMT`, printing pointer addresses as integers instead of string content. Added `TYPE_PTR` case to format specifier switch and `_aether_safe_str()` wrapping for `TYPE_STRING`/`TYPE_PTR` in `EMIT_INTERP_ARGS`
-- **`std/tcp/module.ae` declared `tcp_receive -> ptr` instead of `-> string`**: Inconsistent with `std/net/module.ae` which correctly declared `-> string`. Now both match
-- **Stdlib functions returned `AetherString*` instead of `char*`**: All stdlib modules (fs, io, json, net) returned opaque `AetherString*` pointers from functions like `file_read_all()`, `io_read_file()`, `json_stringify()`, `tcp_receive()` — but Aether's native string type is `const char*`, so codegen generated `printf("%s", ...)` which interpreted the struct pointer as a string, producing garbage output on all platforms. Changed all public stdlib APIs to return `char*` directly; module.ae declarations updated from `-> ptr` to `-> string`
-- **`file_write` / `file_size` ABI mismatch**: `file_write()` C signature used `size_t length` (8 bytes on 64-bit) but module.ae declared `int` (4 bytes) — misaligned stack on ARM64. `file_size()` returned `size_t` but module declared `int`. Fixed C signatures to use `int` matching the module declarations
-- **`std/string/module.ae` param types caused `-Wincompatible-pointer-types-discards-qualifiers`**: String functions declared params as `ptr` (`void*`) but C signatures use `const void*` — codegen passed `const char*` to `void*`, triggering clang warnings. Changed all string-accepting params to `string` (`const char*`) in module.ae; return types for `string_concat`, `string_substring`, `string_to_upper`, `string_to_lower`, `string_trim` changed from `ptr` to `string` (they return `char*`)
-- **`json_stringify` crashed after `string_concat` API change**: `json_stringify` internally used `string_concat` expecting `AetherString*` return and accessed `->data` — after `string_concat` was changed to return `char*`, this dereferenced a `char*` as a struct, causing segfaults. Refactored JSON stringify to use its own `append_cstr` buffer approach, removing all dependency on `string_concat`
-- **`ae version list` showed wrong current version**: Read compiled-in `AE_VERSION` constant instead of checking which version is actually active — now reads `~/.aether/current` symlink target and `~/.aether/active_version` file
-- **`ae version use` didn't persist active version**: Switching versions updated the `current` symlink but didn't write `~/.aether/active_version`, so `ae version list` showed the old version after switch
-- **Source-built installs invisible to `ae version list`**: `install.sh` didn't register the installed version in `~/.aether/versions/`, so it never appeared in the version list. Now copies to `~/.aether/versions/vX.Y.Z/` and writes `active_version`
-- **Release pipeline computed next version from stale VERSION file**: The `prepare` job read `VERSION` to determine the current version, but VERSION was stuck at an old value. Now derives current version from latest git tag (`git tag -l 'v*.*.*' --sort=-version:refname`)
-- **`ae version install` extracted only one directory from release archives**: The POSIX extraction logic assumed release archives had a single wrapper directory and used `ls -d tmp/*/ | head -1` to find it — but release archives contain `bin/`, `lib/`, `share/`, `include/` at root with no wrapper. `head -1` picked only one directory (e.g. `bin/`), so `lib/libaether.a` and `share/aether/` were lost, causing "flat layout" detection and compilation failures when running `ae run` on an installed version
-- **`ae version install` incomplete install detection**: Pre-existing version directories with binaries but missing `lib/` or `share/aether/` (caused by old extraction bug) were treated as complete — now detects and auto-reinstalls; also probes for `aetherc` binary and reinstalls if missing
-- **Toolchain discovery silently used broken install**: `discover_toolchain()` accepted a `current` symlink or `AETHER_HOME` that had `aetherc` but no `lib/` or `share/aether/`, then passed non-existent source paths to the C compiler producing cryptic clang errors — now validates that sources or prebuilt lib exist before accepting a toolchain root, prints clear diagnostic ("installation is incomplete") and falls through to other strategies
-- **Windows `ae version use` missing lib/share**: Only copied `bin/` subdirectory contents — now copies the entire version directory so `lib/`, `include/`, `share/` are available
-- **Makefile version detection picked wrong tag**: `sort -t. -k1,1n` on `v0.X.0` tags tried numeric sort on the `v` prefix — behavior varies across `sort` implementations, causing some systems to pick e.g. `0.18.0` instead of `0.22.0`. Fixed by stripping the `v` prefix before sorting
-- **VERSION file stuck at `0.17.0`**: Release pipeline updates from 0.18.0–0.20.0 never persisted on main — corrected to `0.21.0` so the next merge triggers the `v0.21.0` release
 - **`string.length()` returned garbage on plain `char*`**: `string_length("hello")` produced values like 168427553 because the `AetherString` struct layout interpreted raw bytes as the `length` field. Added `AETHER_STRING_MAGIC` (0xAE57C0DE) marker to `AetherString` struct with `is_aether_string()` runtime detection — all `std.string` functions now transparently handle both `AetherString*` and plain `char*` via `str_data()`/`str_len()` helpers. `string_retain()`/`string_release()` are safe no-ops on plain strings
+- **`std/string/module.ae` param types caused `-Wincompatible-pointer-types-discards-qualifiers`**: String functions declared params as `ptr` (`void*`) but C signatures use `const void*` — codegen passed `const char*` to `void*`, triggering clang warnings. Changed all string-accepting params to `string` (`const char*`) in module.ae; return types for `string_concat`, `string_substring`, `string_to_upper`, `string_to_lower`, `string_trim` changed from `ptr` to `string` (they return `char*`)
 - **`std/path/module.ae` returned `ptr` instead of `string`**: `path_join`, `path_dirname`, `path_basename`, `path_extension` declared `-> ptr` but return `char*` — fixed to `-> string`
+- **`std/tcp/module.ae` declared `tcp_receive -> ptr` instead of `-> string`**: Inconsistent with `std/net/module.ae` which correctly declared `-> string`. Now both match
 - **`std/string/module.ae` missing exports**: Added `string_to_long` and `string_to_double` declarations
 - **JSON parser stack overflow on deeply nested input**: `parse_value`, `stringify_value`, and `json_free` recursed without depth limit — added `JSON_MAX_DEPTH` (256) guard to all three recursive paths
 - **JSON parser read past end on truncated escape**: `parse_string` advanced past `\\` without checking for end of input — added `if (!**json) break;` guard
@@ -62,17 +105,42 @@ number (e.g. `[0.18.0]`) before tagging the release.
 - **HTTP `parse_url` buffer overflow**: Fixed-size `host[256]`/`path[1024]` buffers used `strcpy()`/`strncpy()` without bounds checking — refactored to pass buffer sizes and use `snprintf()`/bounded `memcpy()`
 - **HTTP `http_request` missing malloc NULL checks**: `HttpResponse` and response buffer allocations had no guards — added NULL checks with proper cleanup
 - **HTTP server header overflow**: Request parsing and `set_header` had no bounds check on header count — added `header_count < 50` guard
+
+## [0.24.0]
+
+### Fixed
+
+- **Toolchain discovery silently used broken install**: `discover_toolchain()` accepted a `current` symlink or `AETHER_HOME` that had `aetherc` but no `lib/` or `share/aether/`, then passed non-existent source paths to the C compiler producing cryptic clang errors — now validates that sources or prebuilt lib exist before accepting a toolchain root, prints clear diagnostic ("installation is incomplete") and falls through to other strategies
+- **`ae version install` extracted only one directory from release archives**: The POSIX extraction logic assumed release archives had a single wrapper directory and used `ls -d tmp/*/ | head -1` to find it — but release archives contain `bin/`, `lib/`, `share/`, `include/` at root with no wrapper. `head -1` picked only one directory (e.g. `bin/`), so `lib/libaether.a` and `share/aether/` were lost, causing "flat layout" detection and compilation failures when running `ae run` on an installed version
+- **`ae version install` incomplete install detection**: Pre-existing version directories with binaries but missing `lib/` or `share/aether/` (caused by old extraction bug) were treated as complete — now detects and auto-reinstalls; also probes for `aetherc` binary and reinstalls if missing
 - **Spurious "installation is incomplete" warning on `ae run`**: Toolchain discovery checked `~/.aether/current/lib/` first — if a stale `current` symlink existed from `ae version use` but `install.sh` had put files directly in `~/.aether/`, the warning fired even though the fallback strategy found a working toolchain. Now suppresses the warning when the direct `~/.aether/` layout has valid `lib/` or `share/`
 - **`install.sh` left stale `current` symlink**: Direct installs via `install.sh` didn't remove the `~/.aether/current` symlink created by `ae version use`, causing the above warning on every `ae run`
+- **Windows `ae version use` missing lib/share**: Only copied `bin/` subdirectory contents — now copies the entire version directory so `lib/`, `include/`, `share/` are available
+
+## [0.23.0]
+
+### Fixed
+
+- **VERSION file stuck at `0.17.0`**: Release pipeline updates from 0.18.0–0.20.0 never persisted on main — corrected to `0.21.0` so the next merge triggers the `v0.21.0` release
+- **Makefile version detection picked wrong tag**: `sort -t. -k1,1n` on `v0.X.0` tags tried numeric sort on the `v` prefix — behavior varies across `sort` implementations, causing some systems to pick e.g. `0.18.0` instead of `0.22.0`. Fixed by stripping the `v` prefix before sorting
+
+## [0.22.0]
+
+### Added
+
+- **4 regression tests for CLI helper battle-testing**: `test_actor_print_char.ae` (print_char/escapes in actor handlers, self-send animation), `test_box_drawing.ae` (ASCII boxes, ANSI escapes, progress bars, tab tables, nested boxes), `test_interp_escape_combo.ae` (10 hex/octal + interpolation combos), `test_file_io_char_return.ae` (file I/O roundtrip, char* returns, append, cleanup)
+
+### Fixed
+
 - **`file.write`/`file.close`/`file.delete`/`dir.create`/`dir.delete` returned raw POSIX values**: These functions returned `0`/`-1` (C convention) instead of `1`/`0` (Aether convention where `1` = success, `0` = failure), inconsistent with `io.write_file`, `io.delete_file`, and the rest of the stdlib. Fixed all five to return `1` on success, `0` on failure
-- **`ae version list` showed wrong "current" after `ae version use`**: The "current" marker was based on the compiled-in `AE_VERSION`, not the actually active version. After switching with `ae version use v0.21.0`, the list still showed v0.25.0 as current. Now reads the active version from `~/.aether/current` symlink (set by `ae version use`) or `~/.aether/active_version` file (set by `install.sh`), falling back to compiled-in version only if neither exists
-- **`ae version use` didn't persist active version**: Switching versions updated the symlink and copied binaries but didn't write a version marker file. Now writes `~/.aether/active_version` so the active version is always queryable
-- **Source-built installs invisible to `ae version list`**: `install.sh` installed to `~/.aether/` directly but never registered in `~/.aether/versions/`, so the source-built version never showed as "installed" or "current" in `ae version list`. Now writes `~/.aether/active_version` after install
-- **Release pipeline computed next version from stale VERSION file**: The `prepare` job derived the next version by reading `VERSION` and incrementing — but if `VERSION` was stale (e.g. stuck at `0.21.0` while latest tag was `v0.25.0`), every bump PR proposed `0.22.0` instead of `0.26.0`, and the existing `release/v0.22.0` branch check caused it to skip silently. Now computes next version from the latest `v*.*.*` git tag, making the pipeline self-healing even if VERSION drifts
 
-### Changed
+## [0.21.0]
 
-- **`make ci` expanded to 9 steps**: Added `test-release-archive` as step [9/9] — every CI run now verifies both `install.sh` and release archive extraction paths end-to-end
+### Fixed
+
+- **Stdlib functions returned `AetherString*` instead of `char*`**: All stdlib modules (fs, io, json, net) returned opaque `AetherString*` pointers from functions like `file_read_all()`, `io_read_file()`, `json_stringify()`, `tcp_receive()` — but Aether's native string type is `const char*`, so codegen generated `printf("%s", ...)` which interpreted the struct pointer as a string, producing garbage output on all platforms. Changed all public stdlib APIs to return `char*` directly; module.ae declarations updated from `-> ptr` to `-> string`
+- **`file_write` / `file_size` ABI mismatch**: `file_write()` C signature used `size_t length` (8 bytes on 64-bit) but module.ae declared `int` (4 bytes) — misaligned stack on ARM64. `file_size()` returned `size_t` but module declared `int`. Fixed C signatures to use `int` matching the module declarations
+- **`json_stringify` crashed after `string_concat` API change**: `json_stringify` internally used `string_concat` expecting `AetherString*` return and accessed `->data` — after `string_concat` was changed to return `char*`, this dereferenced a `char*` as a struct, causing segfaults. Refactored JSON stringify to use its own `append_cstr` buffer approach, removing all dependency on `string_concat`
 
 ## [0.20.0]
 
@@ -96,7 +164,7 @@ number (e.g. `[0.18.0]`) before tagging the release.
 ### Added
 
 - **`--emit-c` compiler flag**: `aetherc --emit-c file.ae` prints the generated C code to stdout — useful for debugging codegen, inspecting optimizer output, and verifying MSVC compatibility guards
-- **20 new integration tests** (46→66):
+- **20 new integration tests** (46->66):
   - `test_print_null.ae` — 5 tests for `print`/`println` with NULL string values
   - `test_match_complex.ae` — 8 tests for match statement edge cases (NULL strings, many arms, sequential matches)
   - `test_series_long.ae` — 4 tests for series collapse optimizer with `long` (int64) types
@@ -118,7 +186,7 @@ number (e.g. `[0.18.0]`) before tagging the release.
   - `test_logical_ops.ae` — 5 tests for logical operators (AND, OR, NOT, with comparisons, complex combinations)
   - `test_defer_advanced.ae` — 3 tests for defer edge cases (LIFO ordering, nested scopes, conditional defer)
 - **3 new examples**: `recursion.ae` (factorial, fibonacci, GCD, fast exponentiation), `long-arithmetic.ae` (64-bit values, nanosecond timing, large multiplication), `string-processing.ae` (interpolation, escapes, multi-type printing)
-- **17 new tests** (66→83):
+- **17 new tests** (66->83):
   - `test_actor_communication.ae` — 4 tests for actor-to-actor messaging (bidirectional ping-pong, multi-phase wait_for_idle, actor ref in message fields)
   - `test_ask_reply.ae` — ask/reply pattern tests
   - `test_defer_loops.ae` — defer inside loops and nested scopes
@@ -180,7 +248,7 @@ number (e.g. `[0.18.0]`) before tagging the release.
 - **TOML parser `strdup` NULL checks**: Three `strdup()` calls for section names and key/value pairs did not check for NULL returns — allocation failure stored NULL pointers later dereferenced by `strcmp()`; now checks all `strdup` returns and rolls back partial entries
 - **TOML parser `realloc` capacity tracking**: Section capacity was incremented before `realloc()` — if `realloc` failed, the capacity variable was already wrong, causing OOB access on next insert; now only updates capacity after successful `realloc`
 - **TOML parser `toml_get_value` NULL dereference**: `strcmp()` called on section/key names without NULL check — if a section had NULL name (from failed `strdup`), lookup would crash; added NULL guards in comparison loops
-- **`if true { ... }` body silently eliminated by optimizer**: The dead code optimizer called `atof("true")` which returns `0.0`, treating `true` as falsy and removing the entire `if true` body — added `is_constant_condition()` helper that handles boolean literals separately from numeric constants; `true` → truthy, `false` → falsy
+- **`if true { ... }` body silently eliminated by optimizer**: The dead code optimizer called `atof("true")` which returns `0.0`, treating `true` as falsy and removing the entire `if true` body — added `is_constant_condition()` helper that handles boolean literals separately from numeric constants; `true` -> truthy, `false` -> falsy
 - **Constant folding always produced `TYPE_FLOAT`**: `create_numeric_literal()` unconditionally set `TYPE_FLOAT` for all folded constants, so `3 + 4` produced a float `7.0` — now takes an `is_int` parameter and preserves `TYPE_INT` when both operands are integers
 - **C reserved word collision in function names**: Aether functions named `double`, `auto`, `register`, `volatile`, etc. generated invalid C because the function name is a C keyword — added `safe_c_name()` that prefixes colliding names with `ae_`; applied to function definitions, forward declarations, and call sites; `extern` functions are excluded since they refer to actual C symbols
 - **AST `add_child()` silent failure on OOM**: `realloc()` failure in `add_child()` silently returned without adding the child — a corrupted AST caused unpredictable codegen; now calls `exit(1)` on allocation failure
@@ -270,296 +338,3 @@ number (e.g. `[0.18.0]`) before tagging the release.
 - **Computed goto dispatch in generated C**: Actor message dispatch used `&&label` / `goto *ptr` (GCC/Clang extension) — now guarded with `#if AETHER_GCC_COMPAT`; the `#else` path emits an equivalent `switch(_msg_id)` with `case N: goto handle_Msg;` entries; fast computed-goto path preserved for GCC/Clang
 - **Message struct `__attribute__((aligned(64)))` unguarded**: Large message structs emitted bare GCC alignment attribute — now guarded with `__declspec(align(64))` for MSVC and `__attribute__((aligned(64)))` for GCC/Clang
 - **`AETHER_GCC_COMPAT` macro override support**: Both the generated C preamble and `aether_compiler.h` now use `#ifndef AETHER_GCC_COMPAT` so users and tests can force a specific value via `-D` flag or early `#define`
-- **std.http segfault on string arguments**: `http_get`, `http_post`, `http_put`, `http_delete` took `AetherString*` but the compiler passed raw `const char*` string literals — dereferencing `url->data` on a plain `char*` caused immediate segfault; all four functions changed to accept `const char*`
-- **std.io, std.net, std.json, std.collections `AetherString*` mismatch**: 37 stdlib functions across IO, networking, JSON, and collections modules took `AetherString*` parameters but received `const char*` from compiled `.ae` code — all public APIs changed to `const char*`; internal storage (e.g. HashMap keys) still uses `AetherString*` with wrapping at the boundary
-- **`defer` return type truncation**: `defer` blocks stored the return value in `int _defer_ret` regardless of actual return type — functions returning `ptr`, `long`, or `float` had values silently truncated; now uses `get_c_type()` to emit the correct type
-- **String `==`/`!=` pointer comparison instead of content comparison**: `a == b` on two `string` variables emitted C pointer comparison (`==`) instead of `strcmp()` — two strings with identical content but different addresses compared as unequal; now emits `strcmp(a, b) == 0` for `TYPE_STRING` operands
-- **`match` on strings used pointer comparison**: Match arms comparing string expressions used `==` instead of `strcmp()` — match against string literals always fell through to the default arm; now emits `strcmp()` for `TYPE_STRING` match expressions
-- **`TYPE_UNKNOWN` silent fallback to `int`**: `get_c_type()` silently returned `"int"` for unresolved types, masking upstream inference failures — now emits a compiler warning with suggestion to add explicit type annotations
-- **Pattern list element bindings hardcoded to `int`**: List pattern match codegen (`[h|t]`, `[a,b,c]`) always emitted `int` element types regardless of actual list element type — now uses `get_c_type()` from the element's `node_type`
-- **Token overflow silent truncation**: Source files exceeding `MAX_TOKENS` (10,000) silently stopped lexing with no error — now emits a clear error message with suggestion to split into multiple files
-- **`ae fmt` stub shown in help output**: `ae help` listed `fmt [file]` as a command even though the formatter is not implemented — removed from help output until the feature is ready
-- **String interp return type lost through implicit arrow returns**: `f(x) -> { msg = "text ${x}"; msg }` generated C with `int` return type instead of `const char*` — type inference now unwraps `AST_EXPRESSION_STATEMENT` in implicit return nodes and resolves local variable types by scanning preceding block statements
-- **`install.sh` silent build failures**: `make` errors piped through `wc -l` were silently swallowed; added `set -eo pipefail` so pipe failures propagate correctly
-- **`install.sh` unsolicited sudo**: Installer ran `sudo apt-get install libreadline-dev` without asking — replaced with a printed install instruction so users retain control
-- **`ae.c` missing dev-mode include flags**: `-I` flags for `std/fs` and `std/log` directories were present in installed-mode but missing in dev-mode, causing header-not-found errors during development
-- **Runtime scheduler portability**: Replaced bare `__thread` with `AETHER_TLS`, removed duplicate `likely`/`unlikely` macros, replaced bare inline asm with `AETHER_CPU_PAUSE()`, guarded `<immintrin.h>` for MSVC (`<intrin.h>`), wrapped `_Static_assert` for 32-bit compatibility
-- **`aether_actor_thread.c` bare inline asm**: Replaced GCC `__asm__ __volatile__("pause"/"yield")` with portable `AETHER_CPU_PAUSE()` macro
-- **`aether_thread.h` missing EBUSY fallback**: Added `#define EBUSY 16` fallback for platforms that don't define it (alongside existing `ETIMEDOUT` and `ENOMEM` fallbacks)
-- **`aether_http_server.c` Windows compat**: Added `socklen_t`, `strcasecmp` (`_stricmp`), and `strdup` (`_strdup`) fallback defines for MSVC
-- **`aether_io.c` Windows compat**: Added `S_ISDIR` macro and `stat`/`_stat` mapping for MSVC
-- **`aether_log.c` thread safety**: Replaced `localtime()` (returns shared static buffer) with `localtime_r()` (POSIX) / `localtime_s()` (MSVC)
-- **Test struct layouts**: Updated 4 runtime test files (`test_scheduler_stress.c`, `test_scheduler_correctness.c`, `test_worksteal_race.c`, `test_scheduler.c`) to use `SPSCQueue*` pointer matching the current `ActorBase` layout
-
-### Changed
-
-- **Windows CI upgraded to full CI suite**: `windows.yml` now runs `make ci` (8-step suite) instead of a minimal build-only check
-- **`make ci` includes install smoke test**: `test-install` folded into `make ci` as step 8/8 — every CI run verifies the installed toolchain end-to-end
-- **WinLibs GCC updated to 14.2.0**: Auto-download for Windows users without GCC now fetches GCC 14.2.0 (from 13.2.0) for better C11/C17 support and codegen improvements
-- **Release pipeline workflow_dispatch guard**: Manual workflow dispatch no longer triggers build/publish jobs without a valid version tag
-- **MSVC compat codegen regression test**: New `tests/compiler/test_msvc_compat.sh` — compiles generated C with `AETHER_GCC_COMPAT=0` under `-std=c11 -pedantic` to verify all GCC-extension fallback paths; covers string interpolation, actor dispatch, and helper functions
-
-## [0.16.0]
-
-### Fixed
-
-- **macOS x86_64 release built on ARM runner**: GitHub's `macos-latest` shifted to ARM64 images, causing x86_64 release binaries to be ARM binaries mislabeled as x86_64 — fixed by explicitly using `macos-15-intel` for x86_64 builds in both `release.yml` and `ci.yml`
-
-## [0.15.0]
-
-### Fixed
-
-- **`ae run` fails after install** (`Error opening output file: No such file or directory`): Installed `ae` binary falsely detected dev mode because `aetherc` sits next to `ae` in both `build/` (repo) and `bin/` (installed prefix). The tool then tried to write to a non-existent `build/` directory. Fixed by requiring the dev-mode heuristic to verify `../runtime/` exists (only true in the repo root).
-- **`install.sh` corrupts shell RC files**: Appending PATH/AETHER_HOME export lines without checking for a trailing newline caused the first export to concatenate with the last existing line in `.zshrc`/`.bash_profile`. Fixed with a `tail -c 1` check that inserts a newline before appending when needed.
-- **`install.sh` Fish shell syntax**: Fish shell was configured with bash `export` syntax which Fish doesn't understand. Fixed to use `set -gx` and `fish_add_path`.
-- **`make install` missing source files**: The `install` target created empty `share/aether/` directories but never copied runtime/std source files into them, breaking the source-fallback compilation path when `libaether.a` was absent. Fixed by copying all `.c`/`.h` files from runtime and std subdirectories.
-- **Installed `ae` missing source fallback**: When `libaether.a` was not present in an installed prefix, `ae` had no fallback to compile from individual source files. Added source-fallback path using `share/aether/{runtime,std}/*.c` and dual include paths for both `include/aether/` and `share/aether/`.
-
-### Changed
-
-- **CI install smoke test**: Added `make test-install` target and CI step across all 4 platform variants (Linux/GCC, Linux/Clang, macOS/Clang, Windows/MSYS2) — installs to a temp directory, runs `ae init` + `ae run`, and verifies correct output.
-
-## [0.14.0]
-
-### Fixed
-
-- **Scheduler migration race — actor setup phase**: Freshly-spawned actors could be migrated to a new core before their `Setup` message was delivered — if a subsequent message arrived on the same core, the work-inlining path executed `step()` before initialization, causing null dereference / state corruption. Fixed by snapshotting `was_active` before message processing: actors where `was_active=0` and whose mailbox is empty are not migrated (setup still in flight).
-- **Portable `usleep`/`sched_yield` wrappers for Windows**: Scheduler code used POSIX `usleep()` and `sched_yield()` which are unavailable on Windows. Added platform wrappers using `Sleep()` and `SwitchToThread()` on Windows, fixing MSYS2/MinGW CI failures.
-- **Overflow buffer back-pressure and adaptive wait**: Overflow buffers could grow unbounded under sustained queue saturation. Added head-index drain (O(drained) instead of O(total) memmove), amplification limiter for own-core overflow, and adaptive `scheduler_wait` that spins tight when few messages remain.
-- **Codegen if/else variable scoping**: Variables declared in an `if` branch were suppressing re-declaration in the `else` branch — the `declared_vars` tracking was function-level instead of block-scoped. Fixed by saving/restoring `declared_var_count` around if/else branches.
-- **Skynet benchmark non-power-of-10 leaf counts**: Fixed incorrect sums when leaf count is not a power of 10; remainder leaves now distributed correctly; root with `size=1` no longer crashes.
-
-## [0.13.0]
-
-### Added
-
-- **`long` type (64-bit integer)**: `long` keyword maps to `int64_t` in generated C — use `long x = 0` for values that exceed 32-bit range; arithmetic with `long` promotes to 64-bit; `print(long_val)` uses `%lld`; actor state fields and message fields support `long`; full support in typechecker, codegen, and pattern-variable extraction
-- **Skynet benchmark**: Added the [atemerev/skynet](https://github.com/atemerev/skynet) recursive actor tree benchmark across Aether, Go, Rust, Erlang, Elixir, C (pthreads), Zig (std.Thread), and C++ (std::thread) — 6 levels x 10 = 1,111,111 actors, measures actor creation + aggregation throughput; controlled via `SKYNET_LEAVES` env var
-- **Actor state type inference**: Member access on actor refs (`root.total`) now correctly resolves the state field's declared type — enables proper format specifier selection for `print` and type-safe arithmetic on long state fields
-
-### Fixed
-
-- **Scheduler queue back-pressure deadlock** (skynet N>=100k): All scheduler threads could permanently deadlock in a circular-wait. Fixed with bounded 8-retry loop, per-target-core thread-local overflow buffers, and flush-before-drain ordering.
-- **Scheduler thread startup race**: Race between `scheduler_start()` returning and threads actually polling. Fixed with `g_threads_ready` barrier that guarantees all threads are actively polling before returning.
-- **Work-stealing TOCTOU race on ARM64** (skynet crash at N>=150k): Data race between work-stealing and same-core fast path. Fixed by making `Mailbox.count` atomic with acquire/release ordering.
-- **Actor ref state field type propagation**: `infer_type` and `typecheck_expression` now look up state declarations in the actor's AST definition when resolving member access on actor refs
-- **`clock_ns()` return type**: Corrected from `TYPE_INT` to `TYPE_INT64` — nanosecond timestamps overflow `int32` after ~2.1 seconds
-- **Actor ref / int/ptr type compatibility**: `is_type_compatible` now allows assigning an actor ref to a state field declared as `int` or `ptr`
-- **Premature `scheduler_wait` termination**: Fixed by including the `messages_sent - messages_processed` counter delta in the pending count
-
-### Changed
-
-- **SPSCQueue lazy allocation**: `ActorBase.spsc_queue` changed from embedded 3,136-byte struct to an 8-byte pointer, lazily allocated only for `auto_process` actors (66% per-actor memory reduction)
-- **QUEUE_SIZE reduced from 4096 to 1024**: Saves ~24 MB per core; overflow buffers handle burst cases
-- **Diagnostic prints gated behind AETHER_DEBUG_ORDERING**: `scheduler_wait` progress diagnostics no longer printed in production builds
-- **Benchmark README fairness labeling**: Transparent synchronization primitive labels for C, C++, and Zig benchmarks
-
-## [0.12.0]
-
-### Added
-
-- **`cflags` in `aether.toml`**: `[build] cflags = "-O3 -march=native"` is now honoured by `ae build` — previously it was silently ignored; `ae run` continues to use `-O0` for fast development builds
-- **`extra_sources` in `[[bin]]`**: Declare extra C files to compile alongside your Aether program directly in the project file — `extra_sources = ["src/ffi.c"]`; merged additively with any `--extra` flags passed on the command line
-- **`aether_scheduler_poll(int max_per_actor)`**: New runtime API for C-hosted event loops (e.g. raylib, SDL, game loops) — drains pending actor messages without blocking; call between frames to keep actors alive while C owns the main thread; declared in `runtime/scheduler/multicore_scheduler.h`
-- **`ae run` now accepts `--extra`**: The `--extra src/ffi.c` flag previously only worked with `ae build`; now works with both
-
-### Fixed
-
-- **Type inference through call chains**: `propagate_call_types_in_tree` was returning early on every `AST_FUNCTION_DEFINITION` node, making all function bodies invisible to the propagator — calls inside functions (e.g. `seed_glider` calling `set_cell`) were never found
-- **Single-pass propagation**: Propagation ran exactly once; a call chain `main → f → g → h` needed 3 passes but only got 1, causing unresolved types to silently fall back to `int`; the pipeline now interleaves propagation with constraint solving in a loop until stable
-- **Parameter type annotations now genuinely optional**: As a result of the above two fixes, explicit `: int` / `: ptr` annotations on function parameters are no longer required — types propagate correctly from call sites through arbitrarily deep chains
-- **Clear error for `?` in expression context**: Writing `x > 0 ? a : b` (expecting a ternary) now produces an actionable diagnostic — "`?` is the actor ask operator; use if/else for conditional values" — instead of a confusing parse failure
-
-## [0.11.0]
-
-### Changed
-
-- **Auto-free removed**: The experimental compiler-injected auto-free system (`@manual` annotation, `--no-auto-free` flag, `[memory] mode` in `aether.toml`) has been removed. The memory model is now `defer`-first exclusively — explicit, composable, and predictable. See [docs/memory-management.md](docs/memory-management.md)
-- **Improved compiler diagnostics**: Better source-context error messages across type checker and parser; structured error codes with help suggestions
-
-### Fixed
-
-- **Module orchestrator**: Improved module import resolution and handling of dot-qualified function calls (`module.func()`)
-- **Stale documentation**: Multiple doc files corrected to match actual implemented behaviour
-
-## [0.10.0]
-
-### Fixed
-
-- **Scheduler race on ARM64**: Fixed a work-stealing TOCTOU race in the drain path; added `test_worksteal_race.c` to CI
-- **`assigned_core` atomicity**: Changed `assigned_core` field from `int` to `atomic_int` in `ActorBase` for safe cross-core reads; updated all codegen, tests, and examples
-- GCC/Clang warnings in `tools/ae.c` eliminated (clean at `-Wall -Wextra`)
-
-## [0.9.0]
-
-### Added
-
-- **`defer`-first memory model**: Explicit `defer type.free(x)` is now the primary and recommended memory management pattern; stdlib types follow consistent `type.new()` / `type.free()` naming
-- **Dynamic destructor registry**: Codegen tracks which stdlib constructors (`map_new`, `list_new`, etc.) map to their destructors — used at scope exit
-- **`ae` temp directory**: `ae` now uses a stable temp directory for intermediate C files instead of cwd
-- **`cmd_examples`**: `ae` CLI gained an examples command for discovering and running bundled examples
-
-### Changed
-
-- Memory management documentation overhauled — `defer` pattern documented comprehensively with multiple allocation, actor state, and escape patterns
-- `aether.toml` dot-style module imports enforced as the only import syntax
-- Windows: `ae.c` library path now uses mixed separators correctly; codegen adds `NOMINMAX`, `Sleep`, `windows.h` guards
-
-### Fixed
-
-- `realloc` failure handling in AST, module registry, and type inference (prevents leaks on OOM)
-- Actor state init type inference in typechecker
-- HTTP server: explicit free of `build_response` buffer; correct `Content-Length` in responses
-
-## [0.8.0]
-
-### Added
-
-- **Windows CI**: Full CI pipeline on Windows via MSYS2 MinGW; `make ci` runs compiler, ae, stdlib, REPL, C tests, .ae tests, and examples with no skips
-
-### Fixed
-
-- **Windows build**: Fixed MSYS2/MinGW build failures (`NOMINMAX`, `Sleep`, `windows.h` guards, mixed path separators)
-- **NUMA allocator**: `aether_numa_alloc` fallback now uses `numa_alloc_local()` instead of `malloc()` when libnuma is present — prevents allocator mismatch
-- **macOS `-Werror` quoting**: Fixed shell quoting in Makefile for macOS clang strict mode
-- `fread` return value warnings resolved
-
-## [0.7.0]
-
-### Added
-
-- **Ask/reply (`?` operator)**: Production-ready typed ask — compiler infers the reply message type from the actor's receive block; reply slot travels with the message (not per-actor) for correct concurrent asks; reply payload is properly freed after use
-- **Error handling**: `error-handling.ae` example with structured error propagation patterns; typechecker handles error result types
-
-### Fixed
-
-- **Toolchain resolver**: Dev builds (`./build/ae`) now take priority over `$AETHER_HOME`, preventing stale installed compilers from shadowing fresh builds
-
-## [0.6.0]
-
-### Added
-
-- **`ae` CLI tool**: Single entry point for building, running, testing, and managing Aether projects (`ae run`, `ae build`, `ae test`, `ae init`)
-- **Version manager**: `ae version list/install/use` to install and switch between Aether releases
-- **Project tooling (`apkg`)**: Project scaffolding with `aether.toml`, dependency declarations, and GitHub-based `ae add`
-- **`println` and string interpolation**: `println("Hello ${name}!")` with `${}` expressions in strings
-- **`defer` statement**: Deferred cleanup in LIFO order, matching Go-style resource management
-- **`switch` statement**: C-style switch with fall-through and break
-- **Match expressions**: Pattern matching with literal, wildcard, list, and head|tail patterns
-- **List patterns**: `[]`, `[x]`, `[h|t]`, `[a, b]` destructuring in match arms
-- **Standard library**: Collections (HashMap, Vector, Set, List), JSON parser, HTTP server, TCP/UDP networking, file I/O
-- **REPL**: Interactive read-eval-print loop (`ae repl`)
-- **LSP server**: Diagnostics from lexer and parser errors for editor integration
-- **VS Code / Cursor extension**: Syntax highlighting, file icons, and custom theme
-- **Cross-language benchmarks**: Actor-model benchmark suite comparing 11 languages with interactive visualization UI
-- **Docker support**: Development container with all toolchains pre-installed
-
-### Changed
-
-- **Ask/reply (`?` operator)**: Now production-ready — typed results (compiler infers reply message type from actor receive blocks), concurrent asks (reply slot travels with the message, not per-actor), proper `free()` of reply payload, configurable timeout via AST
-- **HTTP server**: Multi-connection support via thread-per-connection model (POSIX `pthread`); accept loop no longer blocks on a single client
-- **Error messages**: Source-context error reporting across lexer, parser, and type checker — errors now show the source line, a caret pointing to the exact column, error codes (`E0100` syntax, `E0300` undefined variable, etc.), and contextual help suggestions
-- **Tail call optimization**: Honest reporting — Aether detects tail calls, GCC/Clang optimize them into loops at `-O2` (used by `ae build`)
-- **Toolchain resolver**: Dev builds (`./build/ae`) now take priority over `$AETHER_HOME`, preventing stale installed compilers from shadowing fresh builds
-- **Type inference**: Function return types are now inferred only from explicit `return` statements and arrow-body expressions; no longer incorrectly inferred from arguments to `print()` or other nested expressions
-- **Codegen split**: `codegen.c` refactored into `codegen_expr.c`, `codegen_stmt.c`, `codegen_actor.c`, `codegen_func.c` for maintainability
-- **Valgrind CI target**: Reports all Valgrind errors (uninitialised reads, not just leaks)
-- **Benchmark visualization**: All methodology descriptions and message counts are dynamic from JSON data (no hardcoded values)
-- **Latency metric**: Benchmarks report `ns/msg` (nanoseconds per message) instead of architecture-dependent `cycles/msg`
-
-### Fixed
-
-- Functions with no return statement now correctly generate `void` in C (previously defaulted to `const char*`)
-- Match expressions returning strings now generate correct return types
-- `ae version use` now actually switches the active compiler on POSIX (copies binaries to `~/.aether/bin/`)
-- `snprintf` truncation warnings in type checker and codegen path buffers
-- Valgrind uninitialized-memory reads in scheduler tests (replaced `malloc` with `calloc`, aligned test actor structs to `ActorBase` layout)
-- NUMA allocator mismatch: `aether_numa_alloc` fallback now uses `numa_alloc_local()` instead of `malloc()` when libnuma is available
-- JSON parser string buffer: replaced fixed 4KB stack buffer with dynamically growing heap allocation
-- HTTP server response buffer: replaced static 64KB buffer with heap-allocated, correctly sized buffer
-- HTTP server request reading: now reads body up to `Content-Length` with dynamic reallocation
-- `realloc` failure handling in AST, module registry, and type inference (prevents memory leaks on OOM)
-
-## [0.5.0] 
-
-### Added
-
-- **Main Thread Actor Mode**: Single-actor programs now bypass the scheduler entirely for synchronous message processing
-  - Zero-copy message passing using caller's stack pointer
-  - Automatic detection when only one actor exists
-  - Manual control via `AETHER_NO_INLINE` and `AETHER_INLINE` environment variables
-- **Memory Profiles**: Configure pool sizes via `AETHER_PROFILE` environment variable (micro/small/medium/large)
-- **New Benchmarks**: counting, thread_ring, fork_join benchmark patterns
-- **wait_for_idle()**: Block until all actors have finished processing messages
-- **sleep(ms)**: Pause execution for specified milliseconds
-- **Cross-platform thread affinity**: Linux hard binding, macOS advisory with QoS hints, Windows SetThreadAffinityMask
-
-### Changed
-
-- Scheduler threads now check `main_thread_only` flag with atomic operations to prevent data races
-- LSP server uses `snprintf()` instead of `strcat()` for buffer safety
-- LSP document management includes proper error handling for memory allocation
-- Documentation updated across architecture, scheduler, runtime optimization guides
-
-### Fixed
-
-- Pattern variable renaming in receive blocks
-- Race condition when second actor spawns during main thread mode transition
-- LSP buffer overflow vulnerability in diagnostics publishing
-- LSP memory allocation error handling
-
-### Security
-
-- Fixed potential buffer overflow in LSP diagnostics
-- Added bounds checking to all LSP string operations
-
-## [0.4.0]
-
-### Added
-
-- Thread affinity support for all architectures
-- Apple Silicon P-core detection for consistent performance
-- C interoperability improvements
-- NUMA-aware memory allocation
-- Computed goto dispatch for message handlers
-- Thread-local message pools
-
-### Changed
-
-- Updated documentation for runtime optimizations
-- Improved install script with platform detection
-
-### Fixed
-
-- Install script fixes for various platforms
-
-## [0.3.0]
-
-### Added
-
-- Multicore scheduler with work stealing
-- Lock-free SPSC queues for cross-core messaging
-- Adaptive batch processing
-- Message coalescing
-
-### Changed
-
-- Scheduler redesign for partitioned per-core processing
-
-## [0.2.0]
-
-### Added
-
-- Basic actor system
-- Message passing primitives
-- Type inference
-- Pattern matching in receive blocks
-
-## [0.1.0]
-
-### Added
-
-- Initial release
-- Lexer, parser, type checker
-- Code generation to C
-- Basic runtime with single-threaded scheduler

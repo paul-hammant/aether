@@ -236,7 +236,7 @@ jobs:
     # -- Linux ---
     - name: Setup (Linux)
       if: matrix.os == 'ubuntu-latest'
-      run: sudo apt-get update && sudo apt-get install -y gcc make libreadline-dev bc
+      run: sudo apt-get update && sudo apt-get install -y gcc make bc
 
     # -- Windows -- MinGW-w64 via MSYS2 ---
     - name: Setup (Windows)
@@ -247,7 +247,6 @@ jobs:
         update: true
         install: >-
           mingw-w64-x86_64-gcc
-          mingw-w64-x86_64-readline
           make
           zip
           bc

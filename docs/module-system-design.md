@@ -56,188 +56,70 @@ cached ASTs — each module file is read and parsed exactly once.
 | Import | Namespace | Functions |
 |--------|-----------|-----------|
 | `import std.string` | `string` | `string.new()`, `string.length()`, `string.release()` |
-| `import std.file` | `file` | `file.exists()`, `file.open()`, `file.size()` |
-| `import std.dir` | `dir` | `dir.exists()`, `dir.create()`, `dir.list()` |
-| `import std.path` | `path` | `path.join()`, `path.dirname()`, `path.basename()` |
+| `import std.file` | `file` | `file.open()`, `file.read_all()`, `file.write()`, `file.exists()`, `file.close()`, `file.delete()`, `file.size()` |
+| `import std.dir` | `dir` | `dir.exists()`, `dir.create()`, `dir.delete()`, `dir.list()` |
+| `import std.path` | `path` | `path.join()`, `path.dirname()`, `path.basename()`, `path.extension()`, `path.is_absolute()` |
+| `import std.fs` | `file`, `dir`, `path` | Combined module — re-exports `file.*`, `dir.*`, and `path.*` operations |
 | `import std.json` | `json` | `json.parse()`, `json.create_object()`, `json.free()` |
 | `import std.http` | `http` | `http.get()`, `http.server_create()`, `http.server_start()` |
 | `import std.tcp` | `tcp` | `tcp.connect()`, `tcp.send()`, `tcp.listen()` |
-| `import std.list` | `list` | `list.new()`, `list.add()`, `list.get()` |
-| `import std.map` | `map` | `map.new()`, `map.put()`, `map.get()` |
-| `import std.math` | `math` | `math.sqrt()`, `math.sin()`, `math.cos()` |
+| `import std.net` | `tcp`, `http` | Combined module — re-exports `tcp.*` and `http.*` operations |
+| `import std.list` | `list` | `list.new()`, `list.add()`, `list.get()`, `list.set()`, `list.remove()` |
+| `import std.map` | `map` | `map.new()`, `map.put()`, `map.get()`, `map.has()`, `map.remove()` |
+| `import std.collections` | `list`, `map` | Combined module — re-exports `list.*` and `map.*` operations |
+| `import std.math` | `math` | `math.abs_int()`, `math.sqrt()`, `math.sin()`, `math.random_int()` |
 | `import std.log` | `log` | `log.init()`, `log.write()`, `log.shutdown()` |
 | `import std.io` | `io` | `io.print()`, `io.read_file()`, `io.getenv()` |
 | `import std.os` | `os` | `os.system()`, `os.exec()`, `os.getenv()` |
 
 ---
 
-## Future: Full Module System
+## Export Visibility
 
-> **Design Document:** The features below describe the planned module system architecture. The `module` and `export` keywords are not yet fully implemented.
-
-The full module system will provide:
-- Code organization into reusable modules
-- Namespace management
-- Import/export syntax
-- Third-party package support
-- Circular import detection
-
-## Syntax
-
-### Module Declaration
+Use `export` to control which symbols are part of a module's public API:
 
 ```aether
-// File: math/geometry.ae
-module math.geometry
+// lib/geometry/module.ae
 
-export struct Point {
-    int x
-    int y
+export const PI = 3
+
+export distance(x1, y1, x2, y2) {
+    dx = x1 - x2
+    dy = y1 - y2
+    return sqrt_approx(dx * dx + dy * dy)
 }
 
-export distance(p1, p2) {
-    dx = p1.x - p2.x
-    dy = p1.y - p2.y
-    return sqrt(dx*dx + dy*dy)
-}
-
-// Private helper (not exported)
+// Private helper — not accessible from outside
 sqrt_approx(n) {
-    // ... implementation
+    return n  // placeholder
 }
 ```
 
-### Importing Modules
-
 ```aether
-// Import entire module
-import math.geometry
+import geometry
 
 main() {
-    p1 = geometry.Point{ x: 0, y: 0 }
-    p2 = geometry.Point{ x: 3, y: 4 }
-    d = geometry.distance(p1, p2)
-}
-
-// Planned: Import specific items (not yet implemented)
-// import math.geometry (Point, distance)
-
-// Planned: Import with alias (not yet implemented)
-// import math.geometry as geo
-```
-
-## Module Resolution
-
-### File Structure
-
-```
-project/
-  main.ae
-  math/
-    geometry.ae
-    algebra.ae
-  utils/
-    string.ae
-    io.ae
-```
-
-### Resolution Rules
-
-1. **Relative imports:** `import ./utils/string`
-2. **Absolute imports:** `import std.io` (standard library)
-3. **Package imports:** `import github.com/user/package` (future)
-
-### Search Paths
-
-1. Current directory
-2. Project root
-3. `AETHER_PATH` environment variable
-4. Standard library location
-
-## Standard Library Modules
-
-```
-std/
-  string/    - String operations
-  file/      - File operations
-  dir/       - Directory operations
-  path/      - Path utilities
-  list/      - Dynamic array (ArrayList)
-  map/       - Hash map (HashMap)
-  json/      - JSON parsing and creation
-  http/      - HTTP client and server
-  tcp/       - TCP sockets
-  net/       - Consolidated networking (HTTP + TCP)
-  math/      - Mathematical functions
-  log/       - Structured logging
-  io/        - Console I/O, environment variables, file helpers
-```
-
-### Usage Example
-
-```aether
-import std.math (sqrt, pow, PI)
-import std.io (print, print_line)
-
-main() {
-    r = 5.0
-
-    area = PI * pow(r, 2)
-    print("Area: ")
-    print(area)
-    print("\n")
+    d = geometry.distance(0, 0, 3, 4)  // OK — exported
+    println(geometry.PI)                 // OK — exported
+    // geometry.sqrt_approx(25)          // Error: not exported
 }
 ```
 
-## Example: Full Module
+**Rules:**
+- `export` works with functions (`export func_name(...)`), constants (`export const NAME = value`), and `fn`-keyword functions (`export fn func_name(...)`)
+- If a module has **any** `export` declarations, only exported symbols are accessible from importers. Non-exported symbols are private.
+- If a module has **no** `export` declarations, all symbols are public (backwards compatible)
+- Private functions can still be used internally by exported functions — they are merged into the program but not accessible via `module.name()`
 
-### Module: `std/io.ae`
+## Future
 
-```aether
-module std.io
+Features not yet implemented:
 
-// Public exports
-export print(text) {
-    // Implementation
-}
-
-export print_line(text) {
-    // Implementation
-}
-
-export File = struct {
-    int handle
-    int is_open
-}
-
-export open_file(path) {
-    // Implementation
-}
-
-export close_file(file) {
-    // Implementation
-}
-
-// Private helper
-validate_path(path) {
-    // Not exported
-}
-```
-
-### Using the Module
-
-```aether
-import std.io (File, open_file, close_file, print)
-
-main() {
-    file = open_file("data.txt")
-    
-    if (file.is_open) {
-        print("File opened!\n")
-        close_file(file)
-    }
-}
-```
+- `import math.geometry (Point, distance)` — selective imports (parsed but not enforced)
+- `import math.geometry as geo` — import aliases
+- `import github.com/user/package` — remote package imports
+- Exporting structs and actors from modules
+- Re-exports (module A re-exporting module B's symbols)
 
 ---
 
@@ -265,7 +147,8 @@ mypackage/
 ├── src/
 │   └── main.ae       # Main entry point
 ├── lib/              # Library modules (optional)
-│   └── utils.ae
+│   └── utils/
+│       └── module.ae # import utils → lib/utils/module.ae
 ├── tests/            # Test files (optional)
 │   └── test_utils.ae
 └── README.md
@@ -299,56 +182,48 @@ name = "mypackage"
 path = "src/main.ae"
 ```
 
-### Creating Nested Packages (Go-style)
+### Creating Local Modules
 
-Aether supports nested packages within your project, similar to Go's package structure.
+Aether supports local modules within your project:
 
 **Project Structure:**
 ```
 myapp/
 ├── aether.toml
 ├── src/
-│   └── main.ae           # Main entry point
+│   └── main.ae              # Main entry point
 ├── lib/
 │   └── utils/
-│       ├── module.ae     # Module definition (extern declarations)
-│       └── utils.c       # C implementation
+│       └── module.ae        # Pure Aether module
 └── tests/
 ```
 
-**lib/utils/module.ae** - Define the module's exports:
+**lib/utils/module.ae** — define your module:
 ```aether
-// Local utils module
-// Import with: import utils
+export const MULTIPLIER = 2
 
-// Functions must be prefixed with namespace name
-extern utils_double_value(x: int) -> int
-extern utils_triple_value(x: int) -> int
-```
-
-**lib/utils/utils.c** - C implementation:
-```c
-int utils_double_value(int x) {
-    return x * 2;
+export double_value(x) {
+    return multiply(x, MULTIPLIER)
 }
 
-int utils_triple_value(int x) {
-    return x * 3;
+export triple_value(x) {
+    return multiply(x, 3)
+}
+
+// Private helper
+multiply(a, b) {
+    return a * b
 }
 ```
 
-**src/main.ae** - Use the local module:
+**src/main.ae** — use the module:
 ```aether
 import utils
 
 main() {
-    x = 5;
-
-    // Namespace-style calls: utils.function()
-    doubled = utils.double_value(x);
-    print("Doubled: ");
-    print(doubled);
-    print("\n");
+    println(utils.double_value(5))   // 10
+    println(utils.triple_value(5))   // 15
+    println(utils.MULTIPLIER)        // 2
 }
 ```
 
@@ -376,20 +251,74 @@ Function names must be prefixed with the namespace:
 
 The compiler converts `namespace.function()` to `namespace_function()`.
 
+### Pure Aether Modules
+
+You can write reusable modules in pure Aether — no C backing file required:
+
+**lib/mymath/module.ae:**
+```aether
+export const PI_APPROX = 3
+
+export double_it(x) {
+    return x * 2
+}
+
+export add(a, b) {
+    return a + b
+}
+
+// Intra-module calls work — functions can call each other
+export double_and_add(x, y) {
+    return add(double_it(x), y)
+}
+```
+
+**src/main.ae:**
+```aether
+import mymath
+
+main() {
+    println(mymath.double_it(5))    // 10
+    println(mymath.add(3, 4))       // 7
+    println(mymath.double_and_add(5, 3))  // 13
+    println(mymath.PI_APPROX)       // 3
+}
+```
+
+**How it works:**
+
+After module orchestration, the compiler clones each module's function and constant AST nodes into the main program with namespace-prefixed names (`double_it` → `mymath_double_it`). Intra-module calls, constant references, and constant-to-constant references (e.g., `const DOUBLE_BASE = BASE * 2`) are renamed automatically. Function parameters and local variables correctly shadow module constants — `check(SCALE) { return SCALE }` returns the parameter, not the module constant `SCALE`. This makes the entire downstream pipeline (type inference, type checking, codegen) work without modification — merged functions are just regular top-level functions.
+
+**What's supported:**
+- Functions (with type inference from call sites)
+- Constants (`const NAME = value`), including constants referencing other constants
+- Intra-module calls (functions calling other functions and referencing constants in the same module)
+- Export visibility (`export` keyword controls public API)
+- Multiple module imports in the same program
+- Mixing pure modules with stdlib imports
+- Parameter/local variable shadowing of module constants
+
+**Not yet supported:**
+- Actors from modules (dispatch tables assume main program scope)
+- Message definitions from modules
+- Selective imports (`import mymath (add, PI)`)
+- Re-exports (module A re-exporting module B's functions)
+- Module-level mutable state
+
 ### Current Limitations
 
 - Package publishing/registry not yet implemented
 - Remote package downloads not yet functional
-- Pure Aether modules (no C implementation) not yet supported
 
 ### Roadmap
 
 1. **Done**: Package initialization (`ae init`)
 2. **Done**: Local package building (`ae build`)
 3. **Done**: Local nested package imports
-4. **In Progress**: Package dependencies
-5. **Planned**: Package registry/publishing
-6. **Planned**: Pure Aether module implementations
+4. **Done**: Pure Aether module implementations
+5. **Done**: Export visibility enforcement
+6. **Planned**: Package dependencies
+7. **Planned**: Package registry/publishing
 
 ## Notes
 
