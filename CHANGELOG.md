@@ -9,7 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 the release pipeline automatically replaces `[current]` with the next version
 number (e.g. `[0.18.0]`) before tagging the release.
 
-## [0.22.0]
+## [current]
+
+### Fixed
+
+- **Release pipeline computed wrong next version**: `actions/checkout@v4` with `fetch-depth: 0` doesn't guarantee all tags are fetched. The prepare job's `git tag -l --sort=-version:refname` got a partial tag list, computing the wrong next version (e.g., 0.22.0 instead of 0.28.0). Added `fetch-tags: true` to prepare, bump, and tag jobs
+
+## [0.28.0]
 
 ### Added
 

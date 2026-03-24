@@ -2498,6 +2498,22 @@ static int cmd_version_use(const char* version) {
     // so that stale files left by a previous install.sh don't shadow the
     // version-managed files.  The 'current' symlink alone is not enough
     // because toolchain discovery may resolve the parent directory first.
+    //
+    // Bootstrap problem: if the user upgrades from an old ae that lacks this
+    // sync code, the old binary won't sync. To handle this, we first try
+    // invoking the NEW ae binary (just copied to dest_bin) to do the sync.
+    // If the new binary supports --sync-version, it handles everything.
+    // If it doesn't (old binary format), the call fails harmlessly and
+    // we fall through to the in-process sync below.
+    {
+        char new_ae[1024];
+        snprintf(new_ae, sizeof(new_ae), "%s/ae" EXE_EXT, dest_bin);
+        if (path_exists(new_ae)) {
+            snprintf(cmd, sizeof(cmd),
+                "\"%s\" version --sync-from \"%s\" 2>/dev/null", new_ae, ver_dir);
+            system(cmd);  // best-effort; also do in-process sync below
+        }
+    }
     {
         char dest[512];
         const char* subdirs[] = {"lib", "include", "share"};
@@ -2557,6 +2573,25 @@ static int cmd_version(int argc, char** argv) {
     if (strcmp(sub, "use") == 0) {
         if (argc < 2) { fprintf(stderr, "Usage: ae version use <v>\n"); return 1; }
         return cmd_version_use(argv[1]);
+    }
+    // Internal: called by old ae binaries after copying new ae to ~/.aether/bin/
+    // Syncs lib/, include/, share/ from a version directory to ~/.aether/
+    if (strcmp(sub, "--sync-from") == 0) {
+        if (argc < 2) return 1;
+        const char* ver_dir = argv[1];
+        const char* h = get_home_dir();
+        const char* subdirs[] = {"lib", "include", "share"};
+        for (int i = 0; i < 3; i++) {
+            char src_sub[1024], dest[512], cmd[4096];
+            snprintf(src_sub, sizeof(src_sub), "%s/%s", ver_dir, subdirs[i]);
+            if (dir_exists(src_sub)) {
+                snprintf(dest, sizeof(dest), "%s/.aether/%s", h, subdirs[i]);
+                snprintf(cmd, sizeof(cmd),
+                    "rm -rf \"%s\" && cp -r \"%s\" \"%s\"", dest, src_sub, dest);
+                system(cmd);
+            }
+        }
+        return 0;
     }
     // Fall-through: treat unknown sub as "ae version" (backward compat)
     printf("ae %s (Aether Language)\n", AE_VERSION);

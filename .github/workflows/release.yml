@@ -46,6 +46,7 @@ jobs:
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0
+        fetch-tags: true
 
     - name: Decide action
       id: decide
@@ -117,6 +118,7 @@ jobs:
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0
+        fetch-tags: true
 
     - name: Create release PR
       env:
@@ -177,6 +179,7 @@ jobs:
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0
+        fetch-tags: true
 
     - name: Create and push tag
       id: t
