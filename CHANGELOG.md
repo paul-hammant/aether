@@ -11,6 +11,11 @@ number (e.g. `[0.18.0]`) before tagging the release.
 
 ## [current]
 
+### Added
+
+- **`free()` builtin**: `free(ptr)` is now a language builtin for releasing heap-allocated memory. Use `defer free(ptr)` after calling stdlib functions that return malloc'd strings (`io.getenv()`, `io.read_file()`, `os.exec()`, `os.getenv()`, `file.read_all()`, `json.stringify()`, `json.get_string()`, `fs.path_join()`, etc.). Generates a clean `free((void*)ptr)` cast in the C output — no wrapper functions needed
+- **Memory-safe stdlib examples**: All stdlib examples (`file-io.ae`, `io-demo.ae`, `os-demo.ae`, `json-demo.ae`) now use `defer free()` to release heap-allocated strings returned by stdlib functions
+
 ### Fixed
 
 - **Release pipeline computed wrong next version**: `actions/checkout@v4` with `fetch-depth: 0` doesn't guarantee all tags are fetched. The prepare job's `git tag -l --sort=-version:refname` got a partial tag list, computing the wrong next version (e.g., 0.22.0 instead of 0.28.0). Added `fetch-tags: true` to prepare, bump, and tag jobs

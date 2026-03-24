@@ -13,10 +13,12 @@ main() {
     // Capture command output
     println("Capturing 'date' output:")
     output = os.exec("date")
+    defer free(output)
     print("Date: ${output}")
 
     // Get environment variable
     home = os.getenv("HOME")
+    defer free(home)
     if home != 0 {
         println("HOME = ${home}")
     } else {
@@ -25,6 +27,7 @@ main() {
 
     // Unknown env var returns NULL
     missing = os.getenv("AETHER_NONEXISTENT_VAR")
+    defer free(missing)
     if missing == 0 {
         println("Unknown var correctly returns NULL")
     }

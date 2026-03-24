@@ -306,6 +306,28 @@ See [stdlib-api.md](stdlib-api.md) for the full API reference.
 > regular string — you can `print()` it, use it in `"${interpolation}"`, or pass it in messages
 > directly. No conversion needed.
 
+### Memory Management
+
+Some stdlib functions return heap-allocated strings (`io.getenv()`, `io.read_file()`, `os.exec()`, `os.getenv()`, `file.read_all()`, `json.stringify()`, `json.get_string()`, etc.). Use `defer free()` to release them:
+
+```aether
+import std.io
+
+main() {
+    home = io.getenv("HOME")
+    defer free(home)
+    println(home)
+
+    content = io.read_file("data.txt")
+    defer free(content)
+    println(content)
+}
+```
+
+`free()` is a language builtin — no import needed. `defer` ensures the memory is released when the enclosing scope exits, even if the function returns early.
+
+For `std.string` managed strings (`string.new()`, `string.to_upper()`, etc.), use `defer string.release(s)` instead.
+
 ## Pattern Matching
 
 Aether features Erlang-inspired pattern matching, one of its most powerful features.
@@ -428,13 +450,14 @@ import std.os
 
 main() {
     home = os.getenv("HOME")
+    defer free(home)
     if home != 0 {
         println("Home directory: ${home}")
     }
 }
 ```
 
-The builtin `getenv()` also works without an import for quick scripts.
+The builtin `getenv()` also works without an import for quick scripts (returns a malloc'd string — use `defer free()`).
 
 ## Next Steps
 
@@ -479,7 +502,7 @@ Versions are stored in `~/.aether/versions/`. The active version is symlinked to
 - Windows: The Aether runtime uses Win32 threads natively — no pthread library needed
 
 **Test failures**
-- Run specific test category: `./build/test_runner --category=compiler`
+- Run `make test` for unit tests, `make test-ae` for integration tests
 - Check for port conflicts if network tests fail (port 8080)
 
 ### Common Pitfalls

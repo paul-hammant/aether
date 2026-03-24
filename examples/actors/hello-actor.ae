@@ -1,13 +1,13 @@
 // Hello Actor - simplest possible actor with message passing
 
-message Greet { name: int }
+message Greet { id: int }
 message Farewell {}
 
 actor Greeter {
     state count = 0;
 
     receive {
-        Greet(name) -> {
+        Greet(id) -> {
             count = count + 1;
             print("Hello! Greeting #");
             print(count);
@@ -24,8 +24,8 @@ actor Greeter {
 
 main() {
     greeter = spawn(Greeter());
-    greeter ! Greet { name: 1 };
-    greeter ! Greet { name: 2 };
+    greeter ! Greet { id: 1 };
+    greeter ! Greet { id: 2 };
     greeter ! Farewell {};
 
     // Wait for all messages to be processed

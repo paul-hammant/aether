@@ -614,6 +614,10 @@ int typecheck_program(ASTNode* program) {
     Type* exit_type = create_type(TYPE_VOID);
     add_symbol(global_table, "exit", exit_type, 0, 1, 0);
 
+    // Memory builtins
+    Type* free_builtin_type = create_type(TYPE_VOID);
+    add_symbol(global_table, "free", free_builtin_type, 0, 1, 0);
+
     // First pass: collect all declarations
     for (int i = 0; i < program->child_count; i++) {
         ASTNode* child = program->children[i];

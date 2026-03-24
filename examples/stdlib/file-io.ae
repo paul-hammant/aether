@@ -1,7 +1,7 @@
 // File I/O - Demonstrates file operations using namespace calls
 // Run with: ae run examples/stdlib/file-io.ae
 //
-// file.read_all() returns a plain string — print it directly.
+// file.read_all() returns a malloc'd string — free with defer free().
 
 import std.file
 import std.dir
@@ -32,6 +32,7 @@ main() {
     f = file.open("aether_test_output.txt", "r")
     if (f != 0) {
         content = file.read_all(f)
+        defer free(content)
         file.close(f)
         println("  Content:")
         println(content)
@@ -48,6 +49,7 @@ main() {
     f = file.open("aether_test_output.txt", "r")
     if (f != 0) {
         content2 = file.read_all(f)
+        defer free(content2)
         file.close(f)
         println("  New content: ${content2}")
     }

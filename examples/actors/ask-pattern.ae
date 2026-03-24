@@ -4,7 +4,7 @@
 //   1. Fire-and-forget (!): send a message, don't wait for a response
 //   2. Ask (?): send a message and block until the actor replies
 //
-// The ? operator is experimental -- see docs/language-reference.md
+// The ? operator is experimental
 
 // Messages for the calculator
 message Add { a: int, b: int }

@@ -1,7 +1,7 @@
 // JSON Demo - Demonstrates JSON creation, stringification, and parsing
 // Run with: ae run examples/stdlib/json-demo.ae
 //
-// json.stringify() and json.get_string() return plain strings — print directly.
+// json.stringify() and json.get_string() return malloc'd strings — free with defer free().
 
 import std.json
 
@@ -28,12 +28,13 @@ main() {
     print(json.get_number(num))
     print("\n")
 
-    // Strings — json.get_string() returns a plain string
+    // Strings — json.get_string() returns a malloc'd string
     str = json.create_string("hello world")
     print("  String type: ")
     print(json.type(str))
     print(" (expected: 3 = JSON_STRING)\n")
     str_val = json.get_string(str)
+    defer free(str_val)
     println("  String value: ${str_val}")
 
     // Booleans
@@ -61,11 +62,13 @@ main() {
 
     name_val = json.object_get(obj, "name")
     name_str = json.get_string(name_val)
+    defer free(name_str)
     println("  name = ${name_str}")
 
     // Stringify — returns a plain string, print directly
     print("\nStringify:\n")
     json_text = json.stringify(obj)
+    defer free(json_text)
     println("  ${json_text}")
 
     // Build an array
@@ -78,6 +81,7 @@ main() {
     println("  Array size: ${size}")
 
     arr_text = json.stringify(arr)
+    defer free(arr_text)
     println("  Array: ${arr_text}")
 
     // Parse a JSON string
@@ -89,6 +93,7 @@ main() {
 
         greeting = json.object_get(parsed, "greeting")
         g_str = json.get_string(greeting)
+        defer free(g_str)
         println("  greeting = ${g_str}")
 
         count = json.object_get(parsed, "count")

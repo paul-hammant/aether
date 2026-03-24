@@ -502,6 +502,11 @@ void generate_expression(CodeGenerator* gen, ASTNode* expr) {
                     }
                     fprintf(gen->output, ")");
                 }
+                else if (strcmp(func_name, "free") == 0 && expr->child_count == 1) {
+                    fprintf(gen->output, "free((void*)");
+                    generate_expression(gen, expr->children[0]);
+                    fprintf(gen->output, ")");
+                }
                 else if (strcmp(func_name, "clock_ns") == 0 && expr->child_count == 0) {
                     fprintf(gen->output, "\n#if AETHER_GCC_COMPAT\n");
                     fprintf(gen->output, "({ struct timespec _ts; clock_gettime(CLOCK_MONOTONIC, &_ts); (int64_t)_ts.tv_sec * 1000000000LL + _ts.tv_nsec; })");
