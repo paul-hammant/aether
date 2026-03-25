@@ -33,14 +33,19 @@
 // no-op inline function stubs that shadow the real functions.
 // On bare-metal/freestanding, we define our own minimal types.
 
-#if defined(__EMSCRIPTEN__)
-// Emscripten provides its own pthread type stubs when threads are disabled
-#include <pthread.h>
-#elif defined(__linux__) || defined(__APPLE__)
-// Hosted POSIX: include for type definitions only
+// Include system pthread types. Every toolchain we target provides them:
+//   - Linux/macOS: <pthread.h> (full POSIX)
+//   - Emscripten:  <pthread.h> (stub types when threads disabled)
+//   - ARM newlib:  <sys/_pthreadtypes.h> via <sys/types.h> (from <stdio.h>)
+//   - Windows:     handled by the #elif _WIN32 path below (not here)
+//
+// We only provide our own typedefs for truly bare-metal environments
+// where no system headers define pthread types at all.
+#if defined(_POSIX_THREADS) || defined(__unix__) || defined(__linux__) || \
+    defined(__APPLE__) || defined(__EMSCRIPTEN__) || defined(_NEWLIB_VERSION)
 #include <pthread.h>
 #else
-// Bare-metal / freestanding: define minimal types
+// Bare-metal without newlib: define minimal types
 typedef int pthread_mutex_t;
 typedef int pthread_cond_t;
 typedef int pthread_key_t;
