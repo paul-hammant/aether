@@ -1,5 +1,28 @@
 #include "aether_fs.h"
+#include "../../runtime/config/aether_optimization_config.h"
 #include "../../runtime/utils/aether_compiler.h"
+
+#if !AETHER_HAS_FILESYSTEM
+// Stubs when filesystem is unavailable (WASM, embedded)
+File* file_open(const char* p, const char* m) { (void)p; (void)m; return NULL; }
+char* file_read_all(File* f) { (void)f; return NULL; }
+int file_write(File* f, const char* d, int l) { (void)f; (void)d; (void)l; return 0; }
+int file_close(File* f) { (void)f; return 0; }
+int file_exists(const char* p) { (void)p; return 0; }
+int file_delete(const char* p) { (void)p; return 0; }
+int file_size(const char* p) { (void)p; return -1; }
+int dir_exists(const char* p) { (void)p; return 0; }
+int dir_create(const char* p) { (void)p; return 0; }
+int dir_delete(const char* p) { (void)p; return 0; }
+char* path_join(const char* a, const char* b) { (void)a; (void)b; return NULL; }
+char* path_dirname(const char* p) { (void)p; return NULL; }
+char* path_basename(const char* p) { (void)p; return NULL; }
+char* path_extension(const char* p) { (void)p; return NULL; }
+int path_is_absolute(const char* p) { (void)p; return 0; }
+DirList* dir_list(const char* p) { (void)p; return NULL; }
+void dir_list_free(DirList* l) { (void)l; }
+#else
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -271,4 +294,6 @@ void dir_list_free(DirList* list) {
     free(list->entries);
     free(list);
 }
+
+#endif // AETHER_HAS_FILESYSTEM
 

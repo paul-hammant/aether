@@ -185,7 +185,7 @@ Actor* aether_actor_create(void (*process_fn)(Actor*, void*, int)) {
     actor->active = 0;
     
     // Check runtime config for mailbox type
-    const AetherRuntimeConfig* config = aether_runtime_get_config();
+    const AetherRuntimeInitConfig* config = aether_runtime_get_config();
     actor->use_lockfree = config->use_lockfree_mailbox;
     
     // Initialize appropriate mailbox type

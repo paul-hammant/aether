@@ -81,9 +81,19 @@ docker-compose -f docker/docker-compose.yml down
 
 ### CI Testing (Dockerfile.ci)
 - Based on Ubuntu 22.04
-- Includes: gcc, clang, valgrind, sanitizers
+- Includes: gcc, clang, valgrind, sanitizers, MinGW
 - Size: ~400MB
 - Use for: local CI testing, memory leak detection
+
+### WebAssembly (Dockerfile.wasm)
+- Based on emscripten/emsdk:3.1.51
+- Includes: emcc, node.js, native gcc (for building aetherc)
+- Use for: WASM cross-compilation verification — generates .c, compiles with emcc, runs with Node.js
+
+### Embedded ARM (Dockerfile.embedded)
+- Based on Ubuntu 22.04 + arm-none-eabi-gcc
+- Includes: native gcc, ARM cross-compiler, newlib
+- Use for: ARM Cortex-M4 bare-metal syntax-checking — verifies runtime compiles for embedded targets
 
 ## Local CI Testing
 
@@ -102,9 +112,26 @@ make ci              # Run CI without Docker (native)
 make valgrind-check  # Run Valgrind (Linux only)
 ```
 
+### Cross-Platform Portability CI
+
+```bash
+# Test cooperative scheduler (no Docker — runs on native)
+make ci-coop
+
+# Test WebAssembly cross-compilation (Emscripten Docker image)
+make docker-ci-wasm
+
+# Test embedded ARM cross-compilation (arm-none-eabi Docker image)
+make docker-ci-embedded
+
+# Run ALL portability checks
+make ci-portability
+```
+
 **Why use Docker for CI?**
 - Valgrind only works on Linux
 - macOS and Windows users can test with Valgrind via Docker
+- Cross-compilation toolchains (Emscripten, ARM) don't need local installation
 - Ensures identical environment to GitHub Actions CI
 
 ## Testing Docker Setup

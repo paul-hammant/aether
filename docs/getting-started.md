@@ -511,6 +511,28 @@ Versions are stored in `~/.aether/versions/`. The active version is symlinked to
 2. On Windows, running `ae` from a directory without write permission (GCC download needs `~\.aether\`)
 3. Using `state` as a variable name inside an actor body (it's reserved there — use it freely elsewhere)
 
+### WebAssembly and Embedded Targets
+
+Aether supports cross-compilation to platforms without pthreads or POSIX APIs via the `PLATFORM` Makefile variable:
+
+```bash
+# Build for WebAssembly (requires Emscripten SDK)
+make stdlib PLATFORM=wasm
+# Or force cooperative mode on native for testing:
+make stdlib EXTRA_CFLAGS="-DAETHER_NO_THREADING"
+
+# Build for embedded ARM (syntax-check only — requires arm-none-eabi-gcc)
+make ci-embedded
+
+# Docker-based cross-compilation (no local toolchain needed):
+make docker-ci-wasm        # Emscripten + Node.js execution
+make docker-ci-embedded    # ARM Cortex-M4 syntax-check
+```
+
+On threadless platforms, the cooperative scheduler (`aether_scheduler_coop.c`) replaces the multi-core scheduler. All actors run on a single thread via `aether_scheduler_poll()`. Multi-actor programs work correctly — messages are processed cooperatively during `wait_for_idle()`.
+
+Stdlib modules that depend on filesystem or networking return errors gracefully (NULL, 0, -1). Console I/O (`print`, `println`) always works.
+
 ### Platform-Specific Notes
 
 **macOS:**

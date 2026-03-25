@@ -35,7 +35,9 @@ In NUMA systems, memory is physically distributed across multiple nodes, each co
 3. **Platform Support**
    - **Windows**: `VirtualAllocExNuma`, `GetNumaProcessorNodeEx`
    - **Linux**: `numa_alloc_onnode` (requires libnuma)
-   - **Fallback**: Regular `malloc` on UMA systems
+   - **macOS**: Fallback to `malloc` (macOS has UMA memory on all current hardware)
+   - **WASM/Embedded**: Stubs return `available = false` and delegate to `malloc` (gated by `AETHER_HAS_NUMA`)
+   - **Fallback**: Regular `malloc` on UMA systems or when `-DAETHER_NO_NUMA` is set
 
 ### API
 

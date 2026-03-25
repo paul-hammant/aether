@@ -74,8 +74,34 @@ else
 CC := $(shell command -v ccache >/dev/null 2>&1 && echo "ccache gcc" || echo "gcc")
 endif
 EXTRA_CFLAGS ?=
+PLATFORM ?= native
+
+# Platform-specific overrides
+ifeq ($(PLATFORM),wasm)
+    CC := emcc
+    EXTRA_CFLAGS += -DAETHER_NO_THREADING -DAETHER_NO_FILESYSTEM -DAETHER_NO_NETWORKING
+    SCHEDULER_SRC := runtime/scheduler/aether_scheduler_coop.c
+else ifeq ($(PLATFORM),embedded)
+    EXTRA_CFLAGS += -DAETHER_NO_THREADING -DAETHER_NO_FILESYSTEM -DAETHER_NO_NETWORKING -DAETHER_NO_GETENV
+    SCHEDULER_SRC := runtime/scheduler/aether_scheduler_coop.c
+else
+    # Auto-detect: if EXTRA_CFLAGS disables threading, use cooperative scheduler
+    ifneq ($(findstring AETHER_NO_THREADING,$(EXTRA_CFLAGS)),)
+        SCHEDULER_SRC := runtime/scheduler/aether_scheduler_coop.c
+    else
+        SCHEDULER_SRC := runtime/scheduler/multicore_scheduler.c
+    endif
+endif
+
 CFLAGS = -O2 -Icompiler -Iruntime -Iruntime/actors -Iruntime/scheduler -Iruntime/utils -Iruntime/memory -Iruntime/config -Istd -Istd/string -Istd/io -Istd/math -Istd/net -Istd/collections -Istd/json -Wall -Wextra -Wno-unused-parameter -Wno-unused-function -MMD -MP -DAETHER_VERSION=\"$(VERSION)\" $(EXTRA_CFLAGS)
-LDFLAGS = -pthread -lm
+LDFLAGS = -lm
+ifneq ($(PLATFORM),wasm)
+ifneq ($(PLATFORM),embedded)
+ifeq ($(findstring AETHER_NO_THREADING,$(EXTRA_CFLAGS)),)
+LDFLAGS += -pthread
+endif
+endif
+endif
 
 # Zero warnings achieved - ready for -Werror
 BUILD_DIR = build
@@ -94,7 +120,7 @@ endif
 
 COMPILER_SRC = compiler/aetherc.c compiler/parser/lexer.c compiler/parser/parser.c compiler/ast.c compiler/analysis/typechecker.c compiler/codegen/codegen.c compiler/codegen/codegen_expr.c compiler/codegen/codegen_stmt.c compiler/codegen/codegen_actor.c compiler/codegen/codegen_func.c compiler/aether_error.c compiler/aether_module.c compiler/analysis/type_inference.c compiler/codegen/optimizer.c compiler/aether_diagnostics.c runtime/actors/aether_message_registry.c
 COMPILER_LIB_SRC = compiler/parser/lexer.c compiler/parser/parser.c compiler/ast.c compiler/analysis/typechecker.c compiler/codegen/codegen.c compiler/codegen/codegen_expr.c compiler/codegen/codegen_stmt.c compiler/codegen/codegen_actor.c compiler/codegen/codegen_func.c compiler/aether_error.c compiler/aether_module.c compiler/analysis/type_inference.c compiler/codegen/optimizer.c compiler/aether_diagnostics.c runtime/actors/aether_message_registry.c
-RUNTIME_SRC = runtime/scheduler/multicore_scheduler.c runtime/scheduler/scheduler_optimizations.c runtime/config/aether_optimization_config.c runtime/memory/memory.c runtime/memory/aether_arena.c runtime/memory/aether_pool.c runtime/memory/aether_memory_stats.c runtime/utils/aether_tracing.c runtime/utils/aether_bounds_check.c runtime/utils/aether_test.c runtime/memory/aether_arena_optimized.c runtime/aether_runtime_types.c runtime/utils/aether_cpu_detect.c runtime/memory/aether_batch.c runtime/utils/aether_simd_vectorized.c runtime/aether_runtime.c runtime/aether_numa.c runtime/actors/aether_send_buffer.c runtime/actors/aether_send_message.c runtime/actors/aether_actor_thread.c
+RUNTIME_SRC = $(SCHEDULER_SRC) runtime/scheduler/scheduler_optimizations.c runtime/config/aether_optimization_config.c runtime/memory/memory.c runtime/memory/aether_arena.c runtime/memory/aether_pool.c runtime/memory/aether_memory_stats.c runtime/utils/aether_tracing.c runtime/utils/aether_bounds_check.c runtime/utils/aether_test.c runtime/memory/aether_arena_optimized.c runtime/aether_runtime_types.c runtime/utils/aether_cpu_detect.c runtime/memory/aether_batch.c runtime/utils/aether_simd_vectorized.c runtime/aether_runtime.c runtime/aether_numa.c runtime/actors/aether_send_buffer.c runtime/actors/aether_send_message.c runtime/actors/aether_actor_thread.c
 STD_SRC = std/string/aether_string.c std/math/aether_math.c std/net/aether_http.c std/net/aether_http_server.c std/net/aether_net.c std/collections/aether_collections.c std/json/aether_json.c std/fs/aether_fs.c std/log/aether_log.c std/io/aether_io.c std/os/aether_os.c
 COLLECTIONS_SRC = std/collections/aether_hashmap.c std/collections/aether_set.c std/collections/aether_vector.c std/collections/aether_pqueue.c
 
@@ -446,7 +472,7 @@ ae: compiler
 	@echo "==================================="
 	@echo "Building ae command-line tool ($(DETECTED_OS)) v$(VERSION)"
 	@echo "==================================="
-	$(CC) -O2 -DAETHER_VERSION=\"$(VERSION)\" -Itools tools/ae.c tools/apkg/toml_parser.c -o build/ae$(EXE_EXT) -lm $(LDFLAGS)
+	$(CC) -O2 -DAETHER_VERSION=\"$(VERSION)\" -Itools tools/ae.c tools/apkg/toml_parser.c -o build/ae$(EXE_EXT) $(LDFLAGS)
 	@echo "✓ Built successfully: build/ae$(EXE_EXT)"
 	@echo ""
 	@echo "Usage:"
@@ -950,8 +976,245 @@ asan-check: clean
 	  fi
 	@echo "✓ ASan clean — no memory errors detected"
 
-.PHONY: all compiler lsp apkg ae profiler docgen docs-server docs docs-serve test test-build test-valgrind test-asan test-memory test-manual-runtime test-install test-release-archive benchmark benchmark-ui examples run compile repl clean help self-test install stats stdlib ci ci-windows docker-ci docker-ci-windows docker-build-ci valgrind-check asan-check
+.PHONY: all compiler lsp apkg ae profiler docgen docs-server docs docs-serve test test-build test-valgrind test-asan test-memory test-manual-runtime test-install test-release-archive benchmark benchmark-ui examples run compile repl clean help self-test install stats stdlib ci ci-windows docker-ci docker-ci-windows docker-build-ci valgrind-check asan-check ci-coop ci-wasm ci-embedded ci-portability docker-ci-wasm docker-ci-embedded
 
 # Cross-language benchmark UI
 benchmark-ui:
 	@cd benchmarks/cross-language && $(MAKE) benchmark-ui
+
+# ============================================================================
+# Platform Portability CI
+# ============================================================================
+
+# Test cooperative scheduler on native (no Docker needed — fast)
+ci-coop: clean compiler ae
+	@echo "==================================="
+	@echo "  Cooperative Scheduler CI"
+	@echo "==================================="
+	@echo ""
+	@echo "[1/4] Building stdlib with -DAETHER_NO_THREADING..."
+	@$(MAKE) stdlib EXTRA_CFLAGS="-DAETHER_NO_THREADING"
+	@echo ""
+	@echo "[2/4] Running actor tests in cooperative mode..."
+	@pass=0; fail=0; \
+	for src in tests/syntax/test_platform_caps.ae \
+	           tests/syntax/test_coop_chain.ae \
+	           tests/syntax/test_coop_many_actors.ae \
+	           tests/syntax/test_coop_ask_reply.ae \
+	           tests/syntax/test_coop_self_send.ae \
+	           tests/syntax/test_coop_stubs.ae \
+	           examples/actors/counter.ae \
+	           examples/actors/ping-pong.ae \
+	           examples/actors/ask-pattern.ae \
+	           examples/actors/cooperative-demo.ae \
+	           examples/basics/hello.ae; do \
+		printf "  %-50s " "$$src"; \
+		if AETHER_HOME="" ./build/ae run "$$src" >/tmp/ae_coop_out.txt 2>&1; then \
+			echo "PASS"; \
+			pass=$$((pass + 1)); \
+		else \
+			echo "FAIL"; \
+			cat /tmp/ae_coop_out.txt | head -10; \
+			fail=$$((fail + 1)); \
+		fi; \
+	done; \
+	echo ""; \
+	echo "  $$pass passed, $$fail failed"; \
+	if [ "$$fail" -gt 0 ]; then exit 1; fi
+	@echo ""
+	@echo "[3/4] Testing no-filesystem + no-networking stubs..."
+	@$(MAKE) stdlib EXTRA_CFLAGS="-DAETHER_NO_FILESYSTEM -DAETHER_NO_NETWORKING"
+	@printf "  %-50s " "hello.ae (no-fs/no-net)"; \
+	if AETHER_HOME="" ./build/ae run examples/basics/hello.ae >/dev/null 2>&1; then \
+		echo "PASS"; \
+	else \
+		echo "FAIL"; \
+		exit 1; \
+	fi
+	@echo ""
+	@echo "[4/4] Restoring default stdlib..."
+	@$(MAKE) stdlib
+	@echo ""
+	@echo "==================================="
+	@echo "  Cooperative Scheduler CI PASSED"
+	@echo "==================================="
+
+# WASM cross-compilation test (requires Emscripten — use Docker or local emsdk)
+# Builds native aetherc, generates .c, then compiles with emcc
+ci-wasm: clean compiler ae
+	@echo "==================================="
+	@echo "  WebAssembly (Emscripten) CI"
+	@echo "==================================="
+	@echo ""
+	@echo "[1/3] Generating C from test programs..."
+	@mkdir -p build/wasm
+	@pass=0; fail=0; \
+	for src in examples/basics/hello.ae \
+	           examples/actors/counter.ae \
+	           tests/syntax/test_platform_caps.ae \
+	           tests/syntax/test_coop_chain.ae; do \
+		name=$$(basename $$src .ae); \
+		printf "  %-40s " "$$name → .c"; \
+		if ./build/aetherc "$$src" "build/wasm/$$name.c" 2>/tmp/ae_wasm_err.txt; then \
+			echo "OK"; \
+			pass=$$((pass + 1)); \
+		else \
+			echo "FAIL"; \
+			cat /tmp/ae_wasm_err.txt | head -5; \
+			fail=$$((fail + 1)); \
+		fi; \
+	done; \
+	echo "  $$pass generated, $$fail failed"; \
+	if [ "$$fail" -gt 0 ]; then exit 1; fi
+	@echo ""
+	@echo "[2/3] Compiling runtime + generated C with emcc..."
+	@WASM_CFLAGS="-O2 -DAETHER_NO_THREADING -DAETHER_NO_FILESYSTEM -DAETHER_NO_NETWORKING \
+		-Iruntime -Iruntime/actors -Iruntime/scheduler -Iruntime/utils -Iruntime/memory \
+		-Iruntime/config -Istd -Istd/string -Istd/io -Istd/math -Istd/net -Istd/collections -Istd/json \
+		-Wall -Wextra -Wno-unused-parameter -Wno-unused-function \
+		-Wno-unused-variable -Wno-missing-field-initializers -Wno-unused-label"; \
+	pass=0; fail=0; \
+	RUNTIME_FILES="runtime/scheduler/aether_scheduler_coop.c runtime/scheduler/scheduler_optimizations.c \
+		runtime/config/aether_optimization_config.c runtime/memory/memory.c runtime/memory/aether_arena.c \
+		runtime/memory/aether_pool.c runtime/memory/aether_memory_stats.c runtime/utils/aether_tracing.c \
+		runtime/utils/aether_bounds_check.c runtime/utils/aether_test.c runtime/memory/aether_arena_optimized.c \
+		runtime/aether_runtime_types.c runtime/utils/aether_cpu_detect.c runtime/memory/aether_batch.c \
+		runtime/utils/aether_simd_vectorized.c runtime/aether_runtime.c runtime/aether_numa.c \
+		runtime/actors/aether_send_buffer.c runtime/actors/aether_send_message.c \
+		runtime/actors/aether_actor_thread.c \
+		std/string/aether_string.c std/math/aether_math.c std/net/aether_http.c \
+		std/net/aether_http_server.c std/net/aether_net.c std/collections/aether_collections.c \
+		std/json/aether_json.c std/fs/aether_fs.c std/log/aether_log.c std/io/aether_io.c \
+		std/os/aether_os.c std/collections/aether_hashmap.c std/collections/aether_set.c \
+		std/collections/aether_vector.c std/collections/aether_pqueue.c"; \
+	for src in build/wasm/hello.c build/wasm/counter.c build/wasm/test_platform_caps.c \
+	           build/wasm/test_coop_chain.c; do \
+		name=$$(basename $$src .c); \
+		printf "  %-40s " "emcc $$name"; \
+		if emcc $$WASM_CFLAGS $$src $$RUNTIME_FILES \
+			-o "build/wasm/$$name.js" -lm 2>/tmp/emcc_err.txt; then \
+			echo "OK"; \
+			pass=$$((pass + 1)); \
+		else \
+			echo "FAIL"; \
+			cat /tmp/emcc_err.txt | head -10; \
+			fail=$$((fail + 1)); \
+		fi; \
+	done; \
+	echo "  $$pass compiled, $$fail failed"; \
+	if [ "$$fail" -gt 0 ]; then exit 1; fi
+	@echo ""
+	@echo "[3/3] Running WASM programs with Node.js..."
+	@pass=0; fail=0; \
+	for js in build/wasm/hello.js build/wasm/counter.js build/wasm/test_platform_caps.js \
+	          build/wasm/test_coop_chain.js; do \
+		name=$$(basename $$js .js); \
+		printf "  %-40s " "node $$name"; \
+		if node "$$js" >/tmp/wasm_out.txt 2>&1; then \
+			echo "PASS"; \
+			pass=$$((pass + 1)); \
+		else \
+			echo "FAIL"; \
+			cat /tmp/wasm_out.txt | head -10; \
+			fail=$$((fail + 1)); \
+		fi; \
+	done; \
+	echo "  $$pass passed, $$fail failed"; \
+	if [ "$$fail" -gt 0 ]; then exit 1; fi
+	@echo ""
+	@echo "==================================="
+	@echo "  WebAssembly CI PASSED"
+	@echo "==================================="
+
+# Embedded cross-compilation test (requires arm-none-eabi-gcc — use Docker or local install)
+# Syntax-checks only — no runtime to execute on bare-metal
+ci-embedded: clean compiler
+	@echo "==================================="
+	@echo "  Embedded (ARM) CI"
+	@echo "==================================="
+	@echo ""
+	@echo "[1/2] Syntax-checking runtime sources with arm-none-eabi-gcc..."
+	@EMB_CFLAGS="-fsyntax-only -O2 -mcpu=cortex-m4 -mthumb -ffreestanding \
+		-DAETHER_NO_THREADING -DAETHER_NO_FILESYSTEM -DAETHER_NO_NETWORKING \
+		-DAETHER_NO_GETENV -DAETHER_NO_SIMD -DAETHER_NO_AFFINITY -DAETHER_NO_NUMA \
+		-Iruntime -Iruntime/actors -Iruntime/scheduler -Iruntime/utils -Iruntime/memory \
+		-Iruntime/config -Istd -Istd/string -Istd/io -Istd/math -Istd/net -Istd/collections -Istd/json \
+		-Wall -Wextra -Wno-unused-parameter -Wno-unused-function"; \
+	pass=0; fail=0; \
+	for f in runtime/scheduler/aether_scheduler_coop.c \
+	         runtime/config/aether_optimization_config.c \
+	         runtime/utils/aether_cpu_detect.c \
+	         runtime/aether_numa.c \
+	         runtime/actors/aether_send_message.c \
+	         runtime/actors/aether_send_buffer.c \
+	         std/string/aether_string.c \
+	         std/math/aether_math.c \
+	         std/fs/aether_fs.c \
+	         std/io/aether_io.c \
+	         std/os/aether_os.c \
+	         std/net/aether_http.c \
+	         std/net/aether_net.c \
+	         std/net/aether_http_server.c; do \
+		printf "  %-55s " "$$f"; \
+		if arm-none-eabi-gcc $$EMB_CFLAGS "$$f" 2>/tmp/emb_err.txt; then \
+			echo "OK"; \
+			pass=$$((pass + 1)); \
+		else \
+			echo "FAIL"; \
+			cat /tmp/emb_err.txt | head -10; \
+			fail=$$((fail + 1)); \
+		fi; \
+	done; \
+	echo ""; \
+	echo "  $$pass passed, $$fail failed"; \
+	if [ "$$fail" -gt 0 ]; then exit 1; fi
+	@echo ""
+	@echo "[2/2] Generating and syntax-checking example programs..."
+	@mkdir -p build/embedded
+	@pass=0; fail=0; \
+	for src in examples/basics/hello.ae examples/actors/counter.ae; do \
+		name=$$(basename $$src .ae); \
+		printf "  %-55s " "$$name → syntax-check"; \
+		./build/aetherc "$$src" "build/embedded/$$name.c" 2>/dev/null && \
+		if arm-none-eabi-gcc -fsyntax-only -O2 -mcpu=cortex-m4 -mthumb -ffreestanding \
+			-DAETHER_NO_THREADING -DAETHER_NO_FILESYSTEM -DAETHER_NO_NETWORKING \
+			-DAETHER_NO_GETENV -DAETHER_NO_SIMD -DAETHER_NO_AFFINITY -DAETHER_NO_NUMA \
+			-Wall -Wextra -Wno-unused-parameter -Wno-unused-function \
+			"build/embedded/$$name.c" 2>/tmp/emb_err.txt; then \
+			echo "OK"; \
+			pass=$$((pass + 1)); \
+		else \
+			echo "FAIL"; \
+			cat /tmp/emb_err.txt | head -10; \
+			fail=$$((fail + 1)); \
+		fi; \
+	done; \
+	echo "  $$pass passed, $$fail failed"; \
+	if [ "$$fail" -gt 0 ]; then exit 1; fi
+	@echo ""
+	@echo "==================================="
+	@echo "  Embedded CI PASSED"
+	@echo "==================================="
+
+# Docker wrappers for cross-platform CI
+docker-ci-wasm:
+	@echo "Building WASM Docker image..."
+	docker build -f docker/Dockerfile.wasm -t aether-wasm:latest .
+	@echo "Running WASM CI in Docker..."
+	docker run --rm -v $(PWD):/aether -w /aether aether-wasm make ci-wasm
+
+docker-ci-embedded:
+	@echo "Building embedded Docker image..."
+	docker build -f docker/Dockerfile.embedded -t aether-embedded:latest .
+	@echo "Running embedded CI in Docker..."
+	docker run --rm -v $(PWD):/aether -w /aether aether-embedded make ci-embedded
+
+# Run ALL portability checks (native coop + Docker WASM + Docker embedded)
+ci-portability: ci-coop docker-ci-wasm docker-ci-embedded
+	@echo ""
+	@echo "==================================="
+	@echo "  ALL PORTABILITY CHECKS PASSED"
+	@echo "  - Cooperative scheduler (native)"
+	@echo "  - WebAssembly (Emscripten)"
+	@echo "  - Embedded (ARM Cortex-M4)"
+	@echo "==================================="

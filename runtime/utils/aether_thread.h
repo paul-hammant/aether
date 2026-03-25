@@ -19,7 +19,82 @@
 #ifndef AETHER_THREAD_H
 #define AETHER_THREAD_H
 
-#ifndef _WIN32
+#include "../config/aether_optimization_config.h"
+
+#if !AETHER_HAS_THREADS
+
+// ============================================================
+// No-thread path — single-threaded stubs for threadless platforms
+// (WASM, embedded, bare-metal, or forced via -DAETHER_NO_THREADING)
+// ============================================================
+//
+// Strategy: on hosted platforms (Linux, macOS) the system headers already
+// define pthread types — we include <pthread.h> for the types and provide
+// no-op inline function stubs that shadow the real functions.
+// On bare-metal/freestanding, we define our own minimal types.
+
+#if defined(__EMSCRIPTEN__)
+// Emscripten provides its own pthread type stubs when threads are disabled
+#include <pthread.h>
+#elif defined(__linux__) || defined(__APPLE__)
+// Hosted POSIX: include for type definitions only
+#include <pthread.h>
+#else
+// Bare-metal / freestanding: define minimal types
+typedef int pthread_mutex_t;
+typedef int pthread_cond_t;
+typedef int pthread_key_t;
+typedef int pthread_t;
+typedef int pthread_attr_t;
+typedef int pthread_mutexattr_t;
+typedef int pthread_condattr_t;
+#endif
+
+// No-op function stubs — these shadow the real pthread functions.
+// On hosted platforms with -DAETHER_NO_THREADING, the linker picks our
+// inline stubs over the library functions (which we never call anyway).
+static inline int aether_nop_mutex_init(pthread_mutex_t* m, const void* a) { (void)m; (void)a; return 0; }
+static inline int aether_nop_mutex_destroy(pthread_mutex_t* m) { (void)m; return 0; }
+static inline int aether_nop_mutex_lock(pthread_mutex_t* m) { (void)m; return 0; }
+static inline int aether_nop_mutex_trylock(pthread_mutex_t* m) { (void)m; return 0; }
+static inline int aether_nop_mutex_unlock(pthread_mutex_t* m) { (void)m; return 0; }
+static inline int aether_nop_cond_init(pthread_cond_t* c, const void* a) { (void)c; (void)a; return 0; }
+static inline int aether_nop_cond_destroy(pthread_cond_t* c) { (void)c; return 0; }
+static inline int aether_nop_cond_signal(pthread_cond_t* c) { (void)c; return 0; }
+static inline int aether_nop_cond_broadcast(pthread_cond_t* c) { (void)c; return 0; }
+static inline int aether_nop_cond_wait(pthread_cond_t* c, pthread_mutex_t* m) { (void)c; (void)m; return 0; }
+static inline int aether_nop_cond_timedwait(pthread_cond_t* c, pthread_mutex_t* m, const void* t) { (void)c; (void)m; (void)t; return 0; }
+static inline int aether_nop_key_create(pthread_key_t* k, void (*d)(void*)) { (void)k; (void)d; return 0; }
+static inline int aether_nop_key_delete(pthread_key_t k) { (void)k; return 0; }
+static inline int aether_nop_setspecific(pthread_key_t k, const void* v) { (void)k; (void)v; return 0; }
+static inline void* aether_nop_getspecific(pthread_key_t k) { (void)k; return NULL; }
+
+// Redirect pthread calls to no-op stubs via macros
+#define pthread_mutex_init(m, a)     aether_nop_mutex_init((m), (a))
+#define pthread_mutex_destroy(m)     aether_nop_mutex_destroy(m)
+#define pthread_mutex_lock(m)        aether_nop_mutex_lock(m)
+#define pthread_mutex_trylock(m)     aether_nop_mutex_trylock(m)
+#define pthread_mutex_unlock(m)      aether_nop_mutex_unlock(m)
+#define pthread_cond_init(c, a)      aether_nop_cond_init((c), (a))
+#define pthread_cond_destroy(c)      aether_nop_cond_destroy(c)
+#define pthread_cond_signal(c)       aether_nop_cond_signal(c)
+#define pthread_cond_broadcast(c)    aether_nop_cond_broadcast(c)
+#define pthread_cond_wait(c, m)      aether_nop_cond_wait((c), (m))
+#define pthread_cond_timedwait(c, m, t) aether_nop_cond_timedwait((c), (m), (t))
+#define pthread_key_create(k, d)     aether_nop_key_create((k), (d))
+#define pthread_key_delete(k)        aether_nop_key_delete(k)
+#define pthread_setspecific(k, v)    aether_nop_setspecific((k), (v))
+#define pthread_getspecific(k)       aether_nop_getspecific(k)
+
+// sched_yield stub — must come after any system header that declares it
+#if !defined(__linux__) && !defined(__APPLE__) && !defined(__EMSCRIPTEN__)
+#define sched_yield() ((void)0)
+#endif
+
+// NOTE: pthread_create/pthread_join are NOT stubbed — calling them on
+// a threadless platform is a logic error and should fail at link time.
+
+#elif !defined(_WIN32)
 
 // ============================================================
 // POSIX path — delegate to the real pthreads implementation

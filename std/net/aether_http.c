@@ -1,4 +1,14 @@
 #include "aether_http.h"
+#include "../../runtime/config/aether_optimization_config.h"
+
+#if !AETHER_HAS_NETWORKING
+HttpResponse* http_get(const char* u) { (void)u; return NULL; }
+HttpResponse* http_post(const char* u, const char* b, const char* c) { (void)u; (void)b; (void)c; return NULL; }
+HttpResponse* http_put(const char* u, const char* b, const char* c) { (void)u; (void)b; (void)c; return NULL; }
+HttpResponse* http_delete(const char* u) { (void)u; return NULL; }
+void http_response_free(HttpResponse* r) { (void)r; }
+#else
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -217,3 +227,4 @@ void http_response_free(HttpResponse* response) {
     free(response);
 }
 
+#endif // AETHER_HAS_NETWORKING

@@ -20,6 +20,19 @@ Shipped. `import std.os` provides `os.system()`, `os.exec()`, `os.getenv()`. See
 
 **Origin:** [Issue #39](https://github.com/nicolasmd87/aether/issues/39)
 
+### ~~Platform Portability Layer~~ ✓
+
+Shipped. Compile-time `AETHER_HAS_*` flags in `runtime/config/aether_optimization_config.h` (Tier 0) auto-detect platform capabilities and degrade gracefully. Override with `-DAETHER_NO_THREADING`, `-DAETHER_NO_FILESYSTEM`, `-DAETHER_NO_NETWORKING`, etc.
+
+**What's included:**
+- **9 feature flags**: `AETHER_HAS_THREADS`, `AETHER_HAS_ATOMICS`, `AETHER_HAS_FILESYSTEM`, `AETHER_HAS_NETWORKING`, `AETHER_HAS_NUMA`, `AETHER_HAS_SIMD`, `AETHER_HAS_AFFINITY`, `AETHER_HAS_GETENV`, `AETHER_HAS_MALLOC`
+- **Cooperative scheduler** (`runtime/scheduler/aether_scheduler_coop.c`): single-threaded backend, same API as multi-core scheduler
+- **Makefile `PLATFORM` variable**: `native` (default), `wasm`, `embedded` — selects scheduler and sets appropriate flags
+- **Stdlib stubs**: filesystem, networking, and OS modules return errors gracefully when features unavailable
+- **Atomics fallback**: `atomic_int` → `volatile int` when `AETHER_HAS_ATOMICS == 0` (safe for single-threaded)
+- **No-thread stubs** in `runtime/utils/aether_thread.h` for mutex/cond types
+- Zero behavior change on native platforms (all flags default to 1)
+
 ## Language Features
 
 ### Result Type — Structured Error Handling
@@ -97,6 +110,8 @@ Aether's scheduler is cooperative — each message handler runs to completion be
 
 The scheduler already enforces fairness *between* actors (caps at 64 messages per actor per batch, yields for cross-core messages), but within a single handler there is no preemption.
 
+> **Note:** The cooperative scheduler (`aether_scheduler_coop.c`) is a different concept — it's the single-threaded backend for threadless platforms (WASM, embedded), not a fairness mechanism. Cooperative preemption is about interrupting long-running handlers within the existing multi-threaded scheduler.
+
 **Planned approach (opt-in, zero cost when disabled):**
 
 - **Scheduler-side:** After each `actor->step()` call in the drain loop, check a cycle counter. If a handler exceeded a time threshold (e.g., ~1ms), break out and re-queue the actor. Cost: ~1 `rdtsc` read per step call, only when enabled.
@@ -145,16 +160,29 @@ Major features that require significant architectural work.
 
 ### WebAssembly Target
 
-Aether compiles to C, and C compiles to WASM via Emscripten, so the path exists. The main blocker is that the multi-core scheduler assumes pthreads. However, single-actor programs in main-thread mode already bypass the scheduler entirely — no threads, no locks, just straight function calls.
+Aether compiles to C, and C compiles to WASM via Emscripten, so the path exists. The platform portability layer (see below) addresses the core blockers: pthreads, filesystem, and networking dependencies are now conditionally compiled via `AETHER_HAS_*` flags.
 
 **Incremental approach:**
-- **Phase 1:** Single-actor / no-actor programs compile to WASM via Emscripten with the scheduler stripped out. Main-thread mode handles this naturally today.
-- **Phase 2:** Multi-actor programs using Web Workers as scheduler threads, with message passing over `postMessage`.
+- **Phase 1 (infrastructure done):** The cooperative scheduler (`aether_scheduler_coop.c`) provides a single-threaded backend that implements the same API as the multi-core scheduler. `PLATFORM=wasm` in the Makefile selects this scheduler and sets `-DAETHER_NO_THREADING -DAETHER_NO_FILESYSTEM -DAETHER_NO_NETWORKING`. Multi-actor programs work cooperatively — all actors run on core 0 via `aether_scheduler_poll()`. Timing uses `emscripten_get_now()` instead of `rdtsc`/`clock_gettime`.
+- **Phase 2 (future):** Multi-actor programs using Web Workers as scheduler threads, with message passing over `postMessage`.
 
-**What's needed:**
-- Emscripten build target in `ae build --target wasm`
-- Conditional compilation to strip pthreads-dependent scheduler code
-- Stdlib shims for browser/WASI environments (no filesystem, limited I/O)
+**What's done:**
+- `AETHER_HAS_*` compile-time flags with auto-detection and `-DAETHER_NO_*` overrides
+- Cooperative scheduler (`runtime/scheduler/aether_scheduler_coop.c`) — same API, single-threaded
+- Stdlib stubs for filesystem, networking, OS operations when features unavailable
+- Emscripten timing fallback in generated code (`emscripten_get_now()`)
+- `PLATFORM=wasm` Makefile target (selects cooperative scheduler, disables pthreads/fs/net)
+- Atomics fallback (`atomic_int` → `volatile int`) for single-threaded builds
+- Docker CI images (`docker/Dockerfile.wasm`, `docker/Dockerfile.embedded`) for cross-platform verification
+- `make ci-wasm` (Emscripten compile + Node.js execution), `make ci-embedded` (ARM syntax-check)
+- `make ci-coop` for testing cooperative mode on native
+- Cooperative scheduler tests: multi-actor state, message chains, 10-actor stress, ask/reply
+
+**What's remaining:**
+- `ae build --target wasm` CLI integration
+- Emscripten-specific output (`.wasm` + `.js` glue, HTML template)
+- WASI support for non-browser environments
+- End-to-end testing with real Emscripten toolchain in Docker
 
 ### Async I/O Integration
 

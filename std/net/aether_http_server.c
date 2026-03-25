@@ -1,8 +1,43 @@
 #include "aether_http_server.h"
+#include "../../runtime/config/aether_optimization_config.h"
+
+#if !AETHER_HAS_NETWORKING
+// Stubs when networking is unavailable
+HttpServer* http_server_create(int p) { (void)p; return NULL; }
+int http_server_bind(HttpServer* s, const char* h, int p) { (void)s; (void)h; (void)p; return -1; }
+int http_server_start(HttpServer* s) { (void)s; return -1; }
+void http_server_stop(HttpServer* s) { (void)s; }
+void http_server_free(HttpServer* s) { (void)s; }
+void http_server_add_route(HttpServer* s, const char* m, const char* p, HttpHandler h, void* u) { (void)s; (void)m; (void)p; (void)h; (void)u; }
+void http_server_get(HttpServer* s, const char* p, HttpHandler h, void* u) { (void)s; (void)p; (void)h; (void)u; }
+void http_server_post(HttpServer* s, const char* p, HttpHandler h, void* u) { (void)s; (void)p; (void)h; (void)u; }
+void http_server_put(HttpServer* s, const char* p, HttpHandler h, void* u) { (void)s; (void)p; (void)h; (void)u; }
+void http_server_delete(HttpServer* s, const char* p, HttpHandler h, void* u) { (void)s; (void)p; (void)h; (void)u; }
+void http_server_use_middleware(HttpServer* s, HttpMiddleware m, void* u) { (void)s; (void)m; (void)u; }
+HttpRequest* http_parse_request(const char* r) { (void)r; return NULL; }
+const char* http_get_header(HttpRequest* r, const char* k) { (void)r; (void)k; return NULL; }
+const char* http_get_query_param(HttpRequest* r, const char* k) { (void)r; (void)k; return NULL; }
+const char* http_get_path_param(HttpRequest* r, const char* k) { (void)r; (void)k; return NULL; }
+void http_request_free(HttpRequest* r) { (void)r; }
+HttpServerResponse* http_response_create() { return NULL; }
+void http_response_set_status(HttpServerResponse* r, int c) { (void)r; (void)c; }
+void http_response_set_header(HttpServerResponse* r, const char* k, const char* v) { (void)r; (void)k; (void)v; }
+void http_response_set_body(HttpServerResponse* r, const char* b) { (void)r; (void)b; }
+void http_response_json(HttpServerResponse* r, const char* j) { (void)r; (void)j; }
+char* http_response_serialize(HttpServerResponse* r) { (void)r; return NULL; }
+void http_server_response_free(HttpServerResponse* r) { (void)r; }
+int http_route_matches(const char* p, const char* u, HttpRequest* r) { (void)p; (void)u; (void)r; return 0; }
+const char* http_status_text(int c) { (void)c; return "Unknown"; }
+const char* http_mime_type(const char* p) { (void)p; return "application/octet-stream"; }
+void http_serve_file(HttpServerResponse* r, const char* f) { (void)r; (void)f; }
+void http_serve_static(HttpRequest* r, HttpServerResponse* s, void* d) { (void)r; (void)s; (void)d; }
+#else
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include "../../runtime/utils/aether_thread.h"
 
 #ifdef _WIN32
     #include <winsock2.h>
@@ -24,7 +59,6 @@
     #include <arpa/inet.h>
     #include <unistd.h>
     #include <fcntl.h>
-    #include <pthread.h>
     #include <limits.h>
 #endif
 
@@ -622,6 +656,7 @@ static void handle_client_connection(HttpServer* server, int client_fd) {
 }
 
 // Thread-per-connection: context passed to each worker thread
+#if AETHER_HAS_THREADS
 typedef struct {
     HttpServer* server;
     int client_fd;
@@ -635,6 +670,7 @@ static void* connection_thread(void* arg) {
     return NULL;
 }
 #endif
+#endif // AETHER_HAS_THREADS
 
 int http_server_start(HttpServer* server) {
     if (http_server_bind(server, server->host, server->port) < 0) {
@@ -658,7 +694,10 @@ int http_server_start(HttpServer* server) {
             continue;
         }
 
-#ifdef _WIN32
+#if !AETHER_HAS_THREADS
+        // Single-threaded: handle synchronously (cooperative/WASM/embedded)
+        handle_client_connection(server, client_fd);
+#elif defined(_WIN32)
         handle_client_connection(server, client_fd);
 #else
         ConnectionCtx* ctx = malloc(sizeof(ConnectionCtx));
@@ -871,3 +910,5 @@ void http_serve_static(HttpRequest* req, HttpServerResponse* res, void* base_dir
     http_serve_file(res, resolved);
 #endif
 }
+
+#endif // AETHER_HAS_NETWORKING

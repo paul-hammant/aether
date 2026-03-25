@@ -20,41 +20,42 @@ Single-actor programs bypass the scheduler entirely. When only one actor exists,
 
 When main thread mode is active:
 1. `aether_send_message` calls `aether_send_message_sync` instead of routing through scheduler
-2. The sync path passes the caller's stack pointer directly (no malloc, no memcpy)
-3. `actor->step()` is called synchronously in the sender's context
-4. A TLS flag (`g_skip_free`) prevents the handler from freeing the stack pointer
+2. **Threaded mode:** The sync path passes the caller's stack pointer directly (no malloc, no memcpy). A TLS flag (`g_skip_free`) prevents the handler from freeing the stack pointer
+3. **Cooperative mode:** The sync path heap-allocates a copy of the message data, because the mailbox may have other messages queued ahead — the immediate `step()` call consumes the oldest message (FIFO), not necessarily the one just sent
+4. `actor->step()` is called synchronously in the sender's context
 
 ```c
 static inline void aether_send_message_sync(ActorBase* actor, void* message_data, size_t message_size) {
     Message msg;
     msg.type = *(int*)message_data;
-    msg.payload_ptr = message_data;  // Direct pointer to caller's stack
+#if AETHER_HAS_THREADS
+    msg.payload_ptr = message_data;  // Direct pointer to caller's stack (zero-copy)
+#else
+    msg.payload_ptr = malloc(message_size);  // Cooperative: heap-copy (FIFO safety)
+    memcpy(msg.payload_ptr, message_data, message_size);
+#endif
 
     mailbox_send(&actor->mailbox, msg);
 
+#if AETHER_HAS_THREADS
     g_skip_free = 1;
+#endif
     actor->step(actor);
+#if AETHER_HAS_THREADS
     g_skip_free = 0;
+#endif
 }
 ```
 
 **Per-actor flag:**
 
-The `main_thread_only` field on `ActorBase` signals scheduler threads to skip processing this actor. When a second actor spawns, the flag is cleared on the first actor so scheduler threads can process both normally.
-
-```c
-typedef struct {
-    // ...
-    atomic_int main_thread_only;  // If set, scheduler threads skip this actor
-    // ...
-} ActorBase;
-```
+The `main_thread_only` field on `ActorBase` signals scheduler threads to skip processing this actor. When a second actor spawns, the flag is cleared on the first actor so scheduler threads can process both normally. In cooperative mode, `main_thread_only` stays set for all actors — the cooperative scheduler always processes them directly.
 
 **Scheduler integration:**
 
-- `scheduler_start()` returns immediately if main thread mode is active
-- `scheduler_wait()` returns immediately if main thread mode is active (non-destructive; does not stop threads)
-- Scheduler threads check `actor->main_thread_only` before processing
+- `scheduler_start()` returns immediately if main thread mode is active (no-op in cooperative mode)
+- `scheduler_wait()` returns immediately in threaded mode; in cooperative mode, drains via `aether_scheduler_poll()` loop
+- Scheduler threads check `actor->main_thread_only` before processing (cooperative mode has no scheduler threads)
 
 ### Thread-Local Message Payload Pools
 

@@ -39,9 +39,10 @@ static int g_hw_detected = 0;
 void aether_detect_hardware(void) {
     if (g_hw_detected) return;
     g_hw_detected = 1;
-    
+
+#if AETHER_HAS_SIMD
     const CPUInfo* cpu = cpu_get_info();
-    
+
     // SIMD detection
     if (cpu->avx2_supported) {
         g_hw_caps.simd_available = true;
@@ -60,20 +61,30 @@ void aether_detect_hardware(void) {
     if (cpu->avx512f_supported) {
         g_hw_caps.simd_width = 512;
     }
-    
+
     // MWAIT detection (power-efficient idle)
     g_hw_caps.mwait_available = cpu->mwait_supported;
-    
+
+    // Cache line size
+    g_hw_caps.cache_line_size = cpu->cache_line_size > 0 ? cpu->cache_line_size : 64;
+#else
+    // No SIMD detection on this platform
+    g_hw_caps.simd_available = false;
+    g_hw_caps.simd_width = 0;
+    g_hw_caps.mwait_available = false;
+    g_hw_caps.cache_line_size = 64;
+#endif
+
     // CPU pinning detection (OS-dependent)
-    // Linux: pthread_setaffinity_np, macOS: thread_policy_set, Windows: SetThreadAffinityMask
-#if defined(__linux__) || defined(__APPLE__) || defined(_WIN32)
+#if AETHER_HAS_AFFINITY
+#  if defined(__linux__) || defined(__APPLE__) || defined(_WIN32)
     g_hw_caps.cpu_pinning_available = true;
+#  else
+    g_hw_caps.cpu_pinning_available = false;
+#  endif
 #else
     g_hw_caps.cpu_pinning_available = false;
 #endif
-    
-    // Cache line size
-    g_hw_caps.cache_line_size = cpu->cache_line_size > 0 ? cpu->cache_line_size : 64;
 }
 
 // Configure runtime with user flags
@@ -95,6 +106,7 @@ void aether_runtime_configure(AetherOptFlags flags) {
 // Initialize runtime config from environment variables
 // Called once at scheduler init before any actors spawn
 void aether_init_from_env(void) {
+#if AETHER_HAS_GETENV
     // Check inline mode env overrides first
     if (getenv("AETHER_INLINE")) {
         atomic_store(&g_aether_config.inline_mode_forced, true);
@@ -124,6 +136,12 @@ void aether_init_from_env(void) {
     if (getenv("AETHER_VERBOSE")) {
         atomic_store(&g_aether_config.verbose, true);
     }
+#else
+    // No getenv: use defaults
+    g_aether_config.profile = AETHER_PROFILE_MEDIUM;
+    g_aether_config.msg_pool_size = aether_profile_msg_pool_size(AETHER_PROFILE_MEDIUM);
+    g_aether_config.actor_pool_size = aether_profile_actor_pool_size(AETHER_PROFILE_MEDIUM);
+#endif
 }
 
 // Profile name helper
@@ -139,6 +157,17 @@ static const char* aether_profile_name(AetherProfile p) {
 // Print current configuration
 void aether_print_config(void) {
     printf("\n=== Aether Runtime Configuration ===\n\n");
+
+    printf("TIER 0 - PLATFORM CAPABILITIES:\n");
+    printf("  Threads:    %s\n", AETHER_HAS_THREADS    ? "YES" : "NO");
+    printf("  Atomics:    %s\n", AETHER_HAS_ATOMICS    ? "YES" : "NO");
+    printf("  Filesystem: %s\n", AETHER_HAS_FILESYSTEM ? "YES" : "NO");
+    printf("  Networking: %s\n", AETHER_HAS_NETWORKING ? "YES" : "NO");
+    printf("  NUMA:       %s\n", AETHER_HAS_NUMA       ? "YES" : "NO");
+    printf("  SIMD:       %s\n", AETHER_HAS_SIMD       ? "YES" : "NO");
+    printf("  Affinity:   %s\n", AETHER_HAS_AFFINITY   ? "YES" : "NO");
+    printf("  getenv:     %s\n", AETHER_HAS_GETENV     ? "YES" : "NO");
+    printf("  malloc:     %s\n\n", AETHER_HAS_MALLOC   ? "YES" : "NO");
 
     printf("PROFILE: %s (msg_pool=%d, actor_pool=%d)\n",
            aether_profile_name(g_aether_config.profile),

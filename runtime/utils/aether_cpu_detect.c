@@ -1,6 +1,7 @@
 // CPU Feature Detection for Runtime Optimization
 // Detects AVX2, AVX-512, and other CPU capabilities
 
+#include "../config/aether_optimization_config.h"
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
@@ -16,10 +17,12 @@
 #include <windows.h>
 #endif
 
-#ifdef _WIN32
-#include <intrin.h>
-#elif defined(__x86_64__) || defined(__i386__) || defined(_M_X64) || defined(_M_IX86)
-#include <cpuid.h>
+#if AETHER_HAS_SIMD
+#  ifdef _WIN32
+#    include <intrin.h>
+#  elif defined(__x86_64__) || defined(__i386__) || defined(_M_X64) || defined(_M_IX86)
+#    include <cpuid.h>
+#  endif
 #endif
 
 typedef struct {
@@ -38,6 +41,7 @@ typedef struct {
 static CPUInfo g_cpu_info = {0};
 static int g_cpu_info_initialized = 0;
 
+#if AETHER_HAS_SIMD
 // CPUID wrapper
 static void cpuid(uint32_t leaf, uint32_t subleaf, uint32_t* eax, uint32_t* ebx, uint32_t* ecx, uint32_t* edx) {
 #ifdef _WIN32
@@ -57,10 +61,45 @@ static void cpuid(uint32_t leaf, uint32_t subleaf, uint32_t* eax, uint32_t* ebx,
     *edx = 0;
 #endif
 }
+#endif // AETHER_HAS_SIMD
 
 // Detect CPU features
 void cpu_detect_features(CPUInfo* info) {
-#if defined(__aarch64__) || defined(__arm64__) || defined(__arm__)
+#if !AETHER_HAS_SIMD
+    // Minimal detection when SIMD is unavailable (WASM, embedded)
+    strncpy(info->cpu_brand, "Unknown (SIMD disabled)", sizeof(info->cpu_brand) - 1);
+    info->cpu_brand[sizeof(info->cpu_brand) - 1] = '\0';
+    info->avx_supported = 0;
+    info->avx2_supported = 0;
+    info->avx512f_supported = 0;
+    info->fma_supported = 0;
+    info->sse42_supported = 0;
+    info->mwait_supported = 0;
+    info->monitor_supported = 0;
+    info->cache_line_size = 64;
+    // Try to get core count from OS
+#if defined(__EMSCRIPTEN__)
+    info->num_cores = 1;  // WASM is single-threaded
+#elif defined(__linux__)
+    long nprocs = sysconf(_SC_NPROCESSORS_ONLN);
+    info->num_cores = (nprocs > 0) ? (int)nprocs : 1;
+#elif defined(__APPLE__)
+    int mib[2] = {CTL_HW, HW_NCPU};
+    unsigned int ncpu = 0;
+    size_t len = sizeof(ncpu);
+    if (sysctl(mib, 2, &ncpu, &len, NULL, 0) == 0 && ncpu > 0)
+        info->num_cores = ncpu;
+    else
+        info->num_cores = 1;
+#elif defined(_WIN32)
+    SYSTEM_INFO si;
+    GetNativeSystemInfo(&si);
+    info->num_cores = (int)si.dwNumberOfProcessors;
+#else
+    info->num_cores = 1;
+#endif
+    return;
+#elif defined(__aarch64__) || defined(__arm64__) || defined(__arm__)
     // ARM architecture - use OS APIs for detection
     strncpy(info->cpu_brand, "ARM Processor", sizeof(info->cpu_brand) - 1);
     info->cpu_brand[sizeof(info->cpu_brand) - 1] = '\0';

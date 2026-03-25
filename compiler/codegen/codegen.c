@@ -3,7 +3,6 @@
 #include <string.h>
 #include <stdarg.h>
 #include <stdbool.h>
-#include <pthread.h>
 #include "codegen_internal.h"
 #include "../aether_module.h"
 #include "../aether_error.h"
@@ -744,6 +743,8 @@ void generate_program(CodeGenerator* gen, ASTNode* program) {
     print_line(gen, "#ifdef _WIN32");
     print_line(gen, "#define NOMINMAX");
     print_line(gen, "#include <windows.h>");
+    print_line(gen, "#elif defined(__EMSCRIPTEN__)");
+    print_line(gen, "#include <emscripten.h>");
     print_line(gen, "#else");
     print_line(gen, "#include <unistd.h>");
     print_line(gen, "#endif");
@@ -764,7 +765,7 @@ void generate_program(CodeGenerator* gen, ASTNode* program) {
     print_line(gen, "#endif");
     /* GCC/Clang vs MSVC: guards for statement expressions ({...}) and computed goto */
     print_line(gen, "#ifndef AETHER_GCC_COMPAT");
-    print_line(gen, "#  if defined(__GNUC__) || defined(__clang__)");
+    print_line(gen, "#  if (defined(__GNUC__) || defined(__clang__)) && !defined(__EMSCRIPTEN__)");
     print_line(gen, "#    define AETHER_GCC_COMPAT 1");
     print_line(gen, "#  else");
     print_line(gen, "#    define AETHER_GCC_COMPAT 0");
@@ -778,6 +779,10 @@ void generate_program(CodeGenerator* gen, ASTNode* program) {
     print_line(gen, "    QueryPerformanceFrequency(&freq);");
     print_line(gen, "    QueryPerformanceCounter(&now);");
     print_line(gen, "    return (int64_t)((double)now.QuadPart / freq.QuadPart * 1000000000.0);");
+    print_line(gen, "}");
+    print_line(gen, "#elif defined(__EMSCRIPTEN__)");
+    print_line(gen, "static int64_t _aether_clock_ns(void) {");
+    print_line(gen, "    return (int64_t)(emscripten_get_now() * 1000000.0);");
     print_line(gen, "}");
     print_line(gen, "#else");
     print_line(gen, "static int64_t _aether_clock_ns(void) {");
@@ -850,6 +855,8 @@ void generate_program(CodeGenerator* gen, ASTNode* program) {
         print_line(gen, "    struct timespec ts;");
         print_line(gen, "    clock_gettime(CLOCK_MONOTONIC, &ts);");
         print_line(gen, "    return (uint64_t)ts.tv_sec * 1000000000ULL + ts.tv_nsec;");
+        print_line(gen, "#elif defined(__EMSCRIPTEN__)");
+        print_line(gen, "    return (uint64_t)(emscripten_get_now() * 1000000.0);");
         print_line(gen, "#else");
         print_line(gen, "    return 0;");
         print_line(gen, "#endif");

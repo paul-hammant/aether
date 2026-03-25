@@ -2318,11 +2318,15 @@ static int cmd_version_install(const char* version) {
 #ifdef _WIN32
         char rm_cmd[1024];
         snprintf(rm_cmd, sizeof(rm_cmd), "rmdir /S /Q \"%s\"", ver_dir);
-        system(rm_cmd);
+        if (system(rm_cmd) != 0) {
+            fprintf(stderr, "Warning: failed to remove incomplete install at %s\n", ver_dir);
+        }
 #else
         char rm_cmd[1024];
         snprintf(rm_cmd, sizeof(rm_cmd), "rm -rf '%s'", ver_dir);
-        system(rm_cmd);
+        if (system(rm_cmd) != 0) {
+            fprintf(stderr, "Warning: failed to remove incomplete install at %s\n", ver_dir);
+        }
 #endif
     }
 
@@ -2492,7 +2496,10 @@ static int cmd_version_use(const char* version) {
     snprintf(cmd, sizeof(cmd),
         "mkdir -p \"%s\" && cp -f \"%s\"/* \"%s/\" 2>/dev/null; true",
         dest_bin, src_bin, dest_bin);
-    system(cmd);
+    if (system(cmd) != 0) {
+        fprintf(stderr, "Error: failed to copy binaries from %s to %s\n", src_bin, dest_bin);
+        return 1;
+    }
 
     // Sync lib/, include/, and share/ from the version directory to ~/.aether/
     // so that stale files left by a previous install.sh don't shadow the
@@ -2511,7 +2518,8 @@ static int cmd_version_use(const char* version) {
         if (path_exists(new_ae)) {
             snprintf(cmd, sizeof(cmd),
                 "\"%s\" version --sync-from \"%s\" 2>/dev/null", new_ae, ver_dir);
-            system(cmd);  // best-effort; also do in-process sync below
+            int _sync_rc = system(cmd);  // best-effort; in-process sync below handles failure
+            (void)_sync_rc;
         }
     }
     {
@@ -2525,7 +2533,9 @@ static int cmd_version_use(const char* version) {
                 snprintf(cmd, sizeof(cmd),
                     "rm -rf \"%s\" && cp -r \"%s\" \"%s\"",
                     dest, src_sub, dest);
-                system(cmd);
+                if (system(cmd) != 0) {
+                    fprintf(stderr, "Warning: failed to sync %s to %s\n", src_sub, dest);
+                }
             }
         }
     }
@@ -2588,7 +2598,9 @@ static int cmd_version(int argc, char** argv) {
                 snprintf(dest, sizeof(dest), "%s/.aether/%s", h, subdirs[i]);
                 snprintf(cmd, sizeof(cmd),
                     "rm -rf \"%s\" && cp -r \"%s\" \"%s\"", dest, src_sub, dest);
-                system(cmd);
+                if (system(cmd) != 0) {
+                    fprintf(stderr, "Warning: failed to sync %s to %s\n", src_sub, dest);
+                }
             }
         }
         return 0;

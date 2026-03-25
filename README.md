@@ -3,7 +3,7 @@
 [![CI](https://github.com/nicolasmd87/aether/actions/workflows/ci.yml/badge.svg)](https://github.com/nicolasmd87/aether/actions/workflows/ci.yml)
 [![Windows](https://github.com/nicolasmd87/aether/actions/workflows/windows.yml/badge.svg)](https://github.com/nicolasmd87/aether/actions/workflows/windows.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey)]()
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS%20%7C%20WASM%20%7C%20Embedded-lightgrey)]()
 
 A compiled actor-based programming language with type inference, designed for concurrent systems. Aether compiles to C for native performance and seamless C interoperability.
 
@@ -41,6 +41,13 @@ The Aether runtime implements a native actor system with optimized message passi
 - **Message coalescing** for higher throughput
 - **Adaptive batching** dynamically adjusts batch sizes
 - **Direct send** for same-core actors bypasses queues
+
+### Platform Portability
+- **Compile-time platform detection** via `AETHER_HAS_*` flags (threads, atomics, filesystem, networking, NUMA, SIMD, affinity)
+- **Cooperative scheduler** for single-threaded platforms (WebAssembly, embedded, bare-metal)
+- **Graceful degradation** — stdlib stubs return errors when features are unavailable
+- **`PLATFORM=wasm|embedded`** Makefile targets for cross-compilation
+- **Docker CI images** for Emscripten (WASM) and ARM (embedded) verification
 
 ### Advanced Features
 - **SIMD batch processing** with AVX2 support
@@ -156,7 +163,7 @@ In a project directory (with `aether.toml`), `ae run` and `ae build` compile `sr
 make compiler                    # Build compiler only
 make ae                          # Build ae CLI tool
 make test                        # Run runtime C test suite (166 tests)
-make test-ae                     # Run .ae source tests (90 tests)
+make test-ae                     # Run .ae source tests (95 tests)
 make test-all                    # Run all tests
 make examples                    # Build all examples
 make -j8                         # Parallel build
@@ -176,9 +183,10 @@ aether/
 │   └── aetherc.c      # Compiler entry point
 ├── runtime/           # Runtime system
 │   ├── actors/        # Actor implementation and lock-free mailboxes
+│   ├── config/        # Platform detection, optimization tiers, runtime config
 │   ├── memory/        # Arena allocators, memory pools, batch allocation
-│   ├── scheduler/     # Multi-core partitioned scheduler with work-stealing fallback
-│   └── utils/         # CPU detection, SIMD, tracing, profiling
+│   ├── scheduler/     # Multi-core scheduler + cooperative single-threaded backend
+│   └── utils/         # CPU detection, SIMD, tracing, thread portability
 ├── std/               # Standard library
 │   ├── string/       # String operations
 │   ├── file/         # File operations (open, read, write, delete)
@@ -205,7 +213,7 @@ aether/
 │   ├── actors/       # Actor patterns (ping-pong, pipeline, etc.)
 │   └── applications/ # Complete applications
 ├── docs/            # Documentation
-└── docker/          # Docker configuration
+└── docker/          # Docker (CI, dev, WASM, embedded)
 ```
 
 ## Language Example
@@ -285,6 +293,13 @@ Available flags:
 
 The runtime employs a tiered optimization strategy:
 
+**TIER 0 - Platform Capabilities (compile-time):**
+- `AETHER_HAS_THREADS` — pthreads/Win32 threads (auto-detected; disabled on WASM/embedded)
+- `AETHER_HAS_ATOMICS` — C11 stdatomic (fallback: volatile for single-threaded)
+- `AETHER_HAS_FILESYSTEM` / `AETHER_HAS_NETWORKING` — stdlib feature gates
+- `AETHER_HAS_SIMD` / `AETHER_HAS_NUMA` / `AETHER_HAS_AFFINITY` — hardware feature gates
+- Override any flag with `-DAETHER_NO_<FEATURE>` (e.g. `-DAETHER_NO_THREADING`)
+
 **TIER 1 - Always Enabled:**
 - Actor pooling (reduces allocation overhead)
 - Direct send for same-core actors (bypasses queues)
@@ -331,6 +346,22 @@ make test-all
 make examples
 ```
 
+### Portability Testing
+
+```bash
+# Test cooperative scheduler on native (no Docker needed)
+make ci-coop
+
+# Test WASM cross-compilation (requires Docker)
+make docker-ci-wasm
+
+# Test ARM embedded cross-compilation (requires Docker)
+make docker-ci-embedded
+
+# Run all portability checks
+make ci-portability
+```
+
 ### Running Benchmarks
 
 ```bash
@@ -360,7 +391,9 @@ Aether is under active development. The compiler, runtime, and standard library 
 - Interactive REPL (`ae repl`) with session persistence and error recovery
 - C embedding via `--emit-header`
 - IDE support (VS Code, Cursor) with syntax highlighting
-- Cross-platform (macOS, Linux, Windows)
+- Cross-platform (macOS, Linux, Windows) with cooperative scheduler for WASM and embedded targets
+- Platform portability layer with compile-time feature detection and graceful degradation
+- Docker CI for cross-platform verification (Emscripten WASM, ARM embedded)
 
 **Known Limitations:**
 - No versioned package registry yet (local modules and stdlib work; `ae add` can clone GitHub repos but has no dependency resolution or lock files)

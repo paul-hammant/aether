@@ -3,6 +3,10 @@
 //
 // OPTIMIZATION TIERS:
 // ====================
+// Tier 0 - PLATFORM CAPABILITIES (compile-time detection):
+//   - AETHER_HAS_THREADS, AETHER_HAS_ATOMICS, AETHER_HAS_FILESYSTEM, etc.
+//   - Auto-detected from target platform, overridable via -DAETHER_NO_*
+//
 // Tier 1 - ALWAYS ON (built-in, proven wins):
 //   - Actor Pooling (1.81x speedup)
 //   - Direct Send (same-core bypass)
@@ -22,10 +26,174 @@
 #ifndef AETHER_OPTIMIZATION_CONFIG_H
 #define AETHER_OPTIMIZATION_CONFIG_H
 
-#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include "../utils/aether_compiler.h"
+
+// ============================================================================
+// TIER 0: PLATFORM CAPABILITIES (compile-time detection)
+// Auto-detected from target platform. Override with -DAETHER_NO_<FEATURE>.
+// These flags MUST be resolved before any other header is included because
+// they control whether <stdatomic.h>, <pthread.h>, etc. are pulled in.
+// ============================================================================
+
+// --- Threads (pthreads / Win32 threads) ---
+#ifndef AETHER_HAS_THREADS
+#  if defined(__EMSCRIPTEN__) || defined(AETHER_NO_THREADING)
+#    define AETHER_HAS_THREADS 0
+#  else
+#    define AETHER_HAS_THREADS 1
+#  endif
+#endif
+
+// --- C11 Atomics ---
+#ifndef AETHER_HAS_ATOMICS
+#  if defined(AETHER_NO_ATOMICS) || (defined(__STDC_NO_ATOMICS__))
+#    define AETHER_HAS_ATOMICS 0
+#  else
+#    define AETHER_HAS_ATOMICS 1
+#  endif
+#endif
+
+// --- Filesystem (stdio, fopen, stat, etc.) ---
+#ifndef AETHER_HAS_FILESYSTEM
+#  if defined(AETHER_NO_FILESYSTEM)
+#    define AETHER_HAS_FILESYSTEM 0
+#  else
+#    define AETHER_HAS_FILESYSTEM 1
+#  endif
+#endif
+
+// --- Networking (sockets, connect, etc.) ---
+#ifndef AETHER_HAS_NETWORKING
+#  if defined(__EMSCRIPTEN__) || defined(AETHER_NO_NETWORKING)
+#    define AETHER_HAS_NETWORKING 0
+#  else
+#    define AETHER_HAS_NETWORKING 1
+#  endif
+#endif
+
+// --- NUMA (Linux libnuma / Win32 NUMA API) ---
+#ifndef AETHER_HAS_NUMA
+#  if defined(AETHER_NO_NUMA) || defined(__EMSCRIPTEN__)
+#    define AETHER_HAS_NUMA 0
+#  elif defined(__linux__) || defined(_WIN32)
+#    define AETHER_HAS_NUMA 1
+#  else
+#    define AETHER_HAS_NUMA 0
+#  endif
+#endif
+
+// --- SIMD (AVX2/NEON/SSE) ---
+#ifndef AETHER_HAS_SIMD
+#  if defined(AETHER_NO_SIMD) || defined(__EMSCRIPTEN__)
+#    define AETHER_HAS_SIMD 0
+#  elif defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86) || defined(__aarch64__) || defined(__arm64__)
+#    define AETHER_HAS_SIMD 1
+#  else
+#    define AETHER_HAS_SIMD 0
+#  endif
+#endif
+
+// --- Thread Affinity (core pinning) ---
+#ifndef AETHER_HAS_AFFINITY
+#  if defined(AETHER_NO_AFFINITY) || defined(__EMSCRIPTEN__)
+#    define AETHER_HAS_AFFINITY 0
+#  elif defined(__linux__) || defined(__APPLE__) || defined(_WIN32)
+#    define AETHER_HAS_AFFINITY 1
+#  else
+#    define AETHER_HAS_AFFINITY 0
+#  endif
+#endif
+
+// --- getenv() ---
+#ifndef AETHER_HAS_GETENV
+#  if defined(AETHER_NO_GETENV) || (defined(__STDC_HOSTED__) && (__STDC_HOSTED__ == 0))
+#    define AETHER_HAS_GETENV 0
+#  else
+#    define AETHER_HAS_GETENV 1
+#  endif
+#endif
+
+// --- malloc/free ---
+#ifndef AETHER_HAS_MALLOC
+#  if defined(AETHER_NO_MALLOC)
+#    define AETHER_HAS_MALLOC 0
+#  else
+#    define AETHER_HAS_MALLOC 1
+#  endif
+#endif
+
+// --- Atomics: real or fallback ---
+#if AETHER_HAS_ATOMICS
+#  include <stdatomic.h>
+#else
+// Single-threaded fallback: volatile serves as documentation, no real barriers needed
+typedef volatile int   atomic_int;
+typedef volatile _Bool atomic_bool;
+typedef volatile unsigned long long atomic_uint_fast64_t;
+#  define atomic_load(p)                    (*(p))
+#  define atomic_store(p, v)                (*(p) = (v))
+#  define atomic_load_explicit(p, mo)       (*(p))
+#  define atomic_store_explicit(p, v, mo)   (*(p) = (v))
+#  define atomic_fetch_add(p, v)            ({ typeof(*(p)) _old = *(p); *(p) += (v); _old; })
+#  define atomic_fetch_add_explicit(p, v, mo) atomic_fetch_add(p, v)
+#  define atomic_fetch_sub(p, v)            ({ typeof(*(p)) _old = *(p); *(p) -= (v); _old; })
+#  define atomic_fetch_sub_explicit(p, v, mo) atomic_fetch_sub(p, v)
+#  define atomic_flag_test_and_set(p)       ({ bool _old = (p)->_Value; (p)->_Value = 1; _old; })
+#  define atomic_flag_test_and_set_explicit(p, mo) atomic_flag_test_and_set(p)
+#  define atomic_flag_clear(p)              ((p)->_Value = 0)
+#  define atomic_flag_clear_explicit(p, mo) atomic_flag_clear(p)
+typedef struct { volatile int _Value; } atomic_flag;
+#  define ATOMIC_FLAG_INIT {0}
+#  define _Atomic(T) volatile T
+#  define atomic_init(p, v)                  (*(p) = (v))
+#  define atomic_exchange(p, v)              ({ typeof(*(p)) _old = *(p); *(p) = (v); _old; })
+#  define atomic_exchange_explicit(p, v, mo) atomic_exchange(p, v)
+#  define atomic_compare_exchange_strong(p, expected, desired) \
+    ({ typeof(*(p)) _exp = *(expected); bool _ok = (*(p) == _exp); \
+       if (_ok) *(p) = (desired); else *(expected) = *(p); _ok; })
+#  define atomic_compare_exchange_strong_explicit(p, expected, desired, s, f) \
+    atomic_compare_exchange_strong(p, expected, desired)
+#  define atomic_compare_exchange_weak(p, expected, desired) \
+    atomic_compare_exchange_strong(p, expected, desired)
+#  define atomic_compare_exchange_weak_explicit(p, expected, desired, s, f) \
+    atomic_compare_exchange_strong(p, expected, desired)
+#  define atomic_thread_fence(mo) ((void)0)
+// Memory order constants (no-ops in single-threaded)
+#  define memory_order_relaxed 0
+#  define memory_order_acquire 0
+#  define memory_order_release 0
+#  define memory_order_acq_rel 0
+#  define memory_order_seq_cst 0
+#endif
+
+// Runtime-queryable platform capabilities
+typedef struct {
+    bool has_threads;
+    bool has_atomics;
+    bool has_filesystem;
+    bool has_networking;
+    bool has_numa;
+    bool has_simd;
+    bool has_affinity;
+    bool has_getenv;
+    bool has_malloc;
+} AetherPlatformCaps;
+
+static inline AetherPlatformCaps aether_platform_caps(void) {
+    return (AetherPlatformCaps){
+        .has_threads    = AETHER_HAS_THREADS,
+        .has_atomics    = AETHER_HAS_ATOMICS,
+        .has_filesystem = AETHER_HAS_FILESYSTEM,
+        .has_networking = AETHER_HAS_NETWORKING,
+        .has_numa       = AETHER_HAS_NUMA,
+        .has_simd       = AETHER_HAS_SIMD,
+        .has_affinity   = AETHER_HAS_AFFINITY,
+        .has_getenv     = AETHER_HAS_GETENV,
+        .has_malloc     = AETHER_HAS_MALLOC,
+    };
+}
 
 // ============================================================================
 // MEMORY PROFILES (auto-detected or user-specified via AETHER_PROFILE)
@@ -75,6 +243,7 @@ static inline int aether_profile_actor_pool_size(AetherProfile p) {
 
 // Parse AETHER_PROFILE env var
 static inline AetherProfile aether_profile_from_env(void) {
+#if AETHER_HAS_GETENV
     const char* env = getenv("AETHER_PROFILE");
     if (!env) return AETHER_PROFILE_MEDIUM;
 
@@ -82,18 +251,31 @@ static inline AetherProfile aether_profile_from_env(void) {
     if (env[0] == 's') return AETHER_PROFILE_SMALL;                   // "small"
     if (env[0] == 'l') return AETHER_PROFILE_LARGE;                   // "large"
     return AETHER_PROFILE_MEDIUM;                                      // "medium" or unknown
+#else
+    return AETHER_PROFILE_MEDIUM;
+#endif
 }
 
 // Read integer from env var with default
 static inline int aether_env_int(const char* name, int default_val) {
+#if AETHER_HAS_GETENV
     const char* env = getenv(name);
     if (!env) return default_val;
     return atoi(env);
+#else
+    (void)name;
+    return default_val;
+#endif
 }
 
 // Check if env var is set (any value = true, absent = false)
 static inline bool aether_env_bool(const char* name) {
+#if AETHER_HAS_GETENV
     return getenv(name) != NULL;
+#else
+    (void)name;
+    return false;
+#endif
 }
 
 // ============================================================================

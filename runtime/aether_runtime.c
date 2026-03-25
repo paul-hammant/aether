@@ -7,7 +7,7 @@
 #include <stdlib.h>
 
 // Global runtime configuration
-static AetherRuntimeConfig g_runtime_config = {0};
+static AetherRuntimeInitConfig g_runtime_config = {0};
 static int g_runtime_initialized = 0;
 
 // Initialize runtime with default settings
@@ -63,7 +63,7 @@ void aether_runtime_init(int num_cores, int flags) {
 }
 
 // Get current runtime configuration
-const AetherRuntimeConfig* aether_runtime_get_config() {
+const AetherRuntimeInitConfig* aether_runtime_get_config() {
     if (!g_runtime_initialized) {
         // Initialize with defaults on first access
         aether_runtime_init(0, AETHER_FLAG_AUTO_DETECT);
@@ -73,13 +73,13 @@ const AetherRuntimeConfig* aether_runtime_get_config() {
 
 // Check if a specific feature is enabled
 int aether_runtime_has_feature(int feature_flag) {
-    const AetherRuntimeConfig* config = aether_runtime_get_config();
+    const AetherRuntimeInitConfig* config = aether_runtime_get_config();
     return (config->flags & feature_flag) != 0;
 }
 
 // Print current runtime configuration
 void aether_runtime_print_config() {
-    const AetherRuntimeConfig* config = aether_runtime_get_config();
+    const AetherRuntimeInitConfig* config = aether_runtime_get_config();
     const CPUInfo* cpu = cpu_get_info();
     
     printf("\n");

@@ -1,7 +1,32 @@
 #include "aether_numa.h"
+#include "config/aether_optimization_config.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+
+#if !AETHER_HAS_NUMA
+// Minimal stubs when NUMA is disabled (embedded, WASM, macOS, or -DAETHER_NO_NUMA)
+
+static aether_numa_topology_t g_topology = {0};
+static bool g_initialized = false;
+
+aether_numa_topology_t aether_numa_init(void) {
+    if (g_initialized) return g_topology;
+    g_topology.num_nodes = 1;
+    g_topology.num_cpus = 1;
+    g_topology.cpu_to_node = NULL;
+    g_topology.available = false;
+    g_initialized = true;
+    return g_topology;
+}
+
+int aether_numa_node_of_cpu(int cpu_id) { (void)cpu_id; return -1; }
+void* aether_numa_alloc(size_t size, int node) { (void)node; return malloc(size); }
+void aether_numa_free(void* ptr, size_t size) { (void)size; free(ptr); }
+void aether_numa_cleanup(void) { g_initialized = false; }
+
+#else
+// Full NUMA implementation
 
 #ifdef _WIN32
 #include <windows.h>
@@ -196,3 +221,5 @@ void aether_numa_cleanup(void) {
     }
     g_initialized = false;
 }
+
+#endif // AETHER_HAS_NUMA

@@ -1,4 +1,12 @@
 #include "aether_os.h"
+#include "../../runtime/config/aether_optimization_config.h"
+
+#if !AETHER_HAS_FILESYSTEM
+int os_system(const char* c) { (void)c; return -1; }
+char* os_exec(const char* c) { (void)c; return NULL; }
+char* os_getenv(const char* n) { (void)n; return NULL; }
+#else
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -67,3 +75,5 @@ char* os_getenv(const char* name) {
     if (!val) return NULL;
     return strdup(val);
 }
+
+#endif // AETHER_HAS_FILESYSTEM

@@ -147,6 +147,39 @@ make -j8    # 8 parallel jobs
 
 Limited by dependency ordering: some files must build before others.
 
+## Cross-Compilation (PLATFORM variable)
+
+The `PLATFORM` Makefile variable selects the scheduler backend and sets platform-specific flags:
+
+```bash
+# Native (default) — multi-core scheduler, pthreads
+make stdlib PLATFORM=native
+
+# WebAssembly — cooperative scheduler, no pthreads/fs/net
+make stdlib PLATFORM=wasm    # CC=emcc, -DAETHER_NO_THREADING/FILESYSTEM/NETWORKING
+
+# Embedded — cooperative scheduler, no pthreads/fs/net/getenv
+make stdlib PLATFORM=embedded    # -DAETHER_NO_THREADING/FILESYSTEM/NETWORKING/GETENV
+
+# Override individual features on native
+make stdlib EXTRA_CFLAGS="-DAETHER_NO_THREADING"    # Auto-selects cooperative scheduler
+make stdlib EXTRA_CFLAGS="-DAETHER_NO_FILESYSTEM -DAETHER_NO_NETWORKING"
+```
+
+The Makefile auto-detects `AETHER_NO_THREADING` in `EXTRA_CFLAGS` and switches to the cooperative scheduler automatically. It also omits `-pthread` from linker flags.
+
+### Docker-Based Cross-Compilation
+
+For cross-compilation without installing toolchains locally:
+
+```bash
+make docker-ci-wasm        # Emscripten SDK → compile + run with Node.js
+make docker-ci-embedded    # arm-none-eabi-gcc → syntax-check
+make ci-portability        # All: native coop + WASM + embedded
+```
+
+Docker images: `docker/Dockerfile.wasm` (Emscripten), `docker/Dockerfile.embedded` (ARM Cortex-M4).
+
 ## Build Recommendations
 
 | Use Case | Flags | Notes |
@@ -155,6 +188,8 @@ Limited by dependency ordering: some files must build before others.
 | Testing/CI | `-O2` | Balanced optimization |
 | Release | `-O3 -march=native -flto` | Full optimization |
 | Profiling | PGO pipeline | Based on representative workload |
+| WASM | `PLATFORM=wasm` | Cooperative scheduler, Emscripten |
+| Embedded | `PLATFORM=embedded` | Cooperative scheduler, no OS |
 
 ## References
 

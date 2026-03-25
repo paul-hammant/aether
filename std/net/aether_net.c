@@ -1,4 +1,16 @@
 #include "aether_net.h"
+#include "../../runtime/config/aether_optimization_config.h"
+
+#if !AETHER_HAS_NETWORKING
+TcpSocket* tcp_connect(const char* h, int p) { (void)h; (void)p; return NULL; }
+int tcp_send(TcpSocket* s, const char* d) { (void)s; (void)d; return 0; }
+char* tcp_receive(TcpSocket* s, int m) { (void)s; (void)m; return NULL; }
+int tcp_close(TcpSocket* s) { (void)s; return 0; }
+TcpServer* tcp_listen(int p) { (void)p; return NULL; }
+TcpSocket* tcp_accept(TcpServer* s) { (void)s; return NULL; }
+int tcp_server_close(TcpServer* s) { (void)s; return 0; }
+#else
+
 #include <stdlib.h>
 #include <string.h>
 
@@ -170,3 +182,5 @@ int tcp_server_close(TcpServer* server) {
     free(server);
     return 0;
 }
+
+#endif // AETHER_HAS_NETWORKING

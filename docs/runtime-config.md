@@ -283,8 +283,35 @@ if (pool->is_thread_local) {
 | **Old x86** (pre-2013) | Yes | No | SSE4.2 | Hard | Partial |
 | **ARM Linux** | Yes | No (WFE) | NEON | Hard | Full support |
 | **Windows** | Yes | Yes | AVX2 | Hard | Full support |
+| **WebAssembly** (Emscripten) | N/A | No | No | No | Cooperative scheduler |
+| **Embedded** (ARM bare-metal) | N/A | No | No | No | Cooperative scheduler |
 
 Runtime automatically uses best available optimizations for each platform.
+
+### Cooperative Mode
+
+On platforms without pthreads (WASM, embedded), or when threading is explicitly disabled (`-DAETHER_NO_THREADING`), the cooperative scheduler handles all actor processing on a single thread. Multi-actor programs work correctly — messages are processed cooperatively during `wait_for_idle()`.
+
+```bash
+# Force cooperative mode on native (for testing):
+make stdlib EXTRA_CFLAGS="-DAETHER_NO_THREADING"
+ae run examples/actors/counter.ae
+
+# Build for WebAssembly:
+make stdlib PLATFORM=wasm
+```
+
+### Platform Capability Flags
+
+All platform-dependent code is gated behind `AETHER_HAS_*` compile-time flags defined in `runtime/config/aether_optimization_config.h`. These are auto-detected but can be overridden:
+
+```bash
+# Disable specific features
+make stdlib EXTRA_CFLAGS="-DAETHER_NO_FILESYSTEM -DAETHER_NO_NETWORKING"
+
+# Query capabilities at runtime
+AETHER_VERBOSE=1 ./program
+```
 
 **Apple Silicon Notes:**
 - P-cores (Performance) detected via `hw.perflevel0.physicalcpu`

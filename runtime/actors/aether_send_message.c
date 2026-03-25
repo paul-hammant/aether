@@ -5,7 +5,6 @@
 #include <string.h>
 #include <stdlib.h>
 #include "../utils/aether_thread.h"
-#include <stdatomic.h>
 
 // Thread-local core ID for optimization
 extern AETHER_TLS int current_core_id;
@@ -167,26 +166,41 @@ AETHER_TLS int g_skip_free = 0;
 AETHER_TLS ActorBase* g_sync_step_actor = NULL;
 
 static inline void AETHER_HOT aether_send_message_sync(ActorBase* actor, void* message_data, size_t message_size) {
-    // ULTRA-FAST PATH: Pass original message directly without copying
-    // Since processing is synchronous, caller's stack memory is still valid
-    // We mark g_skip_free so step() doesn't try to free the caller's stack
-
     Message msg;
     msg.type = *(int*)message_data;
     msg.sender_id = 0;
     msg.payload_int = 0;
-    msg.payload_ptr = message_data;
     msg.zerocopy.data = NULL;
     msg.zerocopy.size = 0;
     msg.zerocopy.owned = 0;
     msg._reply_slot = g_pending_reply_slot;
 
+#if AETHER_HAS_THREADS
+    // ULTRA-FAST PATH: Pass original message directly without copying
+    // Since processing is synchronous, caller's stack memory is still valid
+    // We mark g_skip_free so step() doesn't try to free the caller's stack
+    msg.payload_ptr = message_data;
+#else
+    // COOPERATIVE MODE: heap-allocate the message data.
+    // The mailbox may have other messages queued ahead, so the immediate
+    // step() call below may consume a different message (FIFO order).
+    // The just-sent message will be processed later by scheduler_wait(),
+    // by which time the caller's stack frame may be gone.
+    void* heap_copy = malloc(message_size);
+    if (heap_copy) {
+        memcpy(heap_copy, message_data, message_size);
+    }
+    msg.payload_ptr = heap_copy;
+#endif
+
     mailbox_send(&actor->mailbox, msg);
 
+#if AETHER_HAS_THREADS
     // Tell aether_free_message to skip freeing the initial (stack-allocated) message.
     // Self-sent messages from handlers are heap-allocated (see g_sync_step_actor check
     // in aether_send_message), so they can be freed normally.
     g_skip_free = 1;
+#endif
     // Guard: scheduler_spawn_pooled defers main_thread_only=0 while this is set
     g_sync_step_actor = actor;
     actor->step(actor);
@@ -196,7 +210,9 @@ static inline void AETHER_HOT aether_send_message_sync(ActorBase* actor, void* m
     if (unlikely(!aether_main_thread_mode_active())) {
         atomic_flag_clear_explicit(&actor->step_lock, memory_order_release);
     }
+#if AETHER_HAS_THREADS
     g_skip_free = 0;
+#endif
 
     // Do NOT drain self-sent messages here.  If a handler does self ! Msg {},
     // the message sits in the mailbox and will be processed on the NEXT call to
@@ -228,6 +244,7 @@ void aether_send_message(void* actor_ptr, void* message_data, size_t message_siz
     // For single-actor programs (like counting benchmark), process immediately.
     // No scheduler threads, no queues, no atomics - pure function call.
     if (aether_main_thread_mode_active()) {
+#if AETHER_HAS_THREADS
         // If we're already inside a step() (self-send from a handler), the actor
         // needs to run independently from the main thread.  Disable main-thread
         // mode so the scheduler threads take over message processing.  This
@@ -248,12 +265,15 @@ void aether_send_message(void* actor_ptr, void* message_data, size_t message_siz
             // mode skips thread creation in scheduler_start()).
             scheduler_ensure_threads_running();
             // Fall through to the standard multi-actor send path below.
-        } else {
+        } else
+#endif // AETHER_HAS_THREADS
+        {
             aether_send_message_sync(actor, message_data, message_size);
             return;
         }
     }
 
+#if AETHER_HAS_THREADS
     // ==============================================================================
     // STANDARD PATH: Multi-actor scheduler-based processing
     // ==============================================================================
@@ -289,4 +309,8 @@ void aether_send_message(void* actor_ptr, void* message_data, size_t message_siz
         // Cross-core or main thread: use queue
         scheduler_send_remote(actor, msg, current_core_id);
     }
+#else
+    // No threads: always use synchronous processing
+    aether_send_message_sync(actor, message_data, message_size);
+#endif // AETHER_HAS_THREADS
 }

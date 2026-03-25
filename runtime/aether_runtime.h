@@ -26,7 +26,7 @@ typedef struct {
     int use_lockfree_pools;
     int use_mwait;
     int use_simd;
-} AetherRuntimeConfig;
+} AetherRuntimeInitConfig;
 
 // Runtime initialization
 void aether_runtime_init(int num_cores, int flags);
@@ -40,7 +40,7 @@ int aether_args_count(void);
 const char* aether_args_get(int index);
 
 // Configuration queries
-const AetherRuntimeConfig* aether_runtime_get_config();
+const AetherRuntimeInitConfig* aether_runtime_get_config();
 int aether_runtime_has_feature(int feature_flag);
 void aether_runtime_print_config();
 

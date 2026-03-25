@@ -12,10 +12,34 @@ Single-actor programs bypass the scheduler entirely. When only one actor exists 
 - `scheduler_start()` returns immediately
 - `scheduler_wait()` returns immediately (non-destructive; does not stop threads)
 - `aether_send_message` processes synchronously via `aether_send_message_sync`
-- Zero-copy: message data passed directly from caller's stack
+- **Threaded mode:** Zero-copy — message data passed directly from caller's stack
+- **Cooperative mode:** Heap-copy — message data is `malloc`'d because mailbox FIFO order means the sent message may not be consumed by the immediate `step()` call
 
 **Per-actor flag:**
-The `main_thread_only` field on `ActorBase` signals scheduler threads to skip processing this actor. When a second actor spawns, the flag is cleared on the first actor.
+The `main_thread_only` field on `ActorBase` signals scheduler threads to skip processing this actor. When a second actor spawns, the flag is cleared on the first actor. In cooperative mode, this flag stays set for all actors.
+
+---
+
+## Cooperative Scheduler
+
+On platforms without pthreads (WebAssembly, embedded) or when threading is explicitly disabled (`-DAETHER_NO_THREADING`), the cooperative scheduler (`aether_scheduler_coop.c`) provides the same API as the multi-core scheduler but runs everything on a single thread.
+
+**Key differences:**
+- `scheduler_init()` forces `num_cores = 1`, `main_thread_mode = true`
+- `scheduler_start()` / `scheduler_stop()` are no-ops
+- `scheduler_wait()` polls all actors via `aether_scheduler_poll()` until no messages remain
+- All sends go to local mailbox (no cross-core routing)
+- Ask/reply is synchronous (poll until `reply_ready`)
+
+**Selection:** Controlled by `PLATFORM=wasm|embedded` or auto-detected from `EXTRA_CFLAGS` containing `AETHER_NO_THREADING`. Only one scheduler .c file is compiled.
+
+```bash
+# Test cooperative mode on native
+make ci-coop
+
+# Build for WASM
+make stdlib PLATFORM=wasm
+```
 
 ---
 
@@ -175,9 +199,12 @@ Both migration and work stealing use ascending core-id lock ordering to prevent 
 - `runtime/actors/aether_adaptive_batch.h` - Adaptive batch sizing
 
 ### Implementation
-- `runtime/scheduler/multicore_scheduler.c` - Scheduler core, coalescing, migration, work stealing
+- `runtime/scheduler/multicore_scheduler.c` - Multi-core scheduler: coalescing, migration, work stealing
+- `runtime/scheduler/aether_scheduler_coop.c` - Cooperative single-threaded scheduler (WASM, embedded)
+- `runtime/config/aether_optimization_config.h` - Platform detection (Tier 0 `AETHER_HAS_*` flags)
 - `runtime/actors/aether_send_message.c` - Message sending, thread-local pools
 - `runtime/actors/aether_actor_thread.c` - Actor-owned thread loop
+- `runtime/utils/aether_thread.h` - Portable thread primitives (POSIX/Win32/no-op stubs)
 - `runtime/aether_numa.c` - NUMA topology detection and allocation
 
 ### Tests

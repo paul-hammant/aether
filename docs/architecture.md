@@ -266,10 +266,55 @@ IDENTIFIER("x") EQUALS NUMBER(42) PLUS IDENTIFIER("y")
 4. Platform support: Linux (libnuma), Windows (VirtualAllocExNuma), macOS (fallback)
 
 **Key Files:**
-- `runtime/scheduler/multicore_scheduler.c` - Implementation
-- `runtime/scheduler/multicore_scheduler.h` - API and data structures
+- `runtime/scheduler/multicore_scheduler.c` - Multi-core implementation
+- `runtime/scheduler/aether_scheduler_coop.c` - Cooperative single-threaded backend
+- `runtime/scheduler/multicore_scheduler.h` - API and data structures (shared by both)
 - `runtime/scheduler/lockfree_queue.h` - Cross-core message queue
 - `runtime/aether_numa.c` - NUMA detection and allocation
+
+### Cooperative Scheduler (Threadless Platforms)
+
+For platforms without pthreads (WebAssembly, embedded, bare-metal), the cooperative scheduler (`aether_scheduler_coop.c`) implements the same API as the multi-core scheduler but runs everything on a single thread.
+
+**Architecture:**
+```
++-----------------------------------+
+|    Cooperative Scheduler          |
+|  +---------+---------+---------+  |
+|  | Actor 1 | Actor 2 | Actor 3 |  |
+|  | (poll)  | (poll)  | (poll)  |  |
+|  +---------+---------+---------+  |
+|  All on core 0, round-robin poll  |
++-----------------------------------+
+```
+
+**Key Differences from Multi-Core:**
+- `scheduler_init()` forces `num_cores = 1` and `main_thread_mode = true`
+- `scheduler_start()` / `scheduler_stop()` are no-ops (no threads to manage)
+- `scheduler_wait()` drains via `aether_scheduler_poll()` loop
+- All sends are local (no cross-core queues, no migration)
+- Ask/reply is synchronous (poll until reply_ready)
+- `aether_send_message_sync()` heap-allocates message data (no zero-copy stack optimization — mailbox FIFO order means the sent message may not be the next one consumed)
+
+**Selection:** The Makefile selects the scheduler based on `PLATFORM` or auto-detects `AETHER_NO_THREADING` in `EXTRA_CFLAGS`. Only one scheduler .c file is compiled into the binary.
+
+### Platform Detection (Tier 0)
+
+`runtime/config/aether_optimization_config.h` defines compile-time `AETHER_HAS_*` flags that gate all platform-dependent code. These are resolved before any other header is included.
+
+| Flag | Default 1 when | Default 0 when |
+|------|----------------|----------------|
+| `AETHER_HAS_THREADS` | Linux/macOS/Windows | `__EMSCRIPTEN__`, `-DAETHER_NO_THREADING` |
+| `AETHER_HAS_ATOMICS` | C11 stdatomic available | `__STDC_NO_ATOMICS__`, `-DAETHER_NO_ATOMICS` |
+| `AETHER_HAS_FILESYSTEM` | Hosted platforms | `-DAETHER_NO_FILESYSTEM` |
+| `AETHER_HAS_NETWORKING` | Linux/macOS/Windows | `__EMSCRIPTEN__`, `-DAETHER_NO_NETWORKING` |
+| `AETHER_HAS_NUMA` | Linux/Windows | macOS, `__EMSCRIPTEN__`, `-DAETHER_NO_NUMA` |
+| `AETHER_HAS_SIMD` | x86_64/aarch64 | `-DAETHER_NO_SIMD`, `__EMSCRIPTEN__` |
+| `AETHER_HAS_AFFINITY` | Linux/macOS/Windows | `-DAETHER_NO_AFFINITY`, `__EMSCRIPTEN__` |
+| `AETHER_HAS_GETENV` | Hosted platforms | `-DAETHER_NO_GETENV`, freestanding |
+| `AETHER_HAS_MALLOC` | Everywhere | `-DAETHER_NO_MALLOC` |
+
+When `AETHER_HAS_ATOMICS == 0`, `<stdatomic.h>` is replaced with fallback typedefs (`atomic_int` → `volatile int`). When `AETHER_HAS_THREADS == 0`, `aether_thread.h` provides no-op pthread stubs via macro redirects.
 
 ### Memory Management
 
