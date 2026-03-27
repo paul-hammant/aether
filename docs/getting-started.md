@@ -160,11 +160,13 @@ Requires [Emscripten](https://emscripten.org/) (`emcc` on PATH).
 ae check hello.ae
 ```
 
-**Add a package:**
+**Add a package (any git host):**
 
 ```bash
-ae add github.com/user/repo          # latest
+ae add github.com/user/repo          # latest from GitHub
 ae add github.com/user/repo@v1.0.0   # specific version
+ae add gitlab.com/user/repo           # GitLab
+ae add codeberg.org/user/repo         # Codeberg
 ```
 
 ## Interactive REPL

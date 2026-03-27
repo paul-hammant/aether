@@ -1724,9 +1724,11 @@ static int cmd_test(int argc, char** argv) {
 
 static int cmd_add(int argc, char** argv) {
     if (argc < 1 || argv[0][0] == '-') {
-        fprintf(stderr, "Usage: ae add <package>[@version]\n");
-        fprintf(stderr, "Example: ae add github.com/user/repo\n");
-        fprintf(stderr, "         ae add github.com/user/repo@v1.2.0\n");
+        fprintf(stderr, "Usage: ae add <host>/<user>/<repo>[@version]\n");
+        fprintf(stderr, "Examples:\n");
+        fprintf(stderr, "  ae add github.com/user/repo\n");
+        fprintf(stderr, "  ae add github.com/user/repo@v1.2.0\n");
+        fprintf(stderr, "  ae add gitlab.com/user/repo\n");
         return 1;
     }
 
@@ -1748,9 +1750,15 @@ static int cmd_add(int argc, char** argv) {
         return 1;
     }
 
-    if (strncmp(package, "github.com/", 11) != 0) {
-        fprintf(stderr, "Error: Only GitHub packages supported.\n");
-        fprintf(stderr, "Format: ae add github.com/user/repo[@version]\n");
+    // Validate: must look like a git-hostable URL (host.tld/user/repo)
+    // Supports GitHub, GitLab, Bitbucket, Codeberg, self-hosted, etc.
+    if (!strchr(package, '/') || !strchr(package, '.')) {
+        fprintf(stderr, "Error: Package must be a git-hostable path.\n");
+        fprintf(stderr, "Format: ae add <host>/<user>/<repo>[@version]\n");
+        fprintf(stderr, "Examples:\n");
+        fprintf(stderr, "  ae add github.com/user/repo\n");
+        fprintf(stderr, "  ae add gitlab.com/user/repo@v1.0.0\n");
+        fprintf(stderr, "  ae add codeberg.org/user/repo\n");
         return 1;
     }
 

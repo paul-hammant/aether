@@ -541,12 +541,13 @@ safe_divide(a: int, b: int) -> {
 }
 
 main() {
+    // Check error first, handle it, then continue — no else needed
     result, err = safe_divide(10, 3)
     if err != "" {
         println("Error: ${err}")
-    } else {
-        println("Result: ${result}")
+        exit(1)
     }
+    println("Result: ${result}")
 
     // Discard unwanted values with _
     val, _ = safe_divide(42, 7)

@@ -17,7 +17,7 @@ Aether is a compiled language that brings actor-based concurrency to systems pro
 - Compiles to readable C for portability and C library interop
 - Lock-free message passing with adaptive optimizations
 - Go-style result types: `a, err = func()` with `_` discard
-- Package management: `ae add github.com/user/repo[@version]`
+- Package management: `ae add host/user/repo[@version]` (GitHub, GitLab, Bitbucket, any git host)
 
 ## Runtime Features
 
@@ -149,7 +149,7 @@ ae run [file.ae]         # Compile and run (file or project)
 ae build [file.ae]       # Compile to executable
 ae test [file|dir]       # Discover and run tests
 ae examples [dir]        # Build all example programs
-ae add <package>         # Add a dependency (GitHub repos)
+ae add <host/user/repo>  # Add a dependency (any git host)
 ae repl                  # Start interactive REPL
 ae cache                 # Show build cache info
 ae cache clear           # Clear the build cache
@@ -401,7 +401,7 @@ Aether is under active development. The compiler, runtime, and standard library 
 - Docker CI for cross-platform verification (Emscripten WASM, ARM embedded)
 
 **Known Limitations:**
-- No versioned package registry yet (local modules and stdlib work; `ae add` can clone GitHub repos but has no dependency resolution or lock files)
+- Package registry supports any git host but lacks transitive dependency resolution and lock file integrity checking
 
 **Roadmap:**
 - Hot code reloading
