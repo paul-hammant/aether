@@ -74,14 +74,14 @@ main() {
     }
     println("PASS: chain 100/5 = ${v1}")
 
-    v2, e2 = checked_divide(10, 0)
+    _, e2 = checked_divide(10, 0)
     if e2 == "" {
         println("FAIL: expected chain error")
         exit(1)
     }
     println("PASS: chain error propagated: ${e2}")
 
-    v3, e3 = checked_divide(0 - 1, 5)
+    _, e3 = checked_divide(0 - 1, 5)
     if e3 == "" {
         println("FAIL: expected validation error")
         exit(1)

@@ -4,7 +4,7 @@ main() {
     pi = 3.14159
     radius = 5.0
     
-    area = pi * radius * radius
+    _area = pi * radius * radius
     
     print("Area: ")
     // Note: print currently only supports basic types

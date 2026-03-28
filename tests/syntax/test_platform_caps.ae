@@ -78,8 +78,8 @@ main() {
     // Test 2: Ping-pong between 3 actors
     println("Test 2: Ping-pong between actors");
     pinger = spawn(PingActor());
-    ponger1 = spawn(PongActor());
-    ponger2 = spawn(PongActor());
+    _ponger1 = spawn(PongActor());
+    _ponger2 = spawn(PongActor());
 
     // Send pings to both pongers — they'll pong back
     // Note: pongers need ref set, but we can't set state externally.

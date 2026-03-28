@@ -17,7 +17,7 @@ main() {
     }
 
     // Null in conditional (int(0) -> ptr widening)
-    z = 0
+    _z = 0
     println("null_compare: ok")
 
     // Multiple null variables

@@ -25,15 +25,15 @@ main() {
 
     // Test 1: Single ask
     println("Test 1: Single ask");
-    r1 = calc ? Compute { a: 5, b: 3 };
+    _r1 = calc ? Compute { a: 5, b: 3 };
     // 5 * 3 + 5 = 20
     println("  5 * 3 + 5 = 20");
     println("  PASS: ask returned");
 
     // Test 2: Multiple asks in sequence
     println("Test 2: Sequential asks");
-    r2 = calc ? Compute { a: 10, b: 2 };
-    r3 = calc ? Compute { a: 7, b: 4 };
+    _r2 = calc ? Compute { a: 10, b: 2 };
+    _r3 = calc ? Compute { a: 7, b: 4 };
     println("  10 * 2 + 10 = 30");
     println("  7 * 4 + 7 = 35");
     println("  PASS: sequential asks returned");
@@ -43,7 +43,7 @@ main() {
     calc ! Compute { a: 1, b: 1 };
     calc ! Compute { a: 2, b: 2 };
     calc ! Compute { a: 3, b: 3 };
-    r4 = calc ? Compute { a: 100, b: 1 };
+    _r4 = calc ? Compute { a: 100, b: 1 };
     // Should process all queued messages then the ask
     println("  PASS: ask after queued messages returned");
 

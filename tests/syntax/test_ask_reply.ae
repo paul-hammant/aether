@@ -34,7 +34,7 @@ main() {
 
     // Test 2: Synchronous ask with ? operator
     print("\nTest 2: synchronous ask (? operator)\n")
-    r = d ? Compute { x: 21 }
+    _r = d ? Compute { x: 21 }
     print("  PASS: ask returned\n")
 
     // Test 3: Multiple asks in sequence
