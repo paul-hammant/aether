@@ -224,12 +224,68 @@ static int posix_run(const char* cmd_str, int quiet) {
 }
 #endif
 
+// Windows: use _spawnvp to avoid cmd.exe quoting issues with system()
+#ifdef _WIN32
+#include <process.h>
+#include <io.h>
+#ifndef _O_WRONLY
+#define _O_WRONLY 1
+#endif
+static int win_run(const char* cmd_str, int quiet) {
+    if (tc.verbose) fprintf(stderr, "[cmd] %s\n", cmd_str);
+    char buf[16384];
+    strncpy(buf, cmd_str, sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = '\0';
+
+    char* toks[512];
+    int n = 0;
+    for (char* p = buf; *p && n < 511; ) {
+        while (*p == ' ') p++;
+        if (!*p) break;
+        if (*p == '"') {
+            p++;
+            toks[n++] = p;
+            while (*p && *p != '"') p++;
+            if (*p) *p++ = '\0';
+        } else {
+            toks[n++] = p;
+            while (*p && *p != ' ') p++;
+            if (*p) *p++ = '\0';
+        }
+    }
+    toks[n] = NULL;
+    if (n == 0) return 0;
+
+    // Redirect stdout/stderr for quiet modes
+    int saved_stdout = -1, saved_stderr = -1;
+    if (quiet == 1 || quiet == 2) {
+        fflush(stdout);
+        saved_stdout = _dup(1);
+        int nul = _open("nul", _O_WRONLY);
+        if (nul >= 0) { _dup2(nul, 1); _close(nul); }
+    }
+    if (quiet == 1) {
+        fflush(stderr);
+        saved_stderr = _dup(2);
+        int nul = _open("nul", _O_WRONLY);
+        if (nul >= 0) { _dup2(nul, 2); _close(nul); }
+    }
+
+    int ret = (int)_spawnvp(_P_WAIT, toks[0], (const char* const*)toks);
+
+    // Restore
+    if (saved_stdout >= 0) { _dup2(saved_stdout, 1); _close(saved_stdout); }
+    if (saved_stderr >= 0) { _dup2(saved_stderr, 2); _close(saved_stderr); }
+
+    return ret;
+}
+#endif
+
 static int run_cmd(const char* cmd) {
 #ifndef _WIN32
     return posix_run(cmd, 0);
 #else
-    if (tc.verbose) fprintf(stderr, "[cmd] %s\n", cmd);
-    return system(cmd);
+    return win_run(cmd, 0);
 #endif
 }
 
@@ -238,11 +294,7 @@ static int run_cmd_quiet(const char* cmd) {
 #ifndef _WIN32
     return posix_run(cmd, 1);
 #else
-    char full[16384 + 64];
-    // Redirect stdout+stderr to nul. No cmd /c wrapping — system() already
-    // invokes the shell, and cmd /c mangles double-quoted arguments.
-    snprintf(full, sizeof(full), "%s >nul 2>&1", cmd);
-    return system(full);
+    return win_run(cmd, 1);
 #endif
 }
 
@@ -251,9 +303,7 @@ static int run_cmd_show_warnings(const char* cmd) {
 #ifndef _WIN32
     return posix_run(cmd, 2);
 #else
-    char full[16384 + 32];
-    snprintf(full, sizeof(full), "%s >nul", cmd);
-    return system(full);
+    return win_run(cmd, 2);
 #endif
 }
 
@@ -1446,10 +1496,15 @@ static int cmd_build(int argc, char** argv) {
     // Step 1: .ae to .c
     snprintf(cmd, sizeof(cmd), "\"%s\" \"%s\" \"%s\"", tc.compiler, file, c_file);
 
+    // Always run visible on failure; print diagnostic on Windows
     int aetherc_ret = tc.verbose ? run_cmd(cmd) : run_cmd_quiet(cmd);
     if (aetherc_ret != 0) {
+        fprintf(stderr, "[diag] aetherc returned %d for: %s\n", aetherc_ret, file);
+        fprintf(stderr, "[diag] cmd: %s\n", cmd);
+        // Retry visible
         snprintf(cmd, sizeof(cmd), "\"%s\" \"%s\" \"%s\"", tc.compiler, file, c_file);
-        run_cmd(cmd);
+        int retry_ret = run_cmd(cmd);
+        fprintf(stderr, "[diag] retry returned %d\n", retry_ret);
         fprintf(stderr, "Compilation failed.\n");
         return 1;
     }
