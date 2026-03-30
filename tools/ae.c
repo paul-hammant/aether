@@ -2779,6 +2779,40 @@ static int cmd_version_use(const char* version) {
         }
     }
 #else
+    // Backup current version to versions/ before switching (preserves initial install)
+    {
+        char avpath_bak[512];
+        snprintf(avpath_bak, sizeof(avpath_bak), "%s/.aether/active_version", home);
+        FILE* avf_bak = fopen(avpath_bak, "r");
+        if (avf_bak) {
+            char cur_ver[64] = "";
+            if (fgets(cur_ver, sizeof(cur_ver), avf_bak)) {
+                char* nl = strchr(cur_ver, '\n'); if (nl) *nl = '\0';
+            }
+            fclose(avf_bak);
+            if (cur_ver[0]) {
+                char cur_vtag[64];
+                if (cur_ver[0] != 'v') snprintf(cur_vtag, sizeof(cur_vtag), "v%s", cur_ver);
+                else { strncpy(cur_vtag, cur_ver, sizeof(cur_vtag) - 1); cur_vtag[sizeof(cur_vtag)-1] = '\0'; }
+                char cur_ver_dir[512];
+                snprintf(cur_ver_dir, sizeof(cur_ver_dir), "%s/.aether/versions/%s", home, cur_vtag);
+                if (!dir_exists(cur_ver_dir)) {
+                    char bak_cmd[4096];
+                    mkdirs(cur_ver_dir);
+                    // Copy bin/, lib/, include/, share/ but NOT versions/ or cache/
+                    snprintf(bak_cmd, sizeof(bak_cmd),
+                        "cp -r \"%s/.aether/bin\" \"%s/\" 2>/dev/null; "
+                        "cp -r \"%s/.aether/lib\" \"%s/\" 2>/dev/null; "
+                        "cp -r \"%s/.aether/include\" \"%s/\" 2>/dev/null; "
+                        "cp -r \"%s/.aether/share\" \"%s/\" 2>/dev/null; true",
+                        home, cur_ver_dir, home, cur_ver_dir,
+                        home, cur_ver_dir, home, cur_ver_dir);
+                    (void)system(bak_cmd);
+                }
+            }
+        }
+    }
+
     // POSIX: update ~/.aether/current symlink
     char current[512];
     snprintf(current, sizeof(current), "%s/.aether/current", home);
@@ -2799,6 +2833,11 @@ static int cmd_version_use(const char* version) {
         fprintf(stderr, "Error: failed to copy binaries from %s to %s\n", src_bin, dest_bin);
         return 1;
     }
+#ifdef __APPLE__
+    // Remove macOS quarantine so Gatekeeper doesn't kill unsigned binaries
+    snprintf(cmd, sizeof(cmd), "xattr -cr \"%s\"/* 2>/dev/null; true", dest_bin);
+    (void)system(cmd);
+#endif
 
     // Sync lib/, include/, and share/ from the version directory to ~/.aether/
     // so that stale files left by a previous install.sh don't shadow the
