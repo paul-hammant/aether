@@ -190,9 +190,7 @@ static ASTNode* parse_interp_string_expr(const char* raw) {
     #define FLUSH_LIT() do { \
         lit_buf[lit_len] = '\0'; \
         ASTNode* _lit = create_ast_node(AST_LITERAL, lit_buf, 0, 0); \
-        Type* _t = malloc(sizeof(Type)); \
-        _t->kind = TYPE_STRING; _t->struct_name = NULL; _t->element_type = NULL; \
-        _lit->node_type = _t; \
+        _lit->node_type = create_type(TYPE_STRING); \
         add_child(interp, _lit); \
         lit_len = 0; \
     } while(0)
