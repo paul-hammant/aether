@@ -215,12 +215,15 @@ static const char* type_name(Type* t) {
         case TYPE_MESSAGE:  return "message";
         case TYPE_ARRAY:    return "array";
         case TYPE_STRUCT:   return t->struct_name ? t->struct_name : "struct";
+        case TYPE_FUNCTION:  return "closure";
+        case TYPE_TUPLE:    return "tuple";
         case TYPE_UNKNOWN:  return "unknown";
         default:            return "unknown";
     }
 }
 
 // Count the number of formal parameters of a function definition node
+// Skips _ctx parameters (auto-injected by builder context)
 static int count_function_params(ASTNode* func) {
     if (!func || func->child_count == 0) return 0;
     int count = 0;
@@ -230,6 +233,11 @@ static int count_function_params(ASTNode* func) {
         if (child->type == AST_VARIABLE_DECLARATION ||
             child->type == AST_PATTERN_VARIABLE ||
             child->type == AST_PATTERN_LITERAL) {
+            // Skip _ctx parameters — they're auto-injected by the builder system
+            if (child->value && strcmp(child->value, "_ctx") == 0 &&
+                child->node_type && child->node_type->kind == TYPE_PTR) {
+                continue;
+            }
             count++;
         }
         // AST_GUARD_CLAUSE is skipped (not a parameter)
@@ -822,6 +830,20 @@ int typecheck_program(ASTNode* program) {
     // Memory builtins
     Type* free_builtin_type = create_type(TYPE_VOID);
     add_symbol(global_table, "free", free_builtin_type, 0, 1, 0);
+
+    // Array/collection builtins
+    Type* make_type = create_type(TYPE_PTR);  // returns allocated memory
+    add_symbol(global_table, "make", make_type, 0, 1, 0);
+
+    // Closure/iteration builtins
+    Type* each_type = create_type(TYPE_VOID);
+    add_symbol(global_table, "each", each_type, 0, 1, 0);
+    Type* call_type = create_type(TYPE_INT);  // return type depends on closure
+    add_symbol(global_table, "call", call_type, 0, 1, 0);
+    Type* builder_ctx_type = create_type(TYPE_PTR);
+    add_symbol(global_table, "builder_context", builder_ctx_type, 0, 1, 0);
+    Type* builder_depth_type = create_type(TYPE_INT);
+    add_symbol(global_table, "builder_depth", builder_depth_type, 0, 1, 0);
 
     // First pass: collect all declarations
     for (int i = 0; i < program->child_count; i++) {
@@ -1785,6 +1807,38 @@ int typecheck_expression(ASTNode* expr, SymbolTable* table) {
             expr->node_type = create_type(TYPE_STRING);
             return 1;
 
+        case AST_CLOSURE: {
+            // Create a child scope for the closure's parameters
+            SymbolTable* closure_scope = create_symbol_table(table);
+
+            // Register closure parameters in the child scope
+            for (int i = 0; i < expr->child_count; i++) {
+                ASTNode* child = expr->children[i];
+                if (child && child->type == AST_CLOSURE_PARAM && child->value) {
+                    Type* ptype = child->node_type ? clone_type(child->node_type)
+                                                   : create_type(TYPE_INT); // default to int
+                    add_symbol(closure_scope, child->value, ptype, 0, 0, 0);
+                }
+            }
+
+            // Type check the body block in the closure scope
+            for (int i = 0; i < expr->child_count; i++) {
+                ASTNode* child = expr->children[i];
+                if (child && child->type == AST_BLOCK) {
+                    for (int j = 0; j < child->child_count; j++) {
+                        typecheck_expression(child->children[j], closure_scope);
+                    }
+                }
+            }
+
+            free_symbol_table(closure_scope);
+
+            if (!expr->node_type) {
+                expr->node_type = create_type(TYPE_FUNCTION);
+            }
+            return 1;
+        }
+
         case AST_ARRAY_ACCESS:
             // Type check array access — validate index is integer
             if (expr->child_count >= 2) {
@@ -2038,6 +2092,19 @@ int typecheck_function_call(ASTNode* call, SymbolTable* table) {
     if (symbol->node && symbol->node->type == AST_FUNCTION_DEFINITION) {
         int expected = count_function_params(symbol->node);
         int got = call->child_count;
+        // If mismatch, try excluding trailing closures (for functions that
+        // don't accept fn params but have trailing blocks for DSL syntax)
+        if (got != expected) {
+            int non_closure = 0;
+            for (int i = 0; i < call->child_count; i++) {
+                if (call->children[i] && call->children[i]->type != AST_CLOSURE) {
+                    non_closure++;
+                }
+            }
+            if (non_closure == expected) {
+                got = non_closure; // trailing closures are DSL blocks, not args
+            }
+        }
         if (got != expected) {
             char error_msg[256];
             snprintf(error_msg, sizeof(error_msg),

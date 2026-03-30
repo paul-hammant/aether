@@ -67,6 +67,19 @@ CodeGenerator* create_code_generator(FILE* output) {
     gen->tuple_type_names = NULL;
     gen->tuple_type_count = 0;
     gen->tuple_type_capacity = 0;
+    // Builder function registry
+    gen->builder_funcs = NULL;
+    gen->builder_func_count = 0;
+    gen->builder_func_capacity = 0;
+    gen->in_trailing_block = 0;
+    // Closure support
+    gen->closure_counter = 0;
+    gen->closures = NULL;
+    gen->closure_count = 0;
+    gen->closure_capacity = 0;
+    gen->closure_var_map = NULL;
+    gen->closure_var_count = 0;
+    gen->closure_var_capacity = 0;
     // Ask/reply type map
     gen->reply_type_map = NULL;
     gen->reply_type_count = 0;
@@ -550,6 +563,8 @@ const char* get_c_type(Type* type) {
             }
             return buffer;
         }
+        case TYPE_FUNCTION:
+            return "_AeClosure";
         case TYPE_UNKNOWN: {
             AetherError w = {NULL, NULL, 0, 0,
                              "unresolved type in codegen, defaulting to int",
@@ -875,6 +890,16 @@ void generate_program(CodeGenerator* gen, ASTNode* program) {
     print_line(gen, "#pragma GCC diagnostic pop");
     print_line(gen, "#endif");
     print_line(gen, "");
+    // Closure support: generic closure struct (function pointer + captured environment)
+    print_line(gen, "typedef struct { void (*fn)(void); void* env; } _AeClosure;");
+    // Builder context stack: trailing blocks push/pop the return value
+    // Library functions can call _aether_builder_ctx() to find their parent
+    print_line(gen, "static void* _aether_ctx_stack[64];");
+    print_line(gen, "static int _aether_ctx_depth = 0;");
+    print_line(gen, "static inline void _aether_ctx_push(void* ctx) { if (_aether_ctx_depth < 64) _aether_ctx_stack[_aether_ctx_depth++] = ctx; }");
+    print_line(gen, "static inline void _aether_ctx_pop(void) { if (_aether_ctx_depth > 0) _aether_ctx_depth--; }");
+    print_line(gen, "static inline void* _aether_ctx_get(void) { return _aether_ctx_depth > 0 ? _aether_ctx_stack[_aether_ctx_depth-1] : (void*)0; }");
+    print_line(gen, "");
     // Declare runtime args function (avoid full header to prevent conflicts with actor runtime)
     print_line(gen, "void aether_args_init(int argc, char** argv);");
     print_line(gen, "");
@@ -964,6 +989,38 @@ void generate_program(CodeGenerator* gen, ASTNode* program) {
         }
     }
     print_line(gen, "");
+
+    // Pre-pass: identify builder functions (first param is _ctx: ptr)
+    // These get builder_context() auto-injected at call sites inside trailing blocks
+    for (int i = 0; i < program->child_count; i++) {
+        ASTNode* child = program->children[i];
+        if (!child || child->type != AST_FUNCTION_DEFINITION || !child->value) continue;
+        // Check if first non-guard, non-block child is _ctx: ptr
+        for (int j = 0; j < child->child_count; j++) {
+            ASTNode* param = child->children[j];
+            if (param->type == AST_GUARD_CLAUSE || param->type == AST_BLOCK) continue;
+            if ((param->type == AST_PATTERN_VARIABLE || param->type == AST_VARIABLE_DECLARATION) &&
+                param->value && strcmp(param->value, "_ctx") == 0 &&
+                param->node_type && param->node_type->kind == TYPE_PTR) {
+                // Register as builder function
+                if (gen->builder_func_count >= gen->builder_func_capacity) {
+                    gen->builder_func_capacity = gen->builder_func_capacity ? gen->builder_func_capacity * 2 : 16;
+                    gen->builder_funcs = realloc(gen->builder_funcs,
+                        gen->builder_func_capacity * sizeof(char*));
+                }
+                gen->builder_funcs[gen->builder_func_count++] = strdup(child->value);
+            }
+            break; // only check first param
+        }
+    }
+
+    // Pre-pass: discover closures in the entire program and emit their
+    // environment structs + static functions before any user code.
+    discover_closures(gen, program);
+    if (gen->closure_count > 0) {
+        print_line(gen, "// Closure definitions");
+        emit_closure_definitions(gen);
+    }
 
     // Generate forward declarations for all functions (handles mutual recursion)
     print_line(gen, "// Forward declarations");
