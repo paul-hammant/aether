@@ -610,6 +610,26 @@ void generate_statement(CodeGenerator* gen, ASTNode* stmt) {
                         gen->closure_var_map[gen->closure_var_count].var_name = strdup(stmt->value);
                         gen->closure_var_map[gen->closure_var_count].closure_id = cid;
                         gen->closure_var_count++;
+
+                        // Emit deferred free for heap-allocated closure environments
+                        for (int ci = 0; ci < gen->closure_count; ci++) {
+                            if (gen->closures[ci].id == cid && gen->closures[ci].capture_count > 0) {
+                                // Create a synthetic defer: free(var.env)
+                                ASTNode* free_call = create_ast_node(AST_FUNCTION_CALL, "free",
+                                    stmt->line, stmt->column);
+                                char env_access[256];
+                                snprintf(env_access, sizeof(env_access), "%s.env", safe_c_name(stmt->value));
+                                ASTNode* env_arg = create_ast_node(AST_IDENTIFIER, env_access,
+                                    stmt->line, stmt->column);
+                                add_child(free_call, env_arg);
+                                // Wrap in expression statement so generate_statement handles it
+                                ASTNode* expr_stmt = create_ast_node(AST_EXPRESSION_STATEMENT, NULL,
+                                    stmt->line, stmt->column);
+                                add_child(expr_stmt, free_call);
+                                push_defer(gen, expr_stmt);
+                                break;
+                            }
+                        }
                     }
                     // Suppress unused-variable warning for arrays used with list
                     // pattern matching — the paired _len variable may be the only
