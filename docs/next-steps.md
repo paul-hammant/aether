@@ -64,13 +64,26 @@ Phase 1 is complete: `ae build --target wasm` compiles Aether to WebAssembly via
 
 ### Async I/O Integration
 
-All I/O in Aether is currently blocking. There is no io_uring (Linux), kqueue (macOS), or IOCP (Windows) integration. The actor model naturally maps to the submit/complete pattern (send a request, receive a completion message), but the runtime doesn't use it yet.
+All I/O in Aether is currently blocking. `http.get()`, `file.read()`, `tcp_connect()`, and `sleep()` all block the OS thread. Since the scheduler places actors on the spawner's core by default (locality-aware placement), actors spawned from `main()` all land on core 0 — one OS thread. A blocking I/O call in one actor prevents ALL actors on that core from running.
+
+**User impact:** An actor doing 5 HTTP requests will block all sibling actors for the entire duration. There is no way for the scheduler to preempt a handler that's blocked in a system call.
 
 **What's needed:**
-- I/O event loop thread(s) using platform-native async APIs
-- I/O completions delivered as actor messages
+- I/O event loop thread(s) using platform-native async APIs (io_uring on Linux, kqueue on macOS, IOCP on Windows)
+- I/O completions delivered as actor messages (send request → receive response as message)
 - Scheduler awareness of I/O-blocked actors (don't count them as idle)
 - Async variants of file and network operations in the stdlib
+- Non-blocking `sleep` that yields to the scheduler instead of blocking the thread
+
+### Version Management UX
+
+`ae version list` should clearly show which versions are installed locally, which are available remotely, and which is active. Current display only marks the active version.
+
+**What's needed:**
+- `ae version list` columns: version, status (active/installed/available)
+- `ae version use` should preserve the initial install in `versions/` before switching (currently loses it on Windows; POSIX needs same fix)
+- `ae --version` reads `active_version` file instead of compiled-in constant (done)
+- macOS quarantine removal on `install.sh` and `ae version use` (done)
 
 ## Tooling
 

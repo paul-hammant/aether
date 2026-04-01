@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 the release pipeline automatically replaces `[current]` with the next version
 number before tagging the release.
 
+## [0.32.0]
+
+### Fixed
+
+- **macOS Gatekeeper quarantine**: `install.sh` and `ae version use` now run `xattr -cr` to remove quarantine on macOS, fixing `Killed: 9` errors when switching versions
+- **`ae version use` preserves initial install**: On both POSIX and Windows, the currently active version is backed up to `~/.aether/versions/` before switching, so it can be switched back to later
+- **Uninitialized `tuple_types` in Type struct**: `FLUSH_LIT` macro in string interpolation parser used raw `malloc` without initializing `tuple_types`/`tuple_count`, causing `free_type()` to follow garbage pointers on Windows (ACCESS_VIOLATION `0xC0000005`)
+- **Uninitialized `interp_as_printf` in CodeGenerator**: String interpolation in value assignments emitted `printf()` (returns int) instead of `_aether_interp()` (returns void*) on Windows due to uninitialized flag
+- **Windows `_spawnvp` for command execution**: Replaced `system()` + `cmd /c` with `_spawnvp` on Windows to avoid shell quoting issues that caused random test failures
+- **Unused variable checker false positive**: Match list patterns implicitly reference `<array>_len` variables via codegen — checker now marks them as used
+- **Test runner failure details**: Failure summary now prints at the end of test-ae showing captured stderr for each failing test
+
 ## [0.31.0]
 
 ### Added

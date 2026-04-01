@@ -183,6 +183,11 @@ if [ "$EDITOR_ONLY" -eq 0 ]; then
     cp "build/aetherc${EXE}" "$BIN_DIR/aetherc${EXE}"
     chmod 755 "$BIN_DIR/ae${EXE}" "$BIN_DIR/aetherc${EXE}"
 
+    # macOS: remove quarantine attribute so Gatekeeper doesn't block unsigned binaries
+    if [ "$(uname -s)" = "Darwin" ]; then
+        xattr -cr "$BIN_DIR/ae${EXE}" "$BIN_DIR/aetherc${EXE}" 2>/dev/null || true
+    fi
+
     # Precompiled library
     if [ -f build/libaether.a ]; then
         cp build/libaether.a "$LIB_DIR/libaether.a"
