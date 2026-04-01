@@ -981,8 +981,28 @@ void generate_expression(CodeGenerator* gen, ASTNode* expr) {
                             if (!func_wants_fn) continue; // skip DSL trailing block
                         }
                         if (arg_printed > 0) fprintf(gen->output, ", ");
-                        // Cast int→void* when the extern param expects void* (TYPE_PTR).
+                        // Cast int→void* when param expects void* (TYPE_PTR).
+                        // Check extern registry first, then user-defined function params.
                         TypeKind expected = lookup_extern_param_kind(gen, c_func_name, arg_printed);
+                        if (expected == TYPE_UNKNOWN) {
+                            // Look up user-defined function's param type
+                            for (int fi = 0; fi < gen->program->child_count; fi++) {
+                                ASTNode* fdef = gen->program->children[fi];
+                                if (fdef && fdef->type == AST_FUNCTION_DEFINITION &&
+                                    fdef->value && strcmp(fdef->value, func_name) == 0) {
+                                    int pi = 0;
+                                    for (int fj = 0; fj < fdef->child_count; fj++) {
+                                        ASTNode* fp = fdef->children[fj];
+                                        if (fp->type == AST_GUARD_CLAUSE || fp->type == AST_BLOCK) continue;
+                                        if (pi == arg_printed && fp->node_type) {
+                                            expected = fp->node_type->kind;
+                                        }
+                                        pi++;
+                                    }
+                                    break;
+                                }
+                            }
+                        }
                         if (expected == TYPE_PTR && arg->node_type &&
                             (arg->node_type->kind == TYPE_INT || arg->node_type->kind == TYPE_BOOL)) {
                             fprintf(gen->output, "(void*)(intptr_t)(");

@@ -896,7 +896,8 @@ void generate_program(CodeGenerator* gen, ASTNode* program) {
     print_line(gen, "static inline void* _aether_box_closure(_AeClosure c) { _AeClosure* p = malloc(sizeof(_AeClosure)); *p = c; return (void*)p; }");
     print_line(gen, "static inline _AeClosure _aether_unbox_closure(void* p) { return *(_AeClosure*)p; }");
     // Terminal raw mode helpers for interactive input
-    print_line(gen, "#ifndef _WIN32");
+    // Only available on hosted POSIX systems (not embedded/bare-metal or Windows)
+    print_line(gen, "#if !defined(_WIN32) && !defined(__EMSCRIPTEN__) && defined(__STDC_HOSTED__) && (__STDC_HOSTED__ == 1) && !defined(__arm__) && !defined(__thumb__)");
     print_line(gen, "#include <termios.h>");
     print_line(gen, "static struct termios _aether_orig_termios;");
     print_line(gen, "static void _aether_raw_mode(void) {");
