@@ -811,14 +811,15 @@ void generate_expression(CodeGenerator* gen, ASTNode* expr) {
                     fprintf(gen->output, ")");
                 }
                 // force(thunk) — evaluate if needed, return cached value
+                // Returns intptr_t — the assignment context determines the C type
                 else if (strcmp(func_name, "force") == 0 && expr->child_count == 1) {
-                    fprintf(gen->output, "(int)_aether_thunk_force(");
+                    fprintf(gen->output, "_aether_thunk_force(");
                     generate_expression(gen, expr->children[0]);
                     fprintf(gen->output, ")");
                 }
-                // thunk_free(t) — free a thunk
+                // thunk_free(t) — free a thunk and its closure environment
                 else if (strcmp(func_name, "thunk_free") == 0 && expr->child_count == 1) {
-                    fprintf(gen->output, "free(");
+                    fprintf(gen->output, "_aether_thunk_free(");
                     generate_expression(gen, expr->children[0]);
                     fprintf(gen->output, ")");
                 }
