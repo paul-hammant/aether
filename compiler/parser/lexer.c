@@ -471,7 +471,8 @@ Token* next_token() {
 
                     // Collect everything until a line that is exactly the marker
                     int start_line = current_line;
-                    char* buf = malloc(65536);
+                    char* buf = malloc(65536);  // max heredoc size: 64KB
+                    if (!buf) return create_token(TOKEN_ERROR, "out of memory", current_line, current_column);
                     int blen = 0;
                     while (current_pos < source_length) {
                         // Check if current line starts with the marker
