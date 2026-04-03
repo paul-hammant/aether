@@ -14,6 +14,7 @@ number before tagging the release.
 ### Added
 
 - **Heredoc strings**: `<<MARKER ... MARKER` syntax for multiline string literals. Preserves newlines, indentation, and special characters. Left-shift operator `<<` is unaffected (heredoc only triggers when followed by an identifier).
+- **Lazy evaluation**: `lazy(closure)`, `force(thunk)`, `thunk_free(thunk)` builtins for deferred computation with memoization. Explicit forcing, eager by default.
 
 ## [0.32.0]
 
