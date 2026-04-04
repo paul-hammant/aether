@@ -312,6 +312,9 @@ void dir_list_free(DirList* list) {
 #ifndef _WIN32
 #include <glob.h>
 #include <fnmatch.h>
+#include <dirent.h>
+#include <unistd.h>
+#include <sys/stat.h>
 #endif
 
 // Helper: add a path to a DirList
@@ -388,7 +391,7 @@ DirList* fs_glob(const char* pattern) {
         const char* suffix = dstar + 4;  // skip "/**/"
 
         // Also match files directly in the base directory
-        char direct[4096];
+        char direct[8192];
         snprintf(direct, sizeof(direct), "%s/%s", dir, suffix);
         glob_t g;
         if (glob(direct, 0, NULL, &g) == 0) {
