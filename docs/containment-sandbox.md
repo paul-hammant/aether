@@ -670,6 +670,94 @@ The contained code lives in a simulation where `/etc/shadow` was
 never created and `AWS_SECRET_KEY` was never set. There is no
 glitch. There is no déjà vu. There is no second cat.
 
+## Sandboxing bash scripts
+
+Bash is a common choice for build steps, deployment scripts, and
+system orchestration. It can be sandboxed via `spawn_sandboxed` —
+but with an important caveat.
+
+### The model: Aether orchestrates, bash works
+
+Aether is the guard. Bash is the tool. Each bash invocation gets
+specific grants for that step:
+
+```aether
+compile_sandbox = sandbox("compile") {
+    grant_fs_read("src/*")
+    grant_fs_write("build/*")
+    grant_exec("/usr/bin/gcc")
+    grant_exec("/usr/bin/bash")
+}
+
+deploy_sandbox = sandbox("deploy") {
+    grant_fs_read("build/bin/*")
+    grant_tcp("deploy.internal")
+    grant_exec("/usr/bin/bash")
+    grant_exec("/usr/bin/scp")
+    grant_env("DEPLOY_TOKEN")
+}
+
+spawn_sandboxed(compile_sandbox, "bash", "-c 'gcc -o build/app src/*.c'")
+spawn_sandboxed(deploy_sandbox, "bash", "-c 'scp build/bin/app deploy.internal:/opt/'")
+```
+
+Each bash step inherits LD_PRELOAD. Every external command that bash
+spawns (`gcc`, `scp`, `curl`, `cat`) is sandboxed — checked against
+the step's grants.
+
+### What's sandboxed and what's not
+
+| Bash operation | Sandboxed? | Why |
+|---------------|-----------|-----|
+| `gcc src/*.c` | Yes | External command — inherits LD_PRELOAD |
+| `cat /etc/shadow` | Yes | External command — `open()` intercepted |
+| `curl http://evil.com` | Yes | External command — `connect()` intercepted |
+| `scp file host:path` | Yes | External command — `connect()` intercepted |
+| `echo $SECRET` | No | Shell builtin — no libc call |
+| `read -r line < /etc/shadow` | No | Shell builtin redirection |
+| `exec 3<>/dev/tcp/host/80` | No | Bash built-in network — direct kernel |
+
+### Why builtins don't matter
+
+The builtin gap sounds alarming but isn't a practical concern:
+
+- **`echo`** doesn't access protected resources. It writes to stdout.
+  If stdout is a terminal, the output is visible to the user who
+  launched the sandbox — not an escalation.
+- **`read < file`** is a concern in theory, but bash scripts that
+  read files almost always use `cat` or other external commands
+  which ARE sandboxed.
+- **`/dev/tcp`** is the real risk — bash can open TCP connections
+  without an external command. However, `/dev/tcp` is a compile-time
+  option in bash and is disabled in many distributions (Debian,
+  Ubuntu disable it by default).
+
+### The Docker analogy
+
+This is the same model as Docker. A Docker container doesn't restrict
+what the shell does internally — it restricts what resources are
+mounted and what network is available. Bash can `echo` all it wants
+inside a container. It can't `curl` to a host that isn't in the
+container's network.
+
+Aether's sandbox is the same: bash runs freely inside the
+permission boundary. The boundary is what matters.
+
+### Not recommended: forking bash
+
+Forking bash (~140K lines of C) to add sandbox checks to builtins
+is technically possible but creates a maintenance burden. Every
+bash security patch requires a rebase. Users won't install a custom
+bash. The LD_PRELOAD model with external command interception is
+the practical approach.
+
+### Not recommended: rbash
+
+Bash's restricted mode (`rbash`) disables `cd`, PATH changes, and
+redirections. It solves a different problem — restricting the user
+FROM bash features, not restricting bash's access to resources.
+It's not a substitute for sandbox grants.
+
 ## Cross-process containment (future)
 
 The sandbox currently enforces within the Aether process. The natural
