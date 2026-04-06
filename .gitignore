@@ -84,3 +84,5 @@ zig_minimal
 .DS_Store
 Thumbs.db
 desktop.ini
+TODO_paul.md
+real-build-system.md

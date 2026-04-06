@@ -1041,16 +1041,16 @@ The Aether sandbox draws from:
 ## Language host modules
 
 Aether can embed foreign language runtimes and run their code inside
-sandboxes. Each hosted language is a module under `std/host/`.
+sandboxes. Each hosted language is a module under `contrib/host/`.
 
 ### Available modules
 
 ```
-std/host/python/  — import std.host.python   (CPython 3.x)
-std/host/lua/     — import std.host.lua      (Lua 5.3)
-std/host/js/      — import std.host.js       (Duktape ES5)
-std/host/perl/    — import std.host.perl     (Perl 5.x)
-std/host/ruby/    — import std.host.ruby     (CRuby 3.x)
+contrib/host/python/  — import contrib.host.python   (CPython 3.x)
+contrib/host/lua/     — import contrib.host.lua      (Lua 5.3)
+contrib/host/js/      — import contrib.host.js       (Duktape ES5)
+contrib/host/perl/    — import contrib.host.perl     (Perl 5.x)
+contrib/host/ruby/    — import contrib.host.ruby     (CRuby 3.x)
 ```
 
 ### Two containment models
@@ -1090,7 +1090,7 @@ All host modules follow the same pattern:
 
 ```aether
 import std.list
-import std.host.python   // or lua, js, perl
+import contrib.host.python   // or lua, js, perl
 
 // Define sandbox grants
 worker = sandbox("worker") {
@@ -1177,7 +1177,7 @@ Each host module provides two bindings to the hosted language:
 ### Example
 
 ```aether
-import std.host.lua
+import contrib.host.lua
 
 worker = sandbox("worker") {
     grant_env("HOME")

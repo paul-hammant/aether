@@ -32,7 +32,7 @@ echo ""
 echo "=== Lua ==="
 if [ $LUA_AVAILABLE -eq 0 ]; then skip "Lua"; else
 LUA_OUT=$(gcc -o /tmp/test_map_lua \
-    "$ROOT/std/host/lua/aether_host_lua.c" \
+    "$ROOT/contrib/host/lua/aether_host_lua.c" \
     "$ROOT/runtime/aether_sandbox.c" \
     "$ROOT/runtime/aether_shared_map.c" \
     $LUA_CFLAGS -I"$ROOT/runtime" -DAETHER_HAS_LUA \
@@ -81,7 +81,7 @@ echo ""
 echo "=== JS (Duktape) ==="
 if [ $JS_AVAILABLE -eq 0 ]; then skip "JS"; else
 JS_OUT=$(gcc -o /tmp/test_map_js \
-    "$ROOT/std/host/js/aether_host_js.c" \
+    "$ROOT/contrib/host/js/aether_host_js.c" \
     "$ROOT/runtime/aether_sandbox.c" \
     "$ROOT/runtime/aether_shared_map.c" \
     $JS_CFLAGS -I"$ROOT/runtime" -DAETHER_HAS_JS \
@@ -128,7 +128,7 @@ echo ""
 echo "=== Python ==="
 if [ $PY_AVAILABLE -eq 0 ]; then skip "Python"; else
 PY_OUT=$(gcc -o /tmp/test_map_py \
-    "$ROOT/std/host/python/aether_host_python.c" \
+    "$ROOT/contrib/host/python/aether_host_python.c" \
     "$ROOT/runtime/aether_sandbox.c" \
     "$ROOT/runtime/aether_shared_map.c" \
     $PY_CFLAGS -I"$ROOT/runtime" -DAETHER_HAS_PYTHON \
@@ -179,7 +179,7 @@ echo ""
 echo "=== Perl ==="
 if [ $PERL_AVAILABLE -eq 0 ]; then skip "Perl"; else
 PERL_OUT=$(gcc -o /tmp/test_map_perl \
-    "$ROOT/std/host/perl/aether_host_perl.c" \
+    "$ROOT/contrib/host/perl/aether_host_perl.c" \
     "$ROOT/runtime/aether_sandbox.c" \
     "$ROOT/runtime/aether_shared_map.c" \
     $PERL_CFLAGS -I"$ROOT/runtime" -DAETHER_HAS_PERL \
@@ -226,7 +226,7 @@ echo ""
 echo "=== Ruby ==="
 if [ $RUBY_AVAILABLE -eq 0 ]; then skip "Ruby"; else
 RUBY_OUT=$(gcc -o /tmp/test_map_ruby \
-    "$ROOT/std/host/ruby/aether_host_ruby.c" \
+    "$ROOT/contrib/host/ruby/aether_host_ruby.c" \
     "$ROOT/runtime/aether_sandbox.c" \
     "$ROOT/runtime/aether_shared_map.c" \
     $RUBY_CFLAGS -I"$ROOT/runtime" -DAETHER_HAS_RUBY \
