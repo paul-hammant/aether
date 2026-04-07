@@ -835,6 +835,64 @@ void generate_expression(CodeGenerator* gen, ASTNode* expr) {
                     generate_expression(gen, expr->children[0]);
                     fprintf(gen->output, ")");
                 }
+                // select(linux: val, windows: val, macos: val, default: val)
+                // Compile-time platform selection via #ifdef chain
+                else if (strcmp(func_name, "select") == 0 && expr->child_count >= 1) {
+                    // Find the matching platform and default
+                    ASTNode* linux_val = NULL;
+                    ASTNode* windows_val = NULL;
+                    ASTNode* macos_val = NULL;
+                    ASTNode* default_val = NULL;
+                    for (int i = 0; i < expr->child_count; i++) {
+                        ASTNode* arg = expr->children[i];
+                        if (arg && arg->type == AST_NAMED_ARG && arg->value) {
+                            if (strcmp(arg->value, "linux") == 0)
+                                linux_val = arg->children[0];
+                            else if (strcmp(arg->value, "windows") == 0)
+                                windows_val = arg->children[0];
+                            else if (strcmp(arg->value, "macos") == 0)
+                                macos_val = arg->children[0];
+                            else if (strcmp(arg->value, "other") == 0)
+                                default_val = arg->children[0];
+                        }
+                    }
+                    // Validate: every platform must have a value or other: must be set
+                    if (!default_val) {
+                        if (!linux_val || !windows_val || !macos_val) {
+                            fprintf(stderr,
+                                "error: select() at line %d: missing platform without 'other:' fallback.\n"
+                                "  Provide all platforms (linux:, windows:, macos:) or add other: for the default.\n",
+                                expr->line);
+                            // Still emit code so compilation continues and shows all errors
+                        }
+                    }
+                    // Emit #ifdef chain
+                    fprintf(gen->output, "\n#ifdef _WIN32\n");
+                    if (windows_val) {
+                        generate_expression(gen, windows_val);
+                    } else if (default_val) {
+                        generate_expression(gen, default_val);
+                    } else {
+                        fprintf(gen->output, "#error \"select() has no value for windows and no other: fallback\"");
+                    }
+                    fprintf(gen->output, "\n#elif defined(__APPLE__)\n");
+                    if (macos_val) {
+                        generate_expression(gen, macos_val);
+                    } else if (default_val) {
+                        generate_expression(gen, default_val);
+                    } else {
+                        fprintf(gen->output, "#error \"select() has no value for macos and no other: fallback\"");
+                    }
+                    fprintf(gen->output, "\n#else\n");
+                    if (linux_val) {
+                        generate_expression(gen, linux_val);
+                    } else if (default_val) {
+                        generate_expression(gen, default_val);
+                    } else {
+                        fprintf(gen->output, "#error \"select() has no value for linux and no other: fallback\"");
+                    }
+                    fprintf(gen->output, "\n#endif\n");
+                }
                 // each(array, count, closure) — iterate array calling closure for each element
                 // Usage: each(items, count) |item| { ... }
                 // The trailing block becomes the last child (a closure)
@@ -884,6 +942,37 @@ void generate_expression(CodeGenerator* gen, ASTNode* expr) {
                 // builder_context() — returns the current builder context from the stack
                 else if (strcmp(func_name, "builder_context") == 0) {
                     fprintf(gen->output, "_aether_ctx_get()");
+                }
+                // spawn_sandboxed(grants, program, arg) — launch sandboxed child process
+                else if (strcmp(func_name, "spawn_sandboxed") == 0 && expr->child_count >= 2) {
+                    fprintf(gen->output, "aether_spawn_sandboxed(");
+                    generate_expression(gen, expr->children[0]);
+                    fprintf(gen->output, ", ");
+                    generate_expression(gen, expr->children[1]);
+                    if (expr->child_count >= 3) {
+                        fprintf(gen->output, ", ");
+                        generate_expression(gen, expr->children[2]);
+                    } else {
+                        fprintf(gen->output, ", NULL");
+                    }
+                    fprintf(gen->output, ")");
+                }
+                // ctx_push(ptr) / ctx_pop() — explicit context stack manipulation
+                else if (strcmp(func_name, "sandbox_push") == 0 && expr->child_count == 1) {
+                    fprintf(gen->output, "_aether_ctx_push((void*)(intptr_t)");
+                    generate_expression(gen, expr->children[0]);
+                    fprintf(gen->output, ")");
+                }
+                else if (strcmp(func_name, "sandbox_pop") == 0 && expr->child_count == 0) {
+                    fprintf(gen->output, "_aether_ctx_pop()");
+                }
+                // sandbox_install() — activate runtime sandbox checking
+                else if (strcmp(func_name, "sandbox_install") == 0 && expr->child_count == 0) {
+                    fprintf(gen->output, "_aether_sandbox_install()");
+                }
+                // sandbox_uninstall() — deactivate runtime sandbox checking
+                else if (strcmp(func_name, "sandbox_uninstall") == 0 && expr->child_count == 0) {
+                    fprintf(gen->output, "_aether_sandbox_uninstall()");
                 }
                 // builder_depth() — returns the current builder nesting depth
                 else if (strcmp(func_name, "builder_depth") == 0) {
@@ -1173,6 +1262,13 @@ void generate_expression(CodeGenerator* gen, ASTNode* expr) {
             }
             break;
         
+        case AST_NAMED_ARG:
+            // Named argument: emit just the value (name is for readability)
+            if (expr->child_count > 0) {
+                generate_expression(gen, expr->children[0]);
+            }
+            break;
+
         case AST_ARRAY_LITERAL:
             fprintf(gen->output, "{");
             for (int i = 0; i < expr->child_count; i++) {

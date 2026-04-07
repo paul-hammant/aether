@@ -829,6 +829,10 @@ int typecheck_program(ASTNode* program) {
     Type* print_char_type = create_type(TYPE_VOID);
     add_symbol(global_table, "print_char", print_char_type, 0, 1, 0);
 
+    // Platform selection builtin
+    Type* select_type = create_type(TYPE_UNKNOWN);
+    add_symbol(global_table, "select", select_type, 0, 1, 0);
+
     // Process control builtins
     Type* exit_type = create_type(TYPE_VOID);
     add_symbol(global_table, "exit", exit_type, 0, 1, 0);
@@ -875,6 +879,16 @@ int typecheck_program(ASTNode* program) {
     add_symbol(global_table, "raw_mode", raw_mode_type, 0, 1, 0);
     Type* cooked_mode_type = create_type(TYPE_VOID);
     add_symbol(global_table, "cooked_mode", cooked_mode_type, 0, 1, 0);
+    Type* spawn_sandboxed_type = create_type(TYPE_INT);
+    add_symbol(global_table, "spawn_sandboxed", spawn_sandboxed_type, 0, 1, 0);
+    Type* aether_push_type = create_type(TYPE_VOID);
+    add_symbol(global_table, "sandbox_push", aether_push_type, 0, 1, 0);
+    Type* aether_pop_type = create_type(TYPE_VOID);
+    add_symbol(global_table, "sandbox_pop", aether_pop_type, 0, 1, 0);
+    Type* sandbox_install_type = create_type(TYPE_VOID);
+    add_symbol(global_table, "sandbox_install", sandbox_install_type, 0, 1, 0);
+    Type* sandbox_uninstall_type = create_type(TYPE_VOID);
+    add_symbol(global_table, "sandbox_uninstall", sandbox_uninstall_type, 0, 1, 0);
     Type* builder_ctx_type = create_type(TYPE_PTR);
     add_symbol(global_table, "builder_context", builder_ctx_type, 0, 1, 0);
     Type* builder_depth_type = create_type(TYPE_INT);
@@ -1833,7 +1847,17 @@ int typecheck_expression(ASTNode* expr, SymbolTable* table) {
                 typecheck_expression(expr->children[i], table);
             }
             return 1;
-            
+
+        case AST_NAMED_ARG:
+            // Named argument: type check the value expression
+            if (expr->child_count > 0) {
+                typecheck_expression(expr->children[0], table);
+                expr->node_type = expr->children[0]->node_type
+                    ? clone_type(expr->children[0]->node_type)
+                    : create_type(TYPE_UNKNOWN);
+            }
+            return 1;
+
         case AST_STRING_INTERP:
             // Type check all sub-expressions inside the interpolation
             for (int i = 0; i < expr->child_count; i++) {
@@ -2199,5 +2223,22 @@ int typecheck_function_call(ASTNode* call, SymbolTable* table) {
     }
 
     call->node_type = symbol->type ? clone_type(symbol->type) : create_type(TYPE_UNKNOWN);
+
+    // select() infers its type from the first named arg's value
+    if (call->value && strcmp(call->value, "select") == 0 &&
+        (!call->node_type || call->node_type->kind == TYPE_UNKNOWN)) {
+        for (int i = 0; i < call->child_count; i++) {
+            ASTNode* arg = call->children[i];
+            if (arg && arg->type == AST_NAMED_ARG &&
+                arg->child_count > 0 && arg->children[0] &&
+                arg->children[0]->node_type &&
+                arg->children[0]->node_type->kind != TYPE_UNKNOWN) {
+                if (call->node_type) free_type(call->node_type);
+                call->node_type = clone_type(arg->children[0]->node_type);
+                break;
+            }
+        }
+    }
+
     return 1;
 }

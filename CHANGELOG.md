@@ -20,12 +20,37 @@ number before tagging the release.
 - **`ae version` showed stale version after install** (#88): `ae version list` checked the `current` symlink (stale from previous `ae version use`) before the `active_version` file. Fixed: `active_version` file is now the authoritative source. Also fixed `install.sh` reading the old version from the `ae` binary instead of the `VERSION` file.
 - **Non-existent version install gave misleading message** (#95): `ae version install v0.99.0` downloaded a 404 HTML page, extracted 0 files, and suggested `--force`. Fixed: validates downloaded archive magic bytes (gzip/zip/xz) and fails immediately with a clear error if the version doesn't exist.
 - **CI now runs `ae test`**: Added step [8/9] to `make ci` that runs the user-facing `ae test` command, catching divergence between the Makefile test runner and the CLI test runner.
+## [0.40.0]
+
+### Added
+
+- **Runtime containment sandbox**: Deny-by-default grant system for filesystem, network, process, and environment access. Stdlib functions (`tcp_connect`, `file_open`, `os_exec`, `os_getenv`) check grants transparently — contained code has no idea it's sandboxed.
+- **Sandbox DSL**: `sandbox("name") { grant_tcp("host"); grant_fs_read("/path/*"); ... }` with builder-style trailing blocks and invisible `_ctx` injection.
+- **Grant pattern matching**: Prefix (`/etc/*`), suffix (`*.example.com`), exact, and wildcard (`*`) patterns for all grant types.
+- **Nested sandbox restriction**: Inner sandboxes can only narrow, never escalate past outer sandbox grants.
+- **`spawn_sandboxed(perms, program, arg)`**: Cross-process sandbox enforcement via POSIX shared memory and LD_PRELOAD. No temp files.
+- **`libaether_sandbox.so`**: LD_PRELOAD library intercepting `open`, `connect`, `getenv`, `execve`, `dlopen`, `mmap(PROT_EXEC)`, `mprotect(PROT_EXEC)`, `fork`, `vfork`, `clone3`, `bind`, `listen`, `accept`. Built as part of `make stdlib`.
+- **Denial logging**: File (default, `./aether-sandbox.log`), stderr (`AETHER_DENIED:` prefix), or silent. Controlled via `AETHER_SANDBOX_LOG` env var.
+- **Six language host modules** (`contrib/host/`): Python, Lua, JS (Duktape), Perl, Ruby, Java. Each runs hosted code inside an Aether sandbox.
+- **Token-guarded shared map**: `string:string` data exchange between Aether and hosted languages with frozen inputs, one-time token, and revoke-on-return. Native bindings (`aether_map_get`/`aether_map_put`) for all six languages.
+- **Escape prevention**: `dlopen("libc.so.6")` blocked, `syscall()` blocked, `mmap(PROT_EXEC)` anonymous blocked, `mprotect(PROT_EXEC)` blocked, `fork`/`vfork`/`clone3` blocked by default (grant with `fork:*`).
+## [0.39.0]
+
+### Added
+
+- **Named arguments**: `func(name: "alice", count: 3)` syntax in function calls. Names are documentation at the call site — consistent with Aether's `param: type` definition syntax. Positional and named can be mixed.
+- **List literal tests**: Confirmed `[1, 2, 3]` and `["a", "b", "c"]` array literal syntax works (already existed in parser/codegen, now tested).
+- **`select()` platform conditional**: Compile-time platform selection via named args. `select(linux: 8080, windows: 80, macos: 8080)` emits `#ifdef` chain in generated C. Supports `other:` fallback. Integer values work; string values require interpolation workaround pending type inference improvement.
 
 ## [0.35.0]
 
 ### Added
 
 - **Heredoc strings**: `<<MARKER ... MARKER` syntax for multiline string literals. Preserves newlines, indentation, and special characters. Literal only (no `${expr}` interpolation — use regular strings for that). Left-shift operator `<<` is unaffected (heredoc only triggers when followed by an identifier). Dynamic buffer (no 64KB limit). Windows CRLF line endings handled.
+- **`fs_glob(pattern)`**: Match files by pattern with `*`, `?`, and `**/` (recursive). Returns `DirList*` iterable via `dir_list_count`/`dir_list_get`/`dir_list_free`. Uses POSIX `glob()` for simple patterns and recursive directory walk for `**` patterns.
+- **`dir_list_count(list)`** and **`dir_list_get(list, index)`**: Iterate `DirList` results from `dir_list()` and `fs_glob()`.
+- **`aether_args_count()`** and **`aether_args_get(index)`**: Access command-line arguments via `std.os`. Exposes the runtime's existing `argc`/`argv` to Aether code. Returns `NULL` for out-of-bounds or negative indices.
+- **`file_mtime(path)`**: File modification time as Unix timestamp (int). Returns 0 for nonexistent files. For incremental build support.
 - **Lazy evaluation**: `lazy(closure)`, `force(thunk)`, `thunk_free(thunk)` builtins for deferred computation with memoization. Explicit forcing, eager by default.
 
 ## [0.32.0]
