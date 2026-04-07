@@ -20,6 +20,11 @@ number before tagging the release.
 - **`MAX_MODULE_TOKENS`** increased from 2,000 to 20,000 — modules with many functions (e.g., a build system SDK) silently truncated at the old limit with no error message.
 - **`MAX_TOKENS`** increased from 10,000 to 50,000 — same issue for large source files.
 
+## [0.43.0]
+
+### Changed
+
+- **Sandbox preamble only emitted when needed**: Generated C no longer includes ~40 lines of sandbox bridge code (permission checker, `list_size`/`list_get` externs, `spawn_sandboxed` declaration) for programs that don't use sandboxing. Follows the same AST-scanning pattern as the existing actor detection.
 ## [0.42.0]
 
 ### Added
