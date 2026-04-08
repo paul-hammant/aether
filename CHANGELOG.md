@@ -26,6 +26,27 @@ number before tagging the release.
 - **Partial batch enqueue**: `queue_enqueue_batch` now returns how many messages fit instead of failing the entire batch when the queue is near full. The previous all-or-nothing behavior dropped the entire batch (up to 256 messages) when even one slot was missing, forcing every message through the slower per-message fallback path.
 - **Batch flush uses partial retry instead of per-message fallback**: `scheduler_send_batch_flush` retries `queue_enqueue_batch` with remaining messages instead of falling back to individual `scheduler_send_remote` calls. Profile-guided: the old per-message fallback spent 28% of main thread time in `sched_yield()` kernel yields during high-throughput fan-out patterns.
 - **Missing benchmark implementations**: Added Pony, Java, and Scala skynet benchmarks for complete cross-language coverage.
+## [0.44.0]
+
+### Fixed
+
+- **Module function return types not inferred across module boundaries**: When calling a module function that returns `string` or `ptr` (e.g., `result = mymod.greet("world")`), the type inferrer defaulted to `int` because `infer_type()` used `lookup_symbol()` which couldn't resolve dotted names like `mymod.greet`. Fixed: use `lookup_qualified_symbol()` instead, with guards to skip `void`/`unknown` types (which occur for pure-Aether functions whose return types haven't been inferred yet). Regression test added: `tests/integration/module_return_types/`.
+
+### Changed
+
+- **`MAX_MODULE_TOKENS`** increased from 2,000 to 20,000 — modules with many functions (e.g., a build system SDK) silently truncated at the old limit with no error message.
+- **`MAX_TOKENS`** increased from 10,000 to 50,000 — same issue for large source files.
+
+## [0.43.0]
+
+### Changed
+
+- **Sandbox preamble only emitted when needed**: Generated C no longer includes ~40 lines of sandbox bridge code (permission checker, `list_size`/`list_get` externs, `spawn_sandboxed` declaration) for programs that don't use sandboxing. Follows the same AST-scanning pattern as the existing actor detection.
+## [0.42.0]
+
+### Added
+
+- **`fs_glob_multi(patterns)` in `std.fs`**: Multi-pattern glob that takes a list of patterns and returns merged results. Enables Starlark-style `glob(["**/*.c", "**/*.h"])` for build DSLs.
 
 ## [0.41.0]
 
