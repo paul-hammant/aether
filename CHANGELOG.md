@@ -21,8 +21,11 @@ number before tagging the release.
 
 ### Changed
 
+- **Inline message path extended to int64/ptr/bool/actor_ref**: Single-field messages with `long`, `ptr`, `bool`, or actor ref types now skip heap allocation entirely — value stored directly in `Message.payload_int`. Previously only `int` (32-bit) qualified. Profile-guided: eliminates malloc+free for 66% of messages in tree-spawn patterns (skynet). Measured +73% throughput improvement on skynet benchmark.
+- **TLS caching in scheduler hot path**: `current_core_id` cached in a local variable at function entry in `scheduler_send_local` and `aether_send_message`, avoiding 6+ `tlv_get_addr` dynamic linker calls per message send on macOS.
 - **Partial batch enqueue**: `queue_enqueue_batch` now returns how many messages fit instead of failing the entire batch when the queue is near full. The previous all-or-nothing behavior dropped the entire batch (up to 256 messages) when even one slot was missing, forcing every message through the slower per-message fallback path.
 - **Batch flush uses partial retry instead of per-message fallback**: `scheduler_send_batch_flush` retries `queue_enqueue_batch` with remaining messages instead of falling back to individual `scheduler_send_remote` calls. Profile-guided: the old per-message fallback spent 28% of main thread time in `sched_yield()` kernel yields during high-throughput fan-out patterns.
+- **Missing benchmark implementations**: Added Pony, Java, and Scala skynet benchmarks for complete cross-language coverage.
 
 ## [0.41.0]
 
