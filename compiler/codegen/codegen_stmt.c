@@ -565,7 +565,7 @@ void generate_statement(CodeGenerator* gen, ASTNode* stmt) {
                             else if (init->type == AST_FUNCTION_CALL && init->value) {
                                 for (int fi = 0; fi < gen->program->child_count; fi++) {
                                     ASTNode* fn = gen->program->children[fi];
-                                    if (fn && (fn->type == AST_FUNCTION_DEFINITION || fn->type == AST_DEFER_FUNCTION)
+                                    if (fn && (fn->type == AST_FUNCTION_DEFINITION || fn->type == AST_BUILDER_FUNCTION)
                                         && fn->value && strcmp(fn->value, init->value) == 0) {
                                         if (fn->node_type && fn->node_type->kind != TYPE_VOID
                                             && fn->node_type->kind != TYPE_UNKNOWN) {
@@ -587,11 +587,11 @@ void generate_statement(CodeGenerator* gen, ASTNode* stmt) {
                     }
 
                     if (stmt->child_count > 0) {
-                        // Check if this is a defer function with trailing block —
-                        // if so, just declare the variable; the defer handler assigns later
+                        // Check if this is a builder function with trailing block —
+                        // if so, just declare the variable; the builder handler assigns later
                         int defer_with_trailing = 0;
                         if (stmt->children[0] && stmt->children[0]->type == AST_FUNCTION_CALL &&
-                            stmt->children[0]->value && is_defer_func(gen, stmt->children[0]->value)) {
+                            stmt->children[0]->value && is_builder_func_reg(gen, stmt->children[0]->value)) {
                             for (int dtc = 0; dtc < stmt->children[0]->child_count; dtc++) {
                                 ASTNode* dtarg = stmt->children[0]->children[dtc];
                                 if (dtarg && dtarg->type == AST_CLOSURE &&
@@ -661,7 +661,7 @@ void generate_statement(CodeGenerator* gen, ASTNode* stmt) {
                         stmt->children[0]->type == AST_FUNCTION_CALL) {
                         ASTNode* init_call = stmt->children[0];
                         int init_is_defer = init_call->value &&
-                            is_defer_func(gen, init_call->value);
+                            is_builder_func_reg(gen, init_call->value);
 
                         if (init_is_defer) {
                             // DEFER PATTERN for assignment: block first, then call
@@ -674,15 +674,15 @@ void generate_statement(CodeGenerator* gen, ASTNode* stmt) {
                                     for (int bi = 0; bi < trailing->child_count; bi++) {
                                         if (trailing->children[bi] &&
                                             trailing->children[bi]->type == AST_BLOCK) {
-                                            // Open block scope for _dcfg
+                                            // Open block scope for _bcfg
                                             print_indent(gen);
                                             fprintf(gen->output, "{\n");
                                             gen->indent_level++;
                                             print_indent(gen);
-                                            fprintf(gen->output, "void* _dcfg = %s();\n",
-                                                    get_defer_factory(gen, init_call->value));
+                                            fprintf(gen->output, "void* _bcfg = %s();\n",
+                                                    get_builder_factory(gen, init_call->value));
                                             print_indent(gen);
-                                            fprintf(gen->output, "_aether_ctx_push(_dcfg);\n");
+                                            fprintf(gen->output, "_aether_ctx_push(_bcfg);\n");
                                             // Run trailing block
                                             print_indent(gen);
                                             fprintf(gen->output, "{\n");
@@ -718,7 +718,7 @@ void generate_statement(CodeGenerator* gen, ASTNode* stmt) {
                                                 darg++;
                                             }
                                             if (darg > 0) fprintf(gen->output, ", ");
-                                            fprintf(gen->output, "_dcfg);\n");
+                                            fprintf(gen->output, "_bcfg);\n");
                                             gen->indent_level--;
                                             print_indent(gen);
                                             fprintf(gen->output, "}\n");
@@ -1138,11 +1138,11 @@ void generate_statement(CodeGenerator* gen, ASTNode* stmt) {
                     Type* ret_type = stmt->children[0]->node_type;
                     const char* ret_c_type = (ret_type && ret_type->kind != TYPE_VOID && ret_type->kind != TYPE_UNKNOWN)
                                              ? get_c_type(ret_type) : "int";
-                    fprintf(gen->output, "%s _defer_ret = ", ret_c_type);
+                    fprintf(gen->output, "%s _builder_ret = ", ret_c_type);
                     generate_expression(gen, stmt->children[0]);
                     fprintf(gen->output, ";\n");
                     emit_all_defers(gen);
-                    print_line(gen, "return _defer_ret;");
+                    print_line(gen, "return _builder_ret;");
                 } else if (stmt->child_count > 0 && stmt->children[0] &&
                            stmt->children[0]->type == AST_PRINT_STATEMENT) {
                     emit_all_defers(gen);
@@ -1238,23 +1238,23 @@ void generate_statement(CodeGenerator* gen, ASTNode* stmt) {
                     }
                 }
 
-                // Check if this is a defer function call with trailing block
-                int is_defer_call = has_trailing && inner->value &&
-                    is_defer_func(gen, inner->value);
+                // Check if this is a builder function call with trailing block
+                int is_builder_call = has_trailing && inner->value &&
+                    is_builder_func_reg(gen, inner->value);
 
-                if (has_trailing && is_defer_call) {
-                    // DEFER PATTERN: block runs first, then function executes
-                    // Wrap in block scope so _dcfg doesn't collide with other defer calls
+                if (has_trailing && is_builder_call) {
+                    // BUILDER PATTERN: block configures first, then function executes
+                    // Wrap in block scope so _bcfg doesn't collide with other builder calls
                     print_indent(gen);
                     fprintf(gen->output, "{\n");
                     gen->indent_level++;
 
                     // 1. Create config object and push as context
                     print_indent(gen);
-                    fprintf(gen->output, "void* _dcfg = %s();\n",
-                            get_defer_factory(gen, inner->value));
+                    fprintf(gen->output, "void* _bcfg = %s();\n",
+                            get_builder_factory(gen, inner->value));
                     print_indent(gen);
-                    fprintf(gen->output, "_aether_ctx_push(_dcfg);\n");
+                    fprintf(gen->output, "_aether_ctx_push(_bcfg);\n");
 
                     // 2. Run trailing block (fills config via builder functions)
                     for (int tc = 0; tc < inner->child_count; tc++) {
@@ -1288,11 +1288,11 @@ void generate_statement(CodeGenerator* gen, ASTNode* stmt) {
 
                     // 4. Call function with config as extra last arg
                     print_indent(gen);
-                    char c_defer_name[256];
-                    strncpy(c_defer_name, safe_c_name(inner->value), sizeof(c_defer_name) - 1);
-                    c_defer_name[sizeof(c_defer_name) - 1] = '\0';
-                    for (char* p = c_defer_name; *p; p++) { if (*p == '.') *p = '_'; }
-                    fprintf(gen->output, "%s(", c_defer_name);
+                    char c_builder_name[256];
+                    strncpy(c_builder_name, safe_c_name(inner->value), sizeof(c_builder_name) - 1);
+                    c_builder_name[sizeof(c_builder_name) - 1] = '\0';
+                    for (char* p = c_builder_name; *p; p++) { if (*p == '.') *p = '_'; }
+                    fprintf(gen->output, "%s(", c_builder_name);
                     int arg_printed = 0;
                     for (int ai = 0; ai < inner->child_count; ai++) {
                         ASTNode* arg = inner->children[ai];
@@ -1305,7 +1305,7 @@ void generate_statement(CodeGenerator* gen, ASTNode* stmt) {
                         arg_printed++;
                     }
                     if (arg_printed > 0) fprintf(gen->output, ", ");
-                    fprintf(gen->output, "_dcfg);\n");
+                    fprintf(gen->output, "_bcfg);\n");
 
                     gen->indent_level--;
                     print_indent(gen);
@@ -1323,7 +1323,7 @@ void generate_statement(CodeGenerator* gen, ASTNode* stmt) {
                     if (inner->value) {
                         for (int fi = 0; fi < gen->program->child_count; fi++) {
                             ASTNode* fdef = gen->program->children[fi];
-                            if (fdef && (fdef->type == AST_FUNCTION_DEFINITION || fdef->type == AST_DEFER_FUNCTION) &&
+                            if (fdef && (fdef->type == AST_FUNCTION_DEFINITION || fdef->type == AST_BUILDER_FUNCTION) &&
                                 fdef->value && strcmp(fdef->value, inner->value) == 0) {
                                 if (has_return_value(fdef)) returns_void = 0;
                                 break;
@@ -1350,7 +1350,7 @@ void generate_statement(CodeGenerator* gen, ASTNode* stmt) {
                 }
 
                 // Trailing blocks for non-defer: emit closure body as inline statements after the call
-                if (inner && inner->type == AST_FUNCTION_CALL && !is_defer_call) {
+                if (inner && inner->type == AST_FUNCTION_CALL && !is_builder_call) {
                     for (int tc = 0; tc < inner->child_count; tc++) {
                         ASTNode* trailing = inner->children[tc];
                         if (trailing && trailing->type == AST_CLOSURE &&

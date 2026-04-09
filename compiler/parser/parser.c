@@ -15,7 +15,7 @@ Parser* create_parser(Token** tokens, int token_count) {
     parser->token_count = token_count;
     parser->current_token = 0;
     parser->suppress_errors = 0;  // By default, show errors
-    parser->parsing_defer = 0;
+    parser->parsing_builder = 0;
     return parser;
 }
 
@@ -2366,8 +2366,8 @@ ASTNode* parse_function_definition(Parser* parser) {
     }
     func->node_type = return_type;
 
-    // Check for 'with factory' clause (defer functions only)
-    if (parser->parsing_defer) {
+    // Check for 'with factory' clause (builder functions only)
+    if (parser->parsing_builder) {
         Token* maybe_with = peek_token(parser);
         if (maybe_with && maybe_with->type == TOKEN_IDENTIFIER &&
             strcmp(maybe_with->value, "with") == 0) {
@@ -2709,21 +2709,21 @@ ASTNode* parse_program(Parser* parser) {
             case TOKEN_EXTERN:
                 node = parse_extern_declaration(parser);
                 break;
-            case TOKEN_DEFER: {
-                // defer before a function definition = defer function
+            case TOKEN_BUILDER: {
+                // builder before a function definition = builder function
                 Token* next_d = peek_ahead(parser, 1);
                 Token* next_d2 = peek_ahead(parser, 2);
                 if (next_d && next_d->type == TOKEN_IDENTIFIER &&
                     next_d2 && next_d2->type == TOKEN_LEFT_PAREN) {
-                    advance_token(parser); // consume 'defer'
-                    parser->parsing_defer = 1;
+                    advance_token(parser); // consume 'builder'
+                    parser->parsing_builder = 1;
                     node = parse_function_definition(parser);
-                    parser->parsing_defer = 0;
+                    parser->parsing_builder = 0;
                     if (node) {
-                        node->type = AST_DEFER_FUNCTION;
+                        node->type = AST_BUILDER_FUNCTION;
                     }
                 } else {
-                    parser_error(parser, "Expected function definition after 'defer' at top level");
+                    parser_error(parser, "Expected function definition after 'builder' at top level");
                     advance_token(parser);
                     continue;
                 }

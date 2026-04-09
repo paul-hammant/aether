@@ -572,7 +572,7 @@ Type* infer_return_type_from_body(ASTNode* body, SymbolTable* symbols) {
 
 // Collect constraints from function
 void collect_function_constraints(ASTNode* node, InferenceContext* ctx) {
-    if (!node || (node->type != AST_FUNCTION_DEFINITION && node->type != AST_DEFER_FUNCTION)) return;
+    if (!node || (node->type != AST_FUNCTION_DEFINITION && node->type != AST_BUILDER_FUNCTION)) return;
     
     // Add parameters to symbol table so identifiers in function body can look them up
     int body_index = node->child_count - 1;
@@ -632,7 +632,7 @@ void collect_constraints(ASTNode* node, InferenceContext* ctx) {
             }
             break;
             
-        case AST_DEFER_FUNCTION:
+        case AST_BUILDER_FUNCTION:
         case AST_FUNCTION_DEFINITION:
             collect_function_constraints(node, ctx);
             break;
@@ -732,7 +732,7 @@ int propagate_call_types_in_tree(ASTNode* tree, const char* func_name, ASTNode* 
     int changed = 0;
 
     // For function definitions: skip parameter nodes but recurse into the body
-    if (tree->type == AST_FUNCTION_DEFINITION || tree->type == AST_DEFER_FUNCTION) {
+    if (tree->type == AST_FUNCTION_DEFINITION || tree->type == AST_BUILDER_FUNCTION) {
         int body_idx = tree->child_count - 1;
         if (body_idx >= 0 && tree->children[body_idx]) {
             changed += propagate_call_types_in_tree(tree->children[body_idx], func_name, func_def, param_count);
@@ -795,7 +795,7 @@ int propagate_function_call_types(ASTNode* program, SymbolTable* table) {
         if (!node) continue;
 
         // Look for function definitions
-        if ((node->type == AST_FUNCTION_DEFINITION || node->type == AST_DEFER_FUNCTION) && node->value) {
+        if ((node->type == AST_FUNCTION_DEFINITION || node->type == AST_BUILDER_FUNCTION) && node->value) {
             const char* func_name = node->value;
             int param_count = node->child_count - 1; // Last child is body
 
@@ -844,7 +844,7 @@ void infer_function_return_types(ASTNode* program, SymbolTable* table) {
 
     for (int i = 0; i < program->child_count; i++) {
         ASTNode* node = program->children[i];
-        if (!node || (node->type != AST_FUNCTION_DEFINITION && node->type != AST_DEFER_FUNCTION)) continue;
+        if (!node || (node->type != AST_FUNCTION_DEFINITION && node->type != AST_BUILDER_FUNCTION)) continue;
 
         // Infer return type from return statements
         int body_index = node->child_count - 1;

@@ -77,14 +77,14 @@ typedef struct {
     int builder_func_capacity;
     int in_trailing_block;  // >0 when generating code inside a trailing block
 
-    // Defer function registry: functions marked with 'defer' keyword
+    // Builder function registry: functions marked with 'builder' keyword
     // Block runs first (filling config), then function executes with config
-    struct DeferFuncEntry {
+    struct BuilderFuncEntry {
         char* name;
         char* factory;  // Factory function name, NULL means "map_new"
-    } *defer_funcs;
-    int defer_func_count;
-    int defer_func_capacity;
+    } *builder_funcs_reg;
+    int builder_func_reg_count;
+    int builder_func_reg_capacity;
 
     // Closure support: track closures for hoisted C function generation
     int closure_counter;    // unique ID for closure env structs and functions

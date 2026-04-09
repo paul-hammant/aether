@@ -43,27 +43,27 @@ static void normalize_func_name(const char* name, char* buf, int buf_size) {
     }
 }
 
-// Check if a function name is registered as a defer function.
-int is_defer_func(CodeGenerator* gen, const char* func_name) {
+// Check if a function name is registered as a builder function.
+int is_builder_func_reg(CodeGenerator* gen, const char* func_name) {
     if (!gen || !func_name) return 0;
     char normalized[256];
     normalize_func_name(func_name, normalized, sizeof(normalized));
-    for (int i = 0; i < gen->defer_func_count; i++) {
-        if (gen->defer_funcs[i].name && strcmp(gen->defer_funcs[i].name, normalized) == 0) {
+    for (int i = 0; i < gen->builder_func_reg_count; i++) {
+        if (gen->builder_funcs_reg[i].name && strcmp(gen->builder_funcs_reg[i].name, normalized) == 0) {
             return 1;
         }
     }
     return 0;
 }
 
-// Get the factory function for a defer function (default: "map_new").
-const char* get_defer_factory(CodeGenerator* gen, const char* func_name) {
+// Get the factory function for a builder function (default: "map_new").
+const char* get_builder_factory(CodeGenerator* gen, const char* func_name) {
     if (!gen || !func_name) return "map_new";
     char normalized[256];
     normalize_func_name(func_name, normalized, sizeof(normalized));
-    for (int i = 0; i < gen->defer_func_count; i++) {
-        if (gen->defer_funcs[i].name && strcmp(gen->defer_funcs[i].name, normalized) == 0) {
-            return gen->defer_funcs[i].factory ? gen->defer_funcs[i].factory : "map_new";
+    for (int i = 0; i < gen->builder_func_reg_count; i++) {
+        if (gen->builder_funcs_reg[i].name && strcmp(gen->builder_funcs_reg[i].name, normalized) == 0) {
+            return gen->builder_funcs_reg[i].factory ? gen->builder_funcs_reg[i].factory : "map_new";
         }
     }
     return "map_new";
@@ -230,7 +230,7 @@ void propagate_tuple_type_to_calls(ASTNode* node, const char* func_name, Type* t
 }
 
 void generate_function_definition(CodeGenerator* gen, ASTNode* func) {
-    if (!func || (func->type != AST_FUNCTION_DEFINITION && func->type != AST_DEFER_FUNCTION)) return;
+    if (!func || (func->type != AST_FUNCTION_DEFINITION && func->type != AST_BUILDER_FUNCTION)) return;
 
     // If function returns a tuple with UNKNOWN elements, scan all returns and merge
     if (func->node_type && func->node_type->kind == TYPE_TUPLE) {
@@ -298,10 +298,10 @@ void generate_function_definition(CodeGenerator* gen, ASTNode* func) {
         }
     }
 
-    // Defer functions get hidden void* _defer as last parameter
-    if (func->type == AST_DEFER_FUNCTION) {
+    // Builder functions get hidden void* _builder as last parameter
+    if (func->type == AST_BUILDER_FUNCTION) {
         if (param_count > 0) fprintf(gen->output, ", ");
-        fprintf(gen->output, "void* _defer");
+        fprintf(gen->output, "void* _builder");
         param_count++;
     }
 

@@ -250,42 +250,42 @@ _aether_ctx_push(frame_result);
 _aether_ctx_pop();
 ```
 
-## Defer Functions — "Configure Then Execute"
+## Builder Functions — "Configure Then Execute"
 
-Regular trailing blocks run the function first, then decorate the result. **Defer
+Regular trailing blocks run the function first, then decorate the result. **Builder
 functions** flip this: the block runs first to fill a configuration, then the function
 executes with that configuration.
 
-This is the second flavor of trailing-block function, toggled by the `defer` keyword
+This is the second flavor of trailing-block function, toggled by the `builder` keyword
 on the definition:
 
 | | When does it run? | Block provides | Function provides |
 |---------|-------------------------------|---------------------|------------------------|
 | Regular | Function first, block second | Decoration/children | The container to fill |
-| Defer | Block first, function second | Configuration | The action to perform |
+| Builder | Block first, function second | Configuration | The action to perform |
 
-### Defining a defer function
+### Defining a builder function
 
 ```aether
 import std.map
 
-defer compile(src: string) {
-    // _defer is implicitly available — it's the config the block filled
+builder compile(src: string) {
+    // _builder is implicitly available — it's the config the block filled
     // It's null when called without a trailing block
     rel = ""
-    if _defer != null {
-        if map_has(_defer, "release") == 1 {
-            rel = map_get(_defer, "release")
+    if _builder != null {
+        if map_has(_builder, "release") == 1 {
+            rel = map_get(_builder, "release")
         }
     }
     println("compiling ${src} with release=${rel}")
 }
 ```
 
-The `_defer` parameter is compiler-injected (like `_ctx` for builder functions).
+The `_builder` parameter is compiler-injected (like `_ctx` for builder functions).
 The caller never sees it.
 
-### Calling a defer function
+### Calling a builder function
 
 ```aether
 // With trailing block — block fills config, then compile() runs
@@ -294,23 +294,23 @@ compile("Main.java") {
     set_lint("all")
 }
 
-// Without trailing block — _defer is null, zero-config
+// Without trailing block — _builder is null, zero-config
 compile("Test.java")
 ```
 
-The setter functions (`set_release`, `set_lint`) are regular builder functions
+The setter functions (`set_release`, `set_lint`) are regular DSL functions
 with `_ctx: ptr` — they work on whatever was pushed to the context stack. The
 compiler creates the config object (currently a map), pushes it, runs the block,
 pops, then calls the function with the filled config.
 
-### Defer functions can return values
+### Builder functions can return values
 
 ```aether
-defer make_greeting(name: string): string {
+builder make_greeting(name: string): string {
     prefix = "Hello"
-    if _defer != null {
-        if map_has(_defer, "prefix") == 1 {
-            prefix = map_get(_defer, "prefix")
+    if _builder != null {
+        if map_has(_builder, "prefix") == 1 {
+            prefix = map_get(_builder, "prefix")
         }
     }
     return "${prefix}, ${name}!"
@@ -331,10 +331,10 @@ clause lets the SDK author specify any zero-argument factory function:
 
 ```aether
 // Default — map_new
-defer compile(src: string) { ... }
+builder compile(src: string) { ... }
 
 // List — ordered collection of flags
-defer run_command(name: string) with list_new { ... }
+builder run_command(name: string) with list_new { ... }
 
 // Custom builder — any user-defined factory
 query_builder_new() {
@@ -342,11 +342,11 @@ query_builder_new() {
     map_put(m, "_type", "query")
     return m
 }
-defer execute_query(db: string) with query_builder_new { ... }
+builder execute_query(db: string) with query_builder_new { ... }
 ```
 
 The factory just needs to be a zero-argument function returning `ptr`. The
-trailing block's setter functions and the defer function body must agree on the
+trailing block's setter functions and the builder function body must agree on the
 protocol — the compiler doesn't care what the object is, only that it can be
 pushed to the context stack as `void*`.
 
@@ -356,13 +356,13 @@ For `compile("Main.java") { set_release("21") }`, the compiler generates:
 
 ```c
 {
-    void* _dcfg = map_new();         // 1. create config
-    _aether_ctx_push(_dcfg);         // 2. push as context
+    void* _bcfg = map_new();         // 1. create config
+    _aether_ctx_push(_bcfg);         // 2. push as context
     {
         set_release(_aether_ctx_get(), "21");  // 3. block fills config
     }
     _aether_ctx_pop();               // 4. pop
-    compile("Main.java", _dcfg);     // 5. function runs with filled config
+    compile("Main.java", _bcfg);     // 5. function runs with filled config
 }
 ```
 

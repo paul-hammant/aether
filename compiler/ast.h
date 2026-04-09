@@ -16,7 +16,7 @@ typedef enum {
     AST_STRUCT_DEFINITION,
     AST_STRUCT_FIELD,
     AST_EXTERN_FUNCTION,      // External C function declaration
-    AST_DEFER_FUNCTION,       // Defer function: block runs first, then function executes
+    AST_BUILDER_FUNCTION,     // Builder function: block configures first, then function executes
     AST_CONST_DECLARATION,    // Top-level constant: const NAME = value
 
     // Statements

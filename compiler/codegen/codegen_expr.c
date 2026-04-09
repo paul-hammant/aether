@@ -139,7 +139,7 @@ static const char* lookup_var_c_type(CodeGenerator* gen, const char* var_name) {
         ASTNode* top = gen->program->children[i];
         if (!top) continue;
         // Look in function bodies and main
-        if (top->type == AST_FUNCTION_DEFINITION || top->type == AST_DEFER_FUNCTION || top->type == AST_MAIN_FUNCTION) {
+        if (top->type == AST_FUNCTION_DEFINITION || top->type == AST_BUILDER_FUNCTION || top->type == AST_MAIN_FUNCTION) {
             for (int j = 0; j < top->child_count; j++) {
                 ASTNode* body = top->children[j];
                 if (!body || body->type != AST_BLOCK) continue;
@@ -1093,7 +1093,7 @@ void generate_expression(CodeGenerator* gen, ASTNode* expr) {
                             int func_wants_fn = 0;
                             for (int fi = 0; fi < gen->program->child_count; fi++) {
                                 ASTNode* fdef = gen->program->children[fi];
-                                if (fdef && (fdef->type == AST_FUNCTION_DEFINITION || fdef->type == AST_DEFER_FUNCTION) &&
+                                if (fdef && (fdef->type == AST_FUNCTION_DEFINITION || fdef->type == AST_BUILDER_FUNCTION) &&
                                     fdef->value && strcmp(fdef->value, func_name) == 0) {
                                     int pi = 0;
                                     for (int fj = 0; fj < fdef->child_count; fj++) {
@@ -1118,7 +1118,7 @@ void generate_expression(CodeGenerator* gen, ASTNode* expr) {
                             // Look up user-defined function's param type
                             for (int fi = 0; fi < gen->program->child_count; fi++) {
                                 ASTNode* fdef = gen->program->children[fi];
-                                if (fdef && (fdef->type == AST_FUNCTION_DEFINITION || fdef->type == AST_DEFER_FUNCTION) &&
+                                if (fdef && (fdef->type == AST_FUNCTION_DEFINITION || fdef->type == AST_BUILDER_FUNCTION) &&
                                     fdef->value && strcmp(fdef->value, func_name) == 0) {
                                     int pi = 0;
                                     for (int fj = 0; fj < fdef->child_count; fj++) {
@@ -1144,7 +1144,7 @@ void generate_expression(CodeGenerator* gen, ASTNode* expr) {
                         arg_printed++;
                     }
                     // Defer functions get (void*)0 as last arg when called without trailing block
-                    if (is_defer_func(gen, func_name)) {
+                    if (is_builder_func_reg(gen, func_name)) {
                         if (arg_printed > 0) fprintf(gen->output, ", ");
                         fprintf(gen->output, "(void*)0");
                     }

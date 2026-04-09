@@ -10,7 +10,7 @@ typedef struct {
     int token_count;
     int current_token;
     int suppress_errors;  // Flag to suppress error messages (for testing)
-    int parsing_defer;    // Flag: inside defer function definition (enables 'with' clause)
+    int parsing_builder;  // Flag: inside builder function definition (enables 'with' clause)
 } Parser;
 
 // Parser functions

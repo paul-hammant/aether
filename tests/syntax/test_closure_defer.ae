@@ -1,4 +1,4 @@
-// Test: defer trailing block — "configure then execute" pattern
+// Test: builder trailing block — "configure then execute" pattern
 // The block runs first (filling config), then the function executes with it.
 
 import std.map
@@ -17,22 +17,22 @@ set_werror(_ctx: ptr) {
     map_put(_ctx, "werror", "true")
 }
 
-// --- Defer function: block configures, then this executes ---
+// --- Builder function: block configures, then this executes ---
 
-defer compile(src: string) {
-    // _defer is the config map filled by the trailing block
+builder compile(src: string) {
+    // _builder is the config map filled by the trailing block
     rel = ""
     lint_level = ""
     werror = 0
 
-    if _defer != null {
-        if map_has(_defer, "release") == 1 {
-            rel = map_get(_defer, "release")
+    if _builder != null {
+        if map_has(_builder, "release") == 1 {
+            rel = map_get(_builder, "release")
         }
-        if map_has(_defer, "lint") == 1 {
-            lint_level = map_get(_defer, "lint")
+        if map_has(_builder, "lint") == 1 {
+            lint_level = map_get(_builder, "lint")
         }
-        if map_has(_defer, "werror") == 1 {
+        if map_has(_builder, "werror") == 1 {
             werror = 1
         }
     }
@@ -40,28 +40,28 @@ defer compile(src: string) {
     println("compile: ${src} release=${rel} lint=${lint_level} werror=${werror}")
 }
 
-// --- Another defer function without trailing block (zero-config) ---
+// --- Another builder function without trailing block (zero-config) ---
 
-defer build_jar(name: string) {
+builder build_jar(name: string) {
     has_cfg = 0
-    if _defer != null {
+    if _builder != null {
         has_cfg = 1
     }
     println("build_jar: ${name} has_config=${has_cfg}")
 }
 
 main() {
-    // Defer call WITH trailing block — block fills config first
+    // Builder call WITH trailing block — block fills config first
     compile("Main.java") {
         set_release("21")
         set_lint("all")
         set_werror()
     }
 
-    // Defer call WITHOUT trailing block — zero-config
+    // Builder call WITHOUT trailing block — zero-config
     compile("Test.java")
 
-    // Another defer function with config
+    // Another builder function with config
     build_jar("app") {
         set_release("17")
     }

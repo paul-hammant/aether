@@ -689,7 +689,7 @@ static int collect_declarations(ASTNode* node, TrackedVar* vars, int var_count) 
     }
 
     // Don't recurse into nested function definitions or actor definitions
-    if (node->type == AST_FUNCTION_DEFINITION || node->type == AST_DEFER_FUNCTION || node->type == AST_ACTOR_DEFINITION) {
+    if (node->type == AST_FUNCTION_DEFINITION || node->type == AST_BUILDER_FUNCTION || node->type == AST_ACTOR_DEFINITION) {
         return var_count;
     }
 
@@ -960,7 +960,7 @@ int typecheck_program(ASTNode* program) {
                 add_symbol(global_table, step_name, step_type, 0, 1, 0);
                 break;
             }
-            case AST_DEFER_FUNCTION:
+            case AST_BUILDER_FUNCTION:
             case AST_FUNCTION_DEFINITION: {
                 add_symbol(global_table, child->value, clone_type(child->node_type), 0, 1, 0);
                 // Store AST node so arity can be verified at call sites
@@ -1195,7 +1195,7 @@ int typecheck_program(ASTNode* program) {
     // Update symbol table with inferred types
     for (int i = 0; i < program->child_count; i++) {
         ASTNode* child = program->children[i];
-        if ((child->type == AST_FUNCTION_DEFINITION || child->type == AST_DEFER_FUNCTION) && child->value && child->node_type) {
+        if ((child->type == AST_FUNCTION_DEFINITION || child->type == AST_BUILDER_FUNCTION) && child->value && child->node_type) {
             Symbol* func_sym = lookup_symbol(global_table, child->value);
             if (func_sym) {
                 if (func_sym->type) free_type(func_sym->type);
@@ -1212,7 +1212,7 @@ int typecheck_program(ASTNode* program) {
     // Third pass: unused variable + unreachable code analysis
     for (int i = 0; i < program->child_count; i++) {
         ASTNode* child = program->children[i];
-        if ((child->type == AST_FUNCTION_DEFINITION || child->type == AST_DEFER_FUNCTION) && child->child_count > 0) {
+        if ((child->type == AST_FUNCTION_DEFINITION || child->type == AST_BUILDER_FUNCTION) && child->child_count > 0) {
             ASTNode* body = child->children[child->child_count - 1];
             check_unused_variables(body);
             check_unreachable_code(body);
@@ -1249,7 +1249,7 @@ int typecheck_node(ASTNode* node, SymbolTable* table) {
     switch (node->type) {
         case AST_ACTOR_DEFINITION:
             return typecheck_actor_definition(node, table);
-        case AST_DEFER_FUNCTION:
+        case AST_BUILDER_FUNCTION:
         case AST_FUNCTION_DEFINITION:
             return typecheck_function_definition(node, table);
         case AST_EXTERN_FUNCTION:
@@ -1398,7 +1398,7 @@ int typecheck_actor_definition(ASTNode* actor, SymbolTable* table) {
 }
 
 int typecheck_function_definition(ASTNode* func, SymbolTable* table) {
-    if (!func || (func->type != AST_FUNCTION_DEFINITION && func->type != AST_DEFER_FUNCTION)) return 0;
+    if (!func || (func->type != AST_FUNCTION_DEFINITION && func->type != AST_BUILDER_FUNCTION)) return 0;
 
     SymbolTable* func_table = create_symbol_table(table);
 
@@ -1411,9 +1411,9 @@ int typecheck_function_definition(ASTNode* func, SymbolTable* table) {
         }
     }
 
-    // Defer functions get implicit _defer: ptr parameter
-    if (func->type == AST_DEFER_FUNCTION) {
-        add_symbol(func_table, "_defer", create_type(TYPE_PTR), 0, 0, 0);
+    // Builder functions get implicit _builder: ptr parameter
+    if (func->type == AST_BUILDER_FUNCTION) {
+        add_symbol(func_table, "_builder", create_type(TYPE_PTR), 0, 0, 0);
     }
 
     // Type check function body
@@ -2269,7 +2269,7 @@ int typecheck_function_call(ASTNode* call, SymbolTable* table) {
     }
 
     // Arity check: user-defined functions have their AST node stored
-    if (symbol->node && (symbol->node->type == AST_FUNCTION_DEFINITION || symbol->node->type == AST_DEFER_FUNCTION)) {
+    if (symbol->node && (symbol->node->type == AST_FUNCTION_DEFINITION || symbol->node->type == AST_BUILDER_FUNCTION)) {
         int expected = count_function_params(symbol->node);
         int got = call->child_count;
         // If mismatch, try excluding trailing closures (for functions that
